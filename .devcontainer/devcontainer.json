@@ -3,8 +3,7 @@
   "image": "mcr.microsoft.com/devcontainers/javascript-node:22",
 
   "features": {
-    "ghcr.io/devcontainers/features/github-cli:1": {},
-    "ghcr.io/devcontainers/features/docker-in-docker:2": {}
+    "ghcr.io/devcontainers/features/github-cli:1": {}
   },
 
   "customizations": {
@@ -29,19 +28,25 @@
         "expo.vscode-expo-tools",
         "formulahendry.auto-rename-tag",
         "dsznajder.es7-react-js-snippets",
+        "unifiedjs.vscode-mdx",
 
         // =====================================================
         // 🗄️ Database - Supabase & SQL
         // =====================================================
         "cweijan.vscode-database-client2",
-        "cweijan.dbclient-jdbc",
         "supabase.vscode-supabase-extension",
         "mtxr.sqltools",
+        "mtxr.sqltools-driver-pg",
 
         // =====================================================
         // 🌐 API Testing - HTTP Client
         // =====================================================
         "humao.rest-client",
+
+        // =====================================================
+        // 🎬 Media & Design
+        // =====================================================
+        "yopenspace.media-preview",
 
         // =====================================================
         // 🔧 Utilities - Herramientas generales
@@ -53,7 +58,11 @@
         "gruntfuggly.todo-tree",
         "wayou.vscode-todo-highlight",
         "pkief.material-icon-theme",
-        "aaron-bond.better-comments"
+        "aaron-bond.better-comments",
+        "oderwat.indent-rainbow",
+        "vitest.explorer",
+        "streetsidesoftware.code-spell-checker",
+        "streetsidesoftware.code-spell-checker-spanish"
       ],
       "settings": {
         "editor.formatOnSave": true,
