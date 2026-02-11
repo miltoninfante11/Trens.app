@@ -8144,9 +8144,7 @@ export async function hankAnalyzeIngredientsAdvanced(
     // Construir input correcto para analyzeIngredientsAdvanced
     const input = {
       ingredients: ingredientList.map((name) => ({ name })),
-      userContext: params.userContext
-        ? { goal: params.userContext }
-        : undefined,
+      userContext: params.userContext ? { goal: params.userContext } : undefined,
     };
 
     const result = await analyzeIngredientsAdvanced(input);
@@ -8169,9 +8167,15 @@ export async function hankAnalyzeIngredientsAdvanced(
 
     if (result.ingredients.length > 0) {
       message += `**Desglose por ingrediente:**\n`;
-      result.ingredients.forEach((ing: { name: string; suggestedQuantity: string; nutrition: { calories: number; protein: number } }) => {
-        message += `• ${ing.name} (${ing.suggestedQuantity}): ${ing.nutrition.calories} kcal, ${ing.nutrition.protein}g prot\n`;
-      });
+      result.ingredients.forEach(
+        (ing: {
+          name: string;
+          suggestedQuantity: string;
+          nutrition: { calories: number; protein: number };
+        }) => {
+          message += `• ${ing.name} (${ing.suggestedQuantity}): ${ing.nutrition.calories} kcal, ${ing.nutrition.protein}g prot\n`;
+        }
+      );
     }
 
     if (result.suggestions.warnings && result.suggestions.warnings.length > 0) {
@@ -8352,9 +8356,7 @@ export async function hankOptimizeMealForMacros(
       fat: params.targetFat ?? profile?.daily_fat ?? 60,
     };
 
-    const userContext = params.constraints
-      ? { goal: params.constraints }
-      : undefined;
+    const userContext = params.constraints ? { goal: params.constraints } : undefined;
 
     const result = await optimizeMealForMacros(currentIngredients, targetMacros, userContext);
 
@@ -8468,9 +8470,11 @@ export async function hankAnalyzeProgressPhoto(
     // Músculos destacados
     if (result.muscleGroups.length > 0) {
       message += `**Análisis Muscular:**\n`;
-      result.muscleGroups.forEach((mg: { name: string; developmentLevel: string; score: number }) => {
-        message += `• ${mg.name}: ${mg.developmentLevel} (${mg.score}/10)\n`;
-      });
+      result.muscleGroups.forEach(
+        (mg: { name: string; developmentLevel: string; score: number }) => {
+          message += `• ${mg.name}: ${mg.developmentLevel} (${mg.score}/10)\n`;
+        }
+      );
       message += '\n';
     }
 
@@ -8745,9 +8749,11 @@ export async function hankGenerateProgressTimeline(
     // Períodos
     if (result.periods.length > 0) {
       message += `**Fases detectadas:**\n`;
-      result.periods.forEach((p: { startDate: string; endDate: string; phase: string; effectiveness: number }) => {
-        message += `• ${p.startDate} - ${p.endDate}: ${p.phase} (efectividad: ${p.effectiveness}/10)\n`;
-      });
+      result.periods.forEach(
+        (p: { startDate: string; endDate: string; phase: string; effectiveness: number }) => {
+          message += `• ${p.startDate} - ${p.endDate}: ${p.phase} (efectividad: ${p.effectiveness}/10)\n`;
+        }
+      );
       message += '\n';
     }
 
