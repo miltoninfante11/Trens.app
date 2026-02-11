@@ -4,12 +4,13 @@ import {
   Text,
   ScrollView,
   TouchableOpacity,
-  Image,
+  Image as RNImage,
   RefreshControl,
   ActivityIndicator,
   Dimensions,
   Modal,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { useLocalSearchParams, router } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
@@ -26,6 +27,7 @@ import {
   Car,
   Waves,
   Trophy,
+  ImageIcon,
 } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from '../../../lib/haptics';
@@ -56,6 +58,7 @@ interface PublicVideo {
   id: string;
   video_url: string;
   thumbnail_url: string;
+  media_type?: 'video' | 'photo';
   exercise_name: string | null;
   weight_kg: number | null;
   reps: number | null;
@@ -678,21 +681,27 @@ export default function PublicProfileScreen() {
             </View>
           </View>
 
-          {/* Video Player */}
+          {/* Video/Photo Player */}
           <TouchableOpacity
             activeOpacity={1}
-            onPress={handleVideoTap}
+            onPress={selectedVideo?.media_type === 'photo' ? undefined : handleVideoTap}
             className="flex-1 items-center justify-center"
           >
-            {selectedVideo?.video_url && (
+            {selectedVideo?.media_type === 'photo' ? (
+              <Image
+                source={{ uri: selectedVideo.video_url || selectedVideo.thumbnail_url }}
+                style={{ width: SCREEN_WIDTH, height: SCREEN_WIDTH * (16 / 9) }}
+                contentFit="contain"
+              />
+            ) : selectedVideo?.video_url ? (
               <VideoView
                 player={videoPlayer}
                 style={{ width: SCREEN_WIDTH, height: SCREEN_WIDTH * (16 / 9) }}
                 contentFit="contain"
                 nativeControls={false}
               />
-            )}
-            {isVideoManuallyPaused && (
+            ) : null}
+            {isVideoManuallyPaused && selectedVideo?.media_type !== 'photo' && (
               <View className="absolute inset-0 items-center justify-center">
                 <View className="w-20 h-20 rounded-full bg-black/50 items-center justify-center">
                   <Play size={40} color="#FFFFFF" fill="#FFFFFF" />

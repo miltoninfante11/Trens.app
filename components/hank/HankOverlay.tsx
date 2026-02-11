@@ -47,8 +47,10 @@ import { useHank } from '../../context/HankContext';
 import { useVoiceInput } from '../../hooks/useVoiceInput';
 import { supabase } from '../../lib/supabase';
 import { useSaveGuard } from '../../context/SaveGuardContext';
+import { useSport } from '../../context/SportContext';
 import { calculateFabPositions } from '../../constants/floatingTools';
 import { HankTargetHighlight } from './HankTargetHighlight';
+import { HankOnboarding } from './HankOnboarding';
 import { setHankChatOpen } from '../../lib/hankChatState';
 import type {
   HankToolResult,
@@ -1137,6 +1139,9 @@ export const HankOverlay: React.FC = () => {
   // Save Guard para verificar si puede usar HANK
   const { canSave } = useSaveGuard();
 
+  // Sport context para detectar primera vez
+  const { isFirstTime } = useSport();
+
   const [isOpen, setIsOpen] = useState(false);
   const [inputText, setInputText] = useState('');
   const [isListening, setIsListening] = useState(false);
@@ -1151,6 +1156,10 @@ export const HankOverlay: React.FC = () => {
   const [userId, setUserId] = useState<string | null>(null);
   const messagesInitialized = useRef(false);
   const takeoverResultRef = useRef<HankToolResult[] | null>(null);
+
+  // Estado del Onboarding
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  const onboardingChecked = useRef(false);
 
   // Estado del Toast de voz
   const [voiceToast, setVoiceToast] = useState<{
@@ -1278,12 +1287,35 @@ export const HankOverlay: React.FC = () => {
   // -------------------------------------------------------------------------
   const checkAndClearUIChat = useCallback(
     (results: HankToolResult[]) => {
+      // Debug: Ver qué resultados llegaron
+      console.warn('🧹 checkAndClearUIChat - Revisando resultados:', results.length);
+      results.forEach((r, i) => {
+        console.warn(`  [${i}] success:`, r.success, 'data:', JSON.stringify(r.data || {}));
+      });
+
       // Verificar si algún resultado tiene el flag clearUIChat
       const shouldClear = results.some(
         (r) => (r.data as { clearUIChat?: boolean })?.clearUIChat === true
       );
-      if (shouldClear) {
-        console.warn('🧹 HANK UI: Limpiando chat visual...');
+
+      // También verificar si el mensaje menciona que se limpió el historial
+      // (fallback por si el flag no llegó correctamente)
+      const messageMentionsClear = results.some(
+        (r) =>
+          r.success &&
+          r.message &&
+          (/historial\s+(limpiado|borrado)/i.test(r.message) ||
+            /HANK_CLEAR_HISTORY/i.test(r.message))
+      );
+
+      if (shouldClear || messageMentionsClear) {
+        console.warn(
+          '🧹 HANK UI: Limpiando chat visual... (flag:',
+          shouldClear,
+          ', mensaje:',
+          messageMentionsClear,
+          ')'
+        );
         // Resetear mensajes con solo bienvenida + notificación
         const clearedNotification: ChatMessage = {
           id: `cleared-${Date.now()}`,
@@ -1312,6 +1344,54 @@ export const HankOverlay: React.FC = () => {
       setUserId(user?.id || null);
     };
     getUser();
+  }, []);
+
+  // -------------------------------------------------------------------------
+  // ONBOARDING PROACTIVO - Mostrar solo primera vez
+  // -------------------------------------------------------------------------
+  useEffect(() => {
+    // Solo verificar si tenemos userId y es primera vez
+    if (!userId || onboardingChecked.current) return;
+
+    // Marcar que ya verificamos
+    onboardingChecked.current = true;
+
+    // Si es primera vez según el contexto, mostrar onboarding
+    if (isFirstTime) {
+      console.warn('🎉 HANK: Primera vez detectada, mostrando onboarding...');
+      // Pequeño delay para que la app cargue primero
+      setTimeout(() => {
+        setShowOnboarding(true);
+      }, 1500);
+    }
+  }, [userId, isFirstTime]);
+
+  /**
+   * Handler cuando el usuario completa el onboarding
+   */
+  const handleOnboardingComplete = useCallback(
+    (data: { weight?: string; height?: string; goal?: string }) => {
+      console.warn('✅ HANK: Onboarding completado', data);
+      setShowOnboarding(false);
+      // Mostrar mensaje de bienvenida personalizado
+      const welcomeMessage: ChatMessage = {
+        id: `onboarding-complete-${Date.now()}`,
+        role: 'hank',
+        content:
+          '🔥 ¡Perfecto! Ya te conozco mejor. Ahora puedo darte recomendaciones personalizadas. ¿Empezamos?',
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, welcomeMessage]);
+    },
+    []
+  );
+
+  /**
+   * Handler cuando el usuario cierra el onboarding sin completar
+   */
+  const handleOnboardingDismiss = useCallback(() => {
+    console.warn('⏭️ HANK: Onboarding saltado');
+    setShowOnboarding(false);
   }, []);
 
   // -------------------------------------------------------------------------
@@ -2202,6 +2282,16 @@ export const HankOverlay: React.FC = () => {
           </Animated.View>
         </View>
       </Modal>
+
+      {/* Hank Onboarding Modal - Primera vez */}
+      {userId && (
+        <HankOnboarding
+          visible={showOnboarding}
+          onComplete={handleOnboardingComplete}
+          onDismiss={handleOnboardingDismiss}
+          userId={userId}
+        />
+      )}
     </>
   );
 };

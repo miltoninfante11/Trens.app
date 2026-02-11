@@ -11,6 +11,7 @@ import { ProContextProvider } from '../context/ProContext';
 import { ProRecordingProvider } from '../context/ProRecordingContext';
 import { UserRoleProvider, useUserRoleContext } from '../context/UserRoleContext';
 import { SaveGuardProvider } from '../context/SaveGuardContext';
+import { NotificationProvider } from '../context/NotificationContext';
 import { useDeepLinkHandler } from '../services/share/deepLinkHandler';
 import { ErrorBoundary } from '../components/ui/ErrorBoundary';
 import * as WebBrowser from 'expo-web-browser';
@@ -95,6 +96,12 @@ export { useProRecording } from '../context/ProRecordingContext';
 export { useSaveGuard } from '../context/SaveGuardContext';
 
 // ============================================================================
+// 5.5. NOTIFICATION CONTEXT - Notificaciones inteligentes
+// Re-exportamos useNotifications para acceso global
+// ============================================================================
+export { useNotifications } from '../context/NotificationContext';
+
+// ============================================================================
 // 4. HANK WRAPPER - Conecta HankProvider con userId del Auth
 // Solo renderiza HankProvider y HankOverlay cuando hay usuario autenticado
 // ============================================================================
@@ -132,13 +139,15 @@ export default function RootLayout() {
               <ProContextProvider>
                 <ProRecordingProvider>
                   <SaveGuardWrapper>
-                    <HankWrapper>
-                      <View className="flex-1 bg-savage-black">
-                        <Slot />
-                        {/* Overlays movidos a (tabs)/_layout.tsx donde hay contexto de navegación */}
-                        <StatusBar style="light" />
-                      </View>
-                    </HankWrapper>
+                    <NotificationProvider>
+                      <HankWrapper>
+                        <View className="flex-1 bg-savage-black">
+                          <Slot />
+                          {/* Overlays movidos a (tabs)/_layout.tsx donde hay contexto de navegación */}
+                          <StatusBar style="light" />
+                        </View>
+                      </HankWrapper>
+                    </NotificationProvider>
                   </SaveGuardWrapper>
                 </ProRecordingProvider>
               </ProContextProvider>

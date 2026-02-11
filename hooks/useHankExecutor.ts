@@ -89,6 +89,16 @@ import {
   // System Tools
   hankGetCapabilities,
   TOOL_DEFINITIONS,
+  // AI-POWERED INGREDIENT ANALYSIS Tools
+  hankAnalyzeIngredientsAdvanced,
+  hankGetSubstitutionSuggestions,
+  hankCheckAllergens,
+  hankOptimizeMealForMacros,
+  // AI-POWERED VISUAL ANALYSIS Tools
+  hankAnalyzeProgressPhoto,
+  hankCompareProgressPhotos,
+  hankAnalyzeFoodPhoto,
+  hankGenerateProgressTimeline,
 } from '../services/hank/tools';
 import {
   // Inventory Tools
@@ -467,7 +477,7 @@ export const useHankExecutor = (
           case 'PLAN_UPDATE_INGREDIENTS':
             result = await planUpdateIngredients(
               userId,
-              p.mealId as string,
+              (p.mealIdentifier || p.mealId) as string,
               JSON.parse(p.ingredients as string)
             );
             break;
@@ -1129,6 +1139,75 @@ Cuando termines, di **"ejecuta el plan"** y lo guardaré todo.`,
           // =========================================================================
           case 'HANK_GET_CAPABILITIES':
             result = await hankGetCapabilities();
+            break;
+
+          // =========================================================================
+          // AI-POWERED INGREDIENT ANALYSIS TOOLS
+          // =========================================================================
+          case 'ANALYZE_INGREDIENTS_AI':
+            result = await hankAnalyzeIngredientsAdvanced(userId, {
+              ingredients: p.ingredients as string,
+              userContext: p.userContext as string | undefined,
+              includeQuality: p.includeQuality as boolean | undefined,
+              includeAllergens: p.includeAllergens as boolean | undefined,
+              includeSuggestions: p.includeSuggestions as boolean | undefined,
+            });
+            break;
+
+          case 'GET_SUBSTITUTION_SUGGESTIONS':
+            result = await hankGetSubstitutionSuggestions(userId, {
+              ingredients: p.ingredients as string,
+              goal: p.goal as string,
+            });
+            break;
+
+          case 'CHECK_ALLERGENS':
+            result = await hankCheckAllergens(userId, {
+              ingredients: p.ingredients as string,
+              userAllergens: p.userAllergens as string | undefined,
+            });
+            break;
+
+          case 'OPTIMIZE_MEAL_MACROS':
+            result = await hankOptimizeMealForMacros(userId, {
+              mealDescription: p.mealDescription as string,
+              targetCalories: p.targetCalories as number | undefined,
+              targetProtein: p.targetProtein as number | undefined,
+              targetCarbs: p.targetCarbs as number | undefined,
+              targetFat: p.targetFat as number | undefined,
+              constraints: p.constraints as string | undefined,
+            });
+            break;
+
+          // =========================================================================
+          // AI-POWERED VISUAL ANALYSIS TOOLS
+          // =========================================================================
+          case 'ANALYZE_PROGRESS_PHOTO':
+            result = await hankAnalyzeProgressPhoto(userId, {
+              photoUrl: p.photoUrl as string | undefined,
+              photoId: p.photoId as string | undefined,
+            });
+            break;
+
+          case 'COMPARE_PROGRESS_PHOTOS':
+            result = await hankCompareProgressPhotos(userId, {
+              beforePhotoUrl: p.beforePhotoUrl as string | undefined,
+              afterPhotoUrl: p.afterPhotoUrl as string | undefined,
+              beforePhotoId: p.beforePhotoId as string | undefined,
+              afterPhotoId: p.afterPhotoId as string | undefined,
+            });
+            break;
+
+          case 'ANALYZE_FOOD_PHOTO':
+            result = await hankAnalyzeFoodPhoto(userId, {
+              photoUrl: p.photoUrl as string,
+            });
+            break;
+
+          case 'GENERATE_PROGRESS_TIMELINE':
+            result = await hankGenerateProgressTimeline(userId, {
+              limit: p.limit as number | undefined,
+            });
             break;
 
           default:

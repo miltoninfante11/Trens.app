@@ -207,11 +207,12 @@ export default function InstalarScreen() {
           right: 0,
           bottom: 0,
           opacity: 0.02,
-          backgroundImage:
-            Platform.OS === 'web'
-              ? 'linear-gradient(rgba(255,255,255,0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.1) 1px, transparent 1px)'
-              : undefined,
-          backgroundSize: Platform.OS === 'web' ? '40px 40px' : undefined,
+          ...(Platform.OS === 'web' &&
+            ({
+              backgroundImage:
+                'linear-gradient(rgba(255,255,255,0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.1) 1px, transparent 1px)',
+              backgroundSize: '40px 40px',
+            } as any)),
         }}
       />
 

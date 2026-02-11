@@ -120,7 +120,11 @@ export function UserRoleProvider({ children }: { children: ReactNode }) {
         // IMPORTANTE: Esperar a que fetchRole termine antes de setLoading(false)
         await fetchRole(session.user.id);
         // 🎵 Cargar token de Spotify al inicio
-        await spotify.loadStoredTokens();
+        const connected = await spotify.loadStoredTokens();
+        // 🔥 Warm-up silencioso si está conectado
+        if (connected) {
+          spotify.warmUp();
+        }
       }
       setLoading(false);
     });
@@ -133,7 +137,11 @@ export function UserRoleProvider({ children }: { children: ReactNode }) {
       if (session?.user) {
         fetchRole(session.user.id);
         // 🎵 Cargar token de Spotify en cambio de auth
-        await spotify.loadStoredTokens();
+        const connected = await spotify.loadStoredTokens();
+        // 🔥 Warm-up silencioso si está conectado
+        if (connected) {
+          spotify.warmUp();
+        }
       } else {
         // Reset a FREE cuando se desloguea
         setRole('free');

@@ -1,0 +1,11 @@
+name = "trens-r2-upload"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
+account_id = "1eaa95adf7e0fbfc97fe56906bbc4ed9"
+
+[[r2_buckets]]
+binding = "BUCKET"
+bucket_name = "trens-exercise-media"
+
+[vars]
+ALLOWED_ORIGINS = "https://trens.app,https://www.trens.app,http://localhost:8081"

@@ -25,6 +25,7 @@ import { supabase } from '../../../lib/supabase';
 import { useHank } from '../../../context/HankContext';
 import { useSaveGuard } from '../../_layout';
 import { useSport } from '../../../context/SportContext';
+import { useNotifications } from '../../../context/NotificationContext';
 import {
   calculateMacrosWithAI,
   calculateUserDailyMacros,
@@ -312,6 +313,7 @@ function PlanScreen() {
   const router = useRouter();
   const { refreshTrigger, setScreenContext } = useHank();
   const { canSave } = useSaveGuard();
+  const { syncNotifications } = useNotifications();
 
   // Sincronizar contexto con HANK
   useFocusEffect(
@@ -882,13 +884,23 @@ function PlanScreen() {
           setTodayExercises([]);
         }
       } // Fin del else (modo GYM MODULE)
+
+      // ===========================================================================
+      // SYNC NOTIFICATIONS - Actualizar recordatorios basados en el plan actual
+      // ===========================================================================
+      try {
+        await syncNotifications(user.id);
+        console.log('🔔 PLAN: Notificaciones sincronizadas');
+      } catch (notifError) {
+        console.warn('⚠️ PLAN: Error sincronizando notificaciones:', notifError);
+      }
     } catch (error) {
       console.error('Error fetching plan data:', error);
     } finally {
       setIsLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [syncNotifications]);
 
   // Cargar datos inicialmente
   useEffect(() => {

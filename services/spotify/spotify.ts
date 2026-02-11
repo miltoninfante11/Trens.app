@@ -1,6 +1,7 @@
 // ============================================================================
 // SPOTIFY SERVICE - TRENS
 // Control remoto de Spotify Premium
+// Sistema HÍBRIDO: SDK Nativo (iOS/Android) + Web API (fallback)
 // ============================================================================
 
 import * as AuthSession from 'expo-auth-session';
@@ -8,6 +9,7 @@ import * as WebBrowser from 'expo-web-browser';
 import * as Crypto from 'expo-crypto';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Alert } from '../../lib/alert';
+import { spotifyNative } from './spotifyNative';
 
 // IMPORTANTE: Debe ejecutarse a nivel global para interceptar el callback de OAuth
 // Esto permite que WebBrowser.openAuthSessionAsync reciba la respuesta
@@ -121,6 +123,9 @@ class SpotifyService {
   private expiresAt: number = 0;
   private isConnected: boolean = false;
 
+  // 🔌 SDK Nativo - indica si estamos usando el SDK nativo
+  private useNativeSDK: boolean = false;
+
   // Evitar mostrar alertas repetidas
   private lastAlertTime: number = 0;
   private readonly ALERT_COOLDOWN = 5000; // 5 segundos entre alertas
@@ -151,6 +156,30 @@ class SpotifyService {
       connected: this.isConnected,
       needsReauth: this.needsReauth(),
     };
+  }
+
+  /**
+   * 🔥 Obtener estado de warm-up para UI
+   */
+  getWarmUpStatus(): {
+    isWarmedUp: boolean;
+    isReady: boolean;
+    useNativeSDK: boolean;
+    nativeAvailable: boolean;
+  } {
+    return {
+      isWarmedUp: this.isWarmedUp,
+      isReady: this.isReady(),
+      useNativeSDK: this.useNativeSDK,
+      nativeAvailable: spotifyNative.isAvailable(),
+    };
+  }
+
+  /**
+   * 🔌 Verificar si el SDK nativo está disponible
+   */
+  async checkNativeSDK(): Promise<boolean> {
+    return await spotifyNative.checkAvailability();
   }
 
   // --------------------------------------------------------------------------
@@ -512,6 +541,7 @@ class SpotifyService {
     this.refreshToken = null;
     this.expiresAt = 0;
     this.isConnected = false;
+    this.resetWarmUpState(); // Reset warm-up al desconectar
     await AsyncStorage.removeItem(STORAGE_KEY);
     console.warn('🎵 Spotify: Desconectado');
   }
@@ -1459,6 +1489,216 @@ class SpotifyService {
     if (!uri) return '';
     const parts = uri.split(':');
     return parts[parts.length - 1] || '';
+  }
+
+  // =========================================================================
+  // 🔥 WAKE UP SILENCIOSO - Pre-calentar Spotify para reproducción instantánea
+  // =========================================================================
+
+  private isWarmedUp: boolean = false;
+  private warmUpInProgress: boolean = false;
+  private lastWarmUpAttempt: number = 0;
+  private readonly WARM_UP_COOLDOWN = 30000; // 30 segundos entre intentos
+
+  /**
+   * Verificar si Spotify está "caliente" (listo para reproducir instantáneamente)
+   */
+  isReady(): boolean {
+    return this.isWarmedUp && this.isTokenValid();
+  }
+
+  /**
+   * 🔥 WARM UP - Despertar Spotify silenciosamente en segundo plano
+   *
+   * Este método intenta activar un dispositivo de Spotify sin reproducir música.
+   * Esto permite que la próxima llamada a play() sea INSTANTÁNEA.
+   *
+   * Estrategia:
+   * 1. Verifica si hay dispositivos disponibles
+   * 2. Si hay un dispositivo activo, está listo ✅
+   * 3. Si hay dispositivos pero ninguno activo, transfiere sin reproducir
+   * 4. Si no hay dispositivos, intenta "despertar" con una técnica especial
+   *
+   * @returns true si Spotify está listo para reproducción instantánea
+   */
+  async warmUp(): Promise<boolean> {
+    // Evitar warm-ups múltiples concurrentes
+    if (this.warmUpInProgress) {
+      console.log('🔥 Spotify warmUp: Ya hay un warm-up en curso');
+      return this.isWarmedUp;
+    }
+
+    // Cooldown para evitar spam
+    const now = Date.now();
+    if (now - this.lastWarmUpAttempt < this.WARM_UP_COOLDOWN && this.isWarmedUp) {
+      console.log('🔥 Spotify warmUp: Cooldown activo, ya está caliente');
+      return true;
+    }
+
+    this.warmUpInProgress = true;
+    this.lastWarmUpAttempt = now;
+
+    try {
+      console.log('🔥 Spotify warmUp: Iniciando pre-calentamiento...');
+
+      // 🔌 ESTRATEGIA 1: Intentar con SDK Nativo (más efectivo)
+      // El SDK nativo puede despertar Spotify incluso si no está abierto
+      const nativeAvailable = await spotifyNative.checkAvailability();
+      if (nativeAvailable) {
+        console.log('🔥 Spotify warmUp: SDK nativo disponible, intentando wakeUp nativo...');
+        const nativeWakeUp = await spotifyNative.wakeUp();
+        if (nativeWakeUp) {
+          console.log('🔥 Spotify warmUp: ✅ Despertado via SDK nativo');
+          this.isWarmedUp = true;
+          this.useNativeSDK = true;
+          return true;
+        }
+        console.log('🔥 Spotify warmUp: SDK nativo falló, usando Web API fallback...');
+      }
+
+      // 📡 ESTRATEGIA 2: Web API (fallback)
+      // Primero verificar que tenemos token válido
+      if (!this.isTokenValid()) {
+        const loaded = await this.loadStoredTokens();
+        if (!loaded) {
+          console.log('🔥 Spotify warmUp: No hay token válido');
+          this.isWarmedUp = false;
+          return false;
+        }
+      }
+
+      // Obtener dispositivos disponibles
+      const devices = await this.getDevices();
+      console.log('🔥 Spotify warmUp: Dispositivos encontrados:', devices.length);
+
+      if (devices.length === 0) {
+        console.log('🔥 Spotify warmUp: No hay dispositivos - intentando técnica de despertar...');
+
+        // Técnica de despertar: hacer una llamada "silenciosa" para activar
+        // Esto a veces despierta la app de Spotify en segundo plano
+        const state = await this.getPlaybackState();
+
+        if (state?.hasActiveDevice) {
+          console.log('🔥 Spotify warmUp: ✅ Dispositivo activo detectado post-estado');
+          this.isWarmedUp = true;
+          return true;
+        }
+
+        // Si sigue sin dispositivos, no está listo pero al menos intentamos
+        console.log('🔥 Spotify warmUp: ⚠️ Sin dispositivos activos - necesita abrir Spotify');
+        this.isWarmedUp = false;
+        return false;
+      }
+
+      // Verificar si ya hay un dispositivo activo
+      const activeDevice = devices.find((d) => d.is_active);
+
+      if (activeDevice) {
+        console.log('🔥 Spotify warmUp: ✅ Ya hay dispositivo activo:', activeDevice.name);
+        this.isWarmedUp = true;
+        return true;
+      }
+
+      // Buscar el mejor dispositivo para activar (preferir smartphone)
+      const smartphoneDevice = devices.find((d) => d.type === 'Smartphone');
+      const targetDevice = smartphoneDevice || devices[0];
+
+      if (targetDevice && !targetDevice.is_restricted) {
+        console.log('🔥 Spotify warmUp: Activando dispositivo:', targetDevice.name);
+
+        // Transferir reproducción SIN play (play: false)
+        // Esto "despierta" el dispositivo sin reproducir música
+        await this.apiCall('/me/player', 'PUT', {
+          device_ids: [targetDevice.id],
+          play: false, // ← IMPORTANTE: false = despertar sin reproducir
+        });
+
+        // Pequeña espera para que Spotify procese
+        await new Promise((resolve) => setTimeout(resolve, 300));
+
+        // Verificar que se activó
+        const newDevices = await this.getDevices();
+        const nowActive = newDevices.find((d) => d.is_active);
+
+        if (nowActive) {
+          console.log('🔥 Spotify warmUp: ✅ Dispositivo activado:', nowActive.name);
+          this.isWarmedUp = true;
+          return true;
+        }
+      }
+
+      console.log('🔥 Spotify warmUp: ⚠️ No se pudo activar dispositivo');
+      this.isWarmedUp = false;
+      return false;
+    } catch (error) {
+      console.error('🔥 Spotify warmUp: Error:', error);
+      this.isWarmedUp = false;
+      return false;
+    } finally {
+      this.warmUpInProgress = false;
+    }
+  }
+
+  /**
+   * 🔥 WARM UP AGRESIVO - Intenta despertar con más fuerza
+   *
+   * Usa técnicas adicionales como:
+   * - Obtener el estado de reproducción múltiples veces
+   * - Intentar pausar/despausar silenciosamente
+   *
+   * Útil cuando el usuario está a punto de necesitar Spotify
+   */
+  async warmUpAggressive(): Promise<boolean> {
+    console.log('🔥 Spotify warmUpAggressive: Modo agresivo...');
+
+    // Primero intentar el warm-up normal
+    const normalResult = await this.warmUp();
+    if (normalResult) return true;
+
+    // Si no funcionó, intentar técnicas más agresivas
+    try {
+      // Técnica 1: Verificar cola de reproducción (activa conexión)
+      await this.apiCall<any>('/me/player/queue');
+
+      // Técnica 2: Obtener canciones recientes (activa la sesión)
+      await this.apiCall<any>('/me/player/recently-played?limit=1');
+
+      // Verificar de nuevo los dispositivos
+      const devices = await this.getDevices();
+      if (devices.length > 0) {
+        const target = devices.find((d) => !d.is_restricted) || devices[0];
+        if (target) {
+          await this.apiCall('/me/player', 'PUT', {
+            device_ids: [target.id],
+            play: false,
+          });
+
+          await new Promise((resolve) => setTimeout(resolve, 500));
+
+          const newState = await this.getPlaybackState();
+          if (newState?.hasActiveDevice) {
+            console.log('🔥 Spotify warmUpAggressive: ✅ Éxito con técnica agresiva');
+            this.isWarmedUp = true;
+            return true;
+          }
+        }
+      }
+    } catch (error) {
+      console.log('🔥 Spotify warmUpAggressive: Error en técnica agresiva:', error);
+    }
+
+    console.log(
+      '🔥 Spotify warmUpAggressive: ❌ No se pudo despertar - necesita abrir Spotify manualmente'
+    );
+    return false;
+  }
+
+  /**
+   * Reset del estado de warm-up (cuando el usuario desconecta Spotify)
+   */
+  resetWarmUpState(): void {
+    this.isWarmedUp = false;
+    this.lastWarmUpAttempt = 0;
   }
 }
 

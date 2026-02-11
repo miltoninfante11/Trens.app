@@ -171,18 +171,40 @@ export function useVoiceInput(): UseVoiceInputReturn {
         silenceCheckInterval.current = null;
       }
 
-      if (!recordingRef.current) {
+      const recording = recordingRef.current;
+
+      if (!recording) {
+        console.warn('🎤 No hay grabación activa para detener');
+        setIsRecording(false);
         return null;
       }
+
+      // Limpiar referencia inmediatamente para evitar doble stop
+      recordingRef.current = null;
 
       console.warn('🎤 Deteniendo grabación...');
       setIsRecording(false);
 
-      await recordingRef.current.stopAndUnloadAsync();
-      const uri = recordingRef.current.getURI();
-      recordingRef.current = null;
+      // Verificar estado del recording antes de detener
+      let uri: string | null = null;
+      try {
+        const status = await recording.getStatusAsync();
+        if (status.isRecording || status.isDoneRecording === false) {
+          await recording.stopAndUnloadAsync();
+        }
+        uri = recording.getURI();
+      } catch (stopErr) {
+        // Si falla stopAndUnloadAsync, intentar obtener URI de todas formas
+        console.warn('🎤 Error al detener (puede estar ya detenido):', stopErr);
+        try {
+          uri = recording.getURI();
+        } catch {
+          // Ignorar
+        }
+      }
 
       if (!uri) {
+        console.warn('🎤 No se pudo obtener el archivo de audio');
         setError('No se pudo obtener el archivo de audio');
         return null;
       }
@@ -215,6 +237,7 @@ export function useVoiceInput(): UseVoiceInputReturn {
       setError('Error al procesar audio');
       setIsRecording(false);
       setIsTranscribing(false);
+      recordingRef.current = null;
       return null;
     }
   }, []);

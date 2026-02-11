@@ -321,7 +321,7 @@ export default function TrensID({ userId, profileData, measurements, onUpdate }:
                   <View className="flex-row items-center gap-1">
                     <ShieldAlert size={10} color="#ef4444" />
                     <Text className="text-red-500 font-bold text-xs uppercase">
-                      {editData.injuries}
+                      {editData.injuries || 'NINGUNA'}
                     </Text>
                   </View>
                 </View>
@@ -416,13 +416,27 @@ export default function TrensID({ userId, profileData, measurements, onUpdate }:
                 </View>
                 <View className="w-1/2 px-1 mb-3">
                   <Text className="text-[9px] text-zinc-500 uppercase font-bold tracking-wider mb-1">
-                    Peso
+                    Peso (kg)
                   </Text>
                   <TextInput
                     value={editData.weight}
                     onChangeText={(text) => setEditData({ ...editData, weight: text })}
                     className="bg-black border border-zinc-800 p-3 text-white text-xs font-bold"
                     placeholderTextColor="#52525b"
+                    keyboardType="numeric"
+                  />
+                </View>
+                <View className="w-1/2 px-1 mb-3">
+                  <Text className="text-[9px] text-zinc-500 uppercase font-bold tracking-wider mb-1">
+                    Estatura (cm)
+                  </Text>
+                  <TextInput
+                    value={editData.height}
+                    onChangeText={(text) => setEditData({ ...editData, height: text })}
+                    className="bg-black border border-zinc-800 p-3 text-white text-xs font-bold"
+                    placeholderTextColor="#52525b"
+                    placeholder="175"
+                    keyboardType="numeric"
                   />
                 </View>
                 <View className="w-1/2 px-1 mb-3">

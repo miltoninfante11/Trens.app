@@ -14,6 +14,7 @@ import {
   RefreshControl,
   KeyboardAvoidingView,
   Platform,
+  Image as RNImage,
 } from 'react-native';
 import { PWAGuard } from '../../../components/auth/PWAGuard';
 import { ErrorBoundary } from '../../../components/ui/ErrorBoundary';
@@ -236,6 +237,7 @@ interface VideoRecord {
   videoUrl?: string; // alias para compatibilidad
   thumbnail_url?: string;
   cloudflare_video_id?: string;
+  media_type?: 'video' | 'photo';
   weight: number;
   reps: number;
   free_text?: string; // Caption del video
@@ -1118,21 +1120,26 @@ function GymScreen() {
 
   const onViewableItemsChanged = useRef(
     ({ viewableItems }: { viewableItems: Array<{ index: number | null }> }) => {
-      // BUGFIX: No actualizar el índice si hay un modal abierto
-      // Esto evita que el scroll se resetee cuando se abre/cierra el chat de Hank
-      if (isAnyModalOpenRef.current) {
-        return;
-      }
+      // BUGFIX V2: Seguir trackeando el ejercicio visible aunque haya modal abierto
+      // Antes: Si Hank estaba abierto, NO se actualizaba activeExerciseIndex
+      // Esto causaba que Hank operara en el ejercicio incorrecto después de scroll
+      // Ahora: Solo ignoramos el haptic feedback y cualquier scroll automático,
+      // pero SIEMPRE actualizamos qué ejercicio está visible para que Hank sepa.
 
       if (viewableItems.length > 0 && viewableItems[0].index !== null) {
         const newIndex = viewableItems[0].index;
 
-        // Solo vibrar si el índice cambió (evita vibrar en scroll inicial)
-        if (lastVisibleIndexRef.current !== null && lastVisibleIndexRef.current !== newIndex) {
+        // Solo vibrar si el índice cambió Y no hay modal abierto (evita vibrar en scroll inicial)
+        if (
+          !isAnyModalOpenRef.current &&
+          lastVisibleIndexRef.current !== null &&
+          lastVisibleIndexRef.current !== newIndex
+        ) {
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
         }
 
         lastVisibleIndexRef.current = newIndex;
+        // SIEMPRE actualizar el índice activo, independiente del modal
         setActiveExerciseIndex(newIndex);
       }
     }
@@ -1606,29 +1613,32 @@ function GymScreen() {
 
       setTacticalContext(exerciseId, exerciseName, notes, tags);
 
-      // SIEMPRE sincronizar con HANK cuando el ejercicio cambie
-      if (viewMode === 'FOCUS') {
-        if (altIndex > 0 && currentExercise.alternatives?.[altIndex - 1]) {
-          console.warn('🔄 GYM: Sincronizando ALTERNATIVA con HANK:', {
-            exerciseId,
-            exerciseName,
-            parentExerciseName: currentExercise.name,
-            parentConfigId: currentExercise.id, // user_exercise_config.id del ejercicio principal
-            altIndex,
-          });
-          setActiveAsset(exerciseId, {
-            isAlternative: true,
-            parentExerciseName: currentExercise.name,
-            parentConfigId: currentExercise.id, // Pasar configId directamente para evitar búsqueda
-          });
-        } else {
-          console.warn('🔄 GYM: Sincronizando EJERCICIO PRINCIPAL con HANK:', {
-            exerciseId,
-            exerciseName,
-            altIndex,
-          });
-          setActiveAsset(exerciseId);
-        }
+      // SIEMPRE sincronizar con HANK cuando el ejercicio cambie (EN TODOS LOS MODOS)
+      // BUGFIX: Antes solo se sincronizaba en FOCUS, causando que Hank
+      // operara en el ejercicio incorrecto en GRID/LIST
+      if (altIndex > 0 && currentExercise.alternatives?.[altIndex - 1]) {
+        console.warn('🔄 GYM: Sincronizando ALTERNATIVA con HANK:', {
+          exerciseId,
+          exerciseName,
+          parentExerciseName: currentExercise.name,
+          parentConfigId: currentExercise.id, // user_exercise_config.id del ejercicio principal
+          altIndex,
+          viewMode,
+        });
+        setActiveAsset(exerciseId, {
+          isAlternative: true,
+          parentExerciseName: currentExercise.name,
+          parentConfigId: currentExercise.id, // Pasar configId directamente para evitar búsqueda
+        });
+      } else {
+        console.warn('🔄 GYM: Sincronizando EJERCICIO PRINCIPAL con HANK:', {
+          exerciseId,
+          exerciseName,
+          configId: currentExercise.id,
+          altIndex,
+          viewMode,
+        });
+        setActiveAsset(exerciseId);
       }
     }
   }, [
@@ -2377,6 +2387,7 @@ function GymScreen() {
           notes: v.notes,
           exercise_notes: v.exercise_notes,
           tags: v.tags,
+          media_type: v.media_type || 'video',
         }));
 
         setExerciseVideos(mappedVideos);
@@ -8274,11 +8285,43 @@ function GymScreen() {
         }}
       >
         <View className="flex-1 bg-savage-black">
-          {/* VIDEO FULLSCREEN CON OVERLAYS */}
+          {/* VIDEO/PHOTO FULLSCREEN CON OVERLAYS */}
           {selectedVideo && (
             <View className="flex-1">
-              {/* VIDEO con TAP para pausar/reanudar */}
-              {historialVideoSource ? (
+              {/* VIDEO o FOTO con TAP para pausar/reanudar (solo videos) */}
+              {(() => {
+                console.log('🖼️ GYM Historial - selectedVideo:', {
+                  id: selectedVideo.id,
+                  media_type: selectedVideo.media_type,
+                  videoUrl: selectedVideo.videoUrl?.substring(0, 50),
+                  video_url: selectedVideo.video_url?.substring(0, 50),
+                });
+                return null;
+              })()}
+              {selectedVideo.media_type === 'photo' ? (
+                <View
+                  style={{
+                    flex: 1,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    backgroundColor: '#000',
+                  }}
+                >
+                  <RNImage
+                    source={{
+                      uri:
+                        selectedVideo.videoUrl ||
+                        selectedVideo.video_url ||
+                        selectedVideo.thumbnail_url,
+                    }}
+                    style={{
+                      width: SCREEN_WIDTH,
+                      height: SCREEN_WIDTH * (16 / 9),
+                    }}
+                    resizeMode="cover"
+                  />
+                </View>
+              ) : historialVideoSource ? (
                 <TouchableOpacity
                   activeOpacity={1}
                   onPress={handleHistorialVideoTap}
@@ -8301,7 +8344,7 @@ function GymScreen() {
                 </TouchableOpacity>
               ) : (
                 <View className="flex-1 bg-zinc-900 justify-center items-center">
-                  <Text className="text-zinc-500">Video no disponible</Text>
+                  <Text className="text-zinc-500">Contenido no disponible</Text>
                 </View>
               )}
 
@@ -8605,12 +8648,18 @@ function GymScreen() {
                     delayLongPress={500}
                     className="flex-row bg-zinc-900 rounded-xl mb-3 border border-zinc-800 overflow-hidden"
                   >
-                    {/* Thumbnail - usa VideoView pausado para mostrar primer frame */}
+                    {/* Thumbnail - usa Image para fotos, VideoView para videos */}
                     <View
                       className="bg-zinc-800 w-24 justify-center items-center overflow-hidden"
                       style={{ aspectRatio: 3 / 4 }}
                     >
-                      {video.videoUrl || video.video_url ? (
+                      {video.media_type === 'photo' ? (
+                        <Image
+                          source={{ uri: video.videoUrl || video.video_url || video.thumbnail_url }}
+                          style={{ width: 96, height: 128 }}
+                          contentFit="cover"
+                        />
+                      ) : video.videoUrl || video.video_url ? (
                         <VideoThumbnail
                           videoUrl={video.videoUrl || video.video_url || ''}
                           width={96}
@@ -8619,8 +8668,13 @@ function GymScreen() {
                       ) : (
                         <Play color="#52525b" size={28} fill="#52525b" />
                       )}
+                      {/* Icono de Play para videos, Camera para fotos */}
                       <View className="absolute inset-0 items-center justify-center bg-black/30">
-                        <Play color="#fff" size={20} fill="#fff" />
+                        {video.media_type === 'photo' ? (
+                          <CameraIcon color="#fff" size={20} />
+                        ) : (
+                          <Play color="#fff" size={20} fill="#fff" />
+                        )}
                       </View>
                     </View>
 

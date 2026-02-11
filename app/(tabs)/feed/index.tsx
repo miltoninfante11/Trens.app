@@ -31,6 +31,7 @@ interface FeedVideo {
   user_id: string;
   video_url: string;
   thumbnail_url: string;
+  media_type?: 'video' | 'photo';
   exercise_name: string | null;
   weight_kg: number | null;
   reps: number | null;
@@ -135,10 +136,11 @@ const FeedVideoItem = memo(
       shouldMuteVideo,
     });
 
-    const [isVideoLoading, setIsVideoLoading] = useState(true);
+    // Para fotos, no hay loading de video
+    const [isVideoLoading, setIsVideoLoading] = useState(item.media_type !== 'photo');
     const [videoError, setVideoError] = useState<string | null>(null);
     const [isManuallyPaused, setIsManuallyPaused] = useState(false);
-    const hasBeenReady = useRef(false); // Una vez listo, no volver a loading
+    const hasBeenReady = useRef(item.media_type === 'photo'); // Para fotos ya está listo
     const spotifySyncedRef = useRef(false); // Evita re-sync al reanudar de pausa manual
 
     const player = useVideoPlayer(videoUrl, (p) => {
@@ -238,45 +240,61 @@ const FeedVideoItem = memo(
 
     return (
       <View style={{ width: SCREEN_WIDTH, height: VIDEO_HEIGHT }} className="bg-black">
-        {/* Video - dimensiones absolutas para asegurar que se renderice */}
-        <VideoView
-          player={player}
-          style={{
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            width: SCREEN_WIDTH,
-            height: VIDEO_HEIGHT,
-          }}
-          contentFit="cover"
-          nativeControls={false}
-        />
+        {/* Photo or Video */}
+        {item.media_type === 'photo' ? (
+          <Image
+            source={{ uri: item.video_url || item.thumbnail_url }}
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              width: SCREEN_WIDTH,
+              height: VIDEO_HEIGHT,
+            }}
+            contentFit="cover"
+          />
+        ) : (
+          <VideoView
+            player={player}
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              width: SCREEN_WIDTH,
+              height: VIDEO_HEIGHT,
+            }}
+            contentFit="cover"
+            nativeControls={false}
+          />
+        )}
 
-        {/* Tap zone para pausar/reanudar video */}
-        <TouchableOpacity
-          activeOpacity={1}
-          onPress={handleVideoTap}
-          style={{
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            width: SCREEN_WIDTH,
-            height: VIDEO_HEIGHT,
-            zIndex: 1,
-          }}
-        >
-          {/* Icono de Play cuando está pausado manualmente */}
-          {isManuallyPaused && (
-            <View className="absolute inset-0 items-center justify-center">
-              <View className="w-20 h-20 rounded-full bg-black/50 items-center justify-center">
-                <Play size={40} color="#FFFFFF" fill="#FFFFFF" />
+        {/* Tap zone para pausar/reanudar video (solo para videos) */}
+        {item.media_type !== 'photo' && (
+          <TouchableOpacity
+            activeOpacity={1}
+            onPress={handleVideoTap}
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              width: SCREEN_WIDTH,
+              height: VIDEO_HEIGHT,
+              zIndex: 1,
+            }}
+          >
+            {/* Icono de Play cuando está pausado manualmente */}
+            {isManuallyPaused && (
+              <View className="absolute inset-0 items-center justify-center">
+                <View className="w-20 h-20 rounded-full bg-black/50 items-center justify-center">
+                  <Play size={40} color="#FFFFFF" fill="#FFFFFF" />
+                </View>
               </View>
-            </View>
-          )}
-        </TouchableOpacity>
+            )}
+          </TouchableOpacity>
+        )}
 
-        {/* Thumbnail como fondo mientras carga */}
-        {item.thumbnail_url && isVideoLoading && (
+        {/* Thumbnail como fondo mientras carga (solo videos) */}
+        {item.media_type !== 'photo' && item.thumbnail_url && isVideoLoading && (
           <Image
             source={{ uri: item.thumbnail_url }}
             style={{ position: 'absolute', width: '100%', height: '100%', zIndex: 1 }}
@@ -284,8 +302,8 @@ const FeedVideoItem = memo(
           />
         )}
 
-        {/* Loading indicator mientras carga el video */}
-        {isVideoLoading && !videoError && (
+        {/* Loading indicator mientras carga el video (solo videos) */}
+        {item.media_type !== 'photo' && isVideoLoading && !videoError && (
           <View
             className="absolute inset-0 justify-center items-center bg-black/50"
             style={{ zIndex: 2 }}
@@ -616,6 +634,7 @@ function FeedScreenContent() {
           user_id,
           video_url,
           thumbnail_url,
+          media_type,
           exercise_name,
           weight_kg,
           reps,

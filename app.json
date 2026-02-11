@@ -10,7 +10,15 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.trens.app",
-      "associatedDomains": ["applinks:share.trens.app", "applinks:trens.app"]
+      "associatedDomains": ["applinks:share.trens.app", "applinks:trens.app"],
+      "infoPlist": {
+        "LSApplicationQueriesSchemes": ["spotify"],
+        "CFBundleURLTypes": [
+          {
+            "CFBundleURLSchemes": ["trensdev"]
+          }
+        ]
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -33,6 +41,10 @@
               "scheme": "https",
               "host": "trens.app",
               "pathPrefix": "/share"
+            },
+            {
+              "scheme": "trensdev",
+              "host": "spotify-callback"
             }
           ],
           "category": ["BROWSABLE", "DEFAULT"]
@@ -54,7 +66,34 @@
       "startUrl": "/",
       "scope": "/"
     },
-    "plugins": ["expo-router", "expo-web-browser", "expo-asset"],
+    "plugins": [
+      "expo-router",
+      "expo-web-browser",
+      "expo-asset",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Permitir a TRENS acceder a tu cámara para grabar entrenamientos.",
+          "microphonePermission": "Permitir a TRENS acceder al micrófono para grabar audio.",
+          "recordAudioAndroid": true
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Permitir a TRENS acceder a tus fotos para seleccionar videos.",
+          "savePhotosPermission": "Permitir a TRENS guardar fotos en tu galería.",
+          "isAccessMediaLocationEnabled": true
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Permitir a TRENS acceder a tu galería para seleccionar fotos y videos."
+        }
+      ],
+      "expo-video"
+    ],
     "scheme": "trensdev",
     "sdkVersion": "54.0.0",
     "experiments": {

@@ -7,6 +7,18 @@ import { supabase } from '../../lib/supabase';
 import type { HankToolResult, ToolDefinition } from '../../types/hank';
 import { calculateMacrosWithAI } from './nutrition';
 import { spotify } from '../spotify/spotify';
+import {
+  analyzeIngredientsAdvanced,
+  getSubstitutionSuggestions,
+  checkAllergens,
+  optimizeMealForMacros,
+} from './ingredientAnalyzerAI';
+import {
+  analyzeProgressPhoto,
+  compareProgressPhotos,
+  analyzeFoodPhoto,
+  generateProgressTimeline,
+} from './visualAnalyzer';
 
 // ============================================================================
 // TIPOS INTERNOS
@@ -3030,26 +3042,181 @@ export async function planUpdateMealTime(
 /**
  * Actualiza los ingredientes de una comida
  * Usa el modelo JSONB en meals.ingredients (modelo actual)
+ * Acepta identificador natural: "cena", "almuerzo", "comida 3", "última", etc.
  */
 export async function planUpdateIngredients(
   userId: string,
-  mealId: string,
+  mealIdentifier: string,
   ingredients: Array<{ name: string; quantity?: string; portion?: string }>
 ): Promise<HankToolResult> {
   try {
-    // Verificar que la comida existe y pertenece al usuario
-    const { data: meal, error: mealError } = await supabase
+    // Obtener todas las comidas para buscar la correcta
+    const { data: meals, error: fetchError } = await supabase
       .from('meals')
-      .select('id, name')
-      .eq('id', mealId)
+      .select('id, name, scheduled_time, ingredients')
       .eq('user_id', userId)
-      .single();
+      .order('scheduled_time', { ascending: true });
 
-    if (mealError || !meal) {
-      return { success: false, message: 'No encontré esa comida.' };
+    if (fetchError) throw fetchError;
+    if (!meals || meals.length === 0) {
+      return { success: false, message: 'No tienes comidas configuradas.' };
     }
 
-    // Calcular macros con IA para los nuevos ingredientes
+    // ===== BUSCAR LA COMIDA POR IDENTIFICADOR NATURAL =====
+    let targetMeal: any = null;
+    let mealIndex = 0;
+    const identifier = mealIdentifier.toLowerCase();
+
+    // Mapear palabras comunes a horas aproximadas
+    const mealTimeMap: Record<string, number[]> = {
+      desayuno: [5, 6, 7, 8, 9, 10],
+      almuerzo: [11, 12, 13, 14],
+      comida: [11, 12, 13, 14, 15],
+      merienda: [15, 16, 17, 18],
+      cena: [18, 19, 20, 21, 22, 23],
+      snack: [10, 11, 15, 16, 17],
+    };
+
+    // Palabras especiales que siempre funcionan
+    if (identifier.includes('última') || identifier.includes('ultima')) {
+      targetMeal = meals[meals.length - 1];
+      mealIndex = meals.length - 1;
+    } else if (identifier.includes('primera') || identifier.includes('primer')) {
+      targetMeal = meals[0];
+      mealIndex = 0;
+    } else if (
+      identifier.includes('segunda') ||
+      identifier.includes('segundo') ||
+      identifier === '2'
+    ) {
+      if (meals.length >= 2) {
+        targetMeal = meals[1];
+        mealIndex = 1;
+      }
+    } else if (
+      identifier.includes('tercera') ||
+      identifier.includes('tercer') ||
+      identifier === '3'
+    ) {
+      if (meals.length >= 3) {
+        targetMeal = meals[2];
+        mealIndex = 2;
+      }
+    } else if (
+      identifier.includes('cuarta') ||
+      identifier.includes('cuarto') ||
+      identifier === '4'
+    ) {
+      if (meals.length >= 4) {
+        targetMeal = meals[3];
+        mealIndex = 3;
+      }
+    } else if (
+      identifier.includes('quinta') ||
+      identifier.includes('quinto') ||
+      identifier === '5'
+    ) {
+      if (meals.length >= 5) {
+        targetMeal = meals[4];
+        mealIndex = 4;
+      }
+    } else {
+      // Buscar por palabra clave de tiempo (desayuno, cena, etc.)
+      for (const [keyword, hours] of Object.entries(mealTimeMap)) {
+        if (identifier.includes(keyword)) {
+          // Buscar comida en esas horas
+          for (let i = 0; i < meals.length; i++) {
+            const mealTime = meals[i].scheduled_time || '12:00';
+            const mealHour = parseInt(mealTime.split(':')[0]);
+            if (hours.includes(mealHour)) {
+              targetMeal = meals[i];
+              mealIndex = i;
+              break;
+            }
+          }
+
+          // Fallback inteligente si no encontró por hora
+          if (!targetMeal) {
+            if (keyword === 'cena') {
+              targetMeal = meals[meals.length - 1];
+              mealIndex = meals.length - 1;
+            } else if (keyword === 'desayuno') {
+              targetMeal = meals[0];
+              mealIndex = 0;
+            } else if (keyword === 'almuerzo' || keyword === 'comida') {
+              targetMeal = meals.length >= 2 ? meals[1] : meals[0];
+              mealIndex = meals.length >= 2 ? 1 : 0;
+            }
+          }
+          break;
+        }
+      }
+    }
+
+    // Si no encontró por keyword, buscar por hora exacta
+    if (!targetMeal && identifier.includes(':')) {
+      targetMeal = meals.find((m, i) => {
+        const mealTime = m.scheduled_time || '';
+        if (mealTime.startsWith(identifier)) {
+          mealIndex = i;
+          return true;
+        }
+        return false;
+      });
+    }
+
+    // Buscar por número en el texto
+    if (!targetMeal) {
+      const numMatch = identifier.match(/(\d+)/);
+      if (numMatch) {
+        const num = parseInt(numMatch[1]);
+        if (num >= 1 && num <= meals.length) {
+          targetMeal = meals[num - 1];
+          mealIndex = num - 1;
+        }
+      }
+    }
+
+    // Buscar por nombre de comida (match parcial)
+    if (!targetMeal) {
+      targetMeal = meals.find((m, i) => {
+        if (m.name && m.name.toLowerCase().includes(identifier)) {
+          mealIndex = i;
+          return true;
+        }
+        return false;
+      });
+    }
+
+    // Si aún no encontró, intentar con UUID directo (por si acaso)
+    if (!targetMeal && identifier.includes('-') && identifier.length > 30) {
+      targetMeal = meals.find((m, i) => {
+        if (m.id === identifier) {
+          mealIndex = i;
+          return true;
+        }
+        return false;
+      });
+    }
+
+    if (!targetMeal) {
+      // Listar las comidas disponibles para ayudar al usuario
+      const available = meals
+        .map((m, i) => {
+          const time = m.scheduled_time || '12:00';
+          const [h] = time.split(':').map(Number);
+          const period = h >= 12 ? 'PM' : 'AM';
+          const h12 = h % 12 || 12;
+          return `${i + 1}. ${m.name || 'Comida'} (${h12}:00 ${period})`;
+        })
+        .join('\n');
+      return {
+        success: false,
+        message: `No encontré esa comida. Tus comidas son:\n${available}\n\nPuedes decir "cena", "almuerzo", "comida 3", "la última", etc.`,
+      };
+    }
+
+    // ===== CALCULAR MACROS Y ACTUALIZAR =====
     const ingredientsWithId = ingredients.map((ing, idx) => ({
       id: `ing-${idx}`,
       name: ing.name,
@@ -3083,22 +3250,29 @@ export async function planUpdateIngredients(
       }));
     }
 
-    // Actualizar ingredientes como JSONB en meals.ingredients
+    // Actualizar ingredientes como JSONB
     const { error: updateError } = await supabase
       .from('meals')
       .update({
         ingredients: finalIngredients,
         updated_at: new Date().toISOString(),
       })
-      .eq('id', mealId);
+      .eq('id', targetMeal.id);
 
     if (updateError) throw updateError;
 
     const ingredientNames = ingredients.map((i) => i.name).join(', ');
+    const mealName = targetMeal.name || `Comida ${mealIndex + 1}`;
 
     return {
       success: true,
-      message: `✅ Ingredientes de ${meal.name} actualizados: ${ingredientNames}`,
+      message: `✅ Ingredientes de ${mealName} actualizados: ${ingredientNames}`,
+      data: {
+        mealId: targetMeal.id,
+        mealName,
+        mealIndex: mealIndex + 1,
+        ingredients: finalIngredients,
+      },
       affectedRecords: ingredients.length,
     };
   } catch (error) {
@@ -7940,6 +8114,665 @@ export async function hankGetCapabilities(): Promise<HankToolResult> {
 }
 
 // ============================================================================
+// AI-POWERED INGREDIENT ANALYSIS TOOLS
+// ============================================================================
+
+/** Análisis avanzado de ingredientes con IA */
+export async function hankAnalyzeIngredientsAdvanced(
+  userId: string,
+  params: {
+    ingredients: string;
+    userContext?: string;
+    includeQuality?: boolean;
+    includeAllergens?: boolean;
+    includeSuggestions?: boolean;
+  }
+): Promise<HankToolResult> {
+  try {
+    const ingredientList = params.ingredients
+      .split(',')
+      .map((i) => i.trim())
+      .filter(Boolean);
+
+    if (ingredientList.length === 0) {
+      return {
+        success: false,
+        message: 'No se proporcionaron ingredientes válidos.',
+      };
+    }
+
+    // Construir input correcto para analyzeIngredientsAdvanced
+    const input = {
+      ingredients: ingredientList.map((name) => ({ name })),
+      userContext: params.userContext
+        ? { goal: params.userContext }
+        : undefined,
+    };
+
+    const result = await analyzeIngredientsAdvanced(input);
+
+    if (!result.success) {
+      return {
+        success: false,
+        message: 'Error en análisis de ingredientes.',
+      };
+    }
+
+    let message = `📊 **ANÁLISIS NUTRICIONAL AVANZADO**\n\n`;
+    message += `**Total por porción:**\n`;
+    message += `• Calorías: ${result.totals.calories} kcal\n`;
+    message += `• Proteína: ${result.totals.protein}g\n`;
+    message += `• Carbohidratos: ${result.totals.carbs}g\n`;
+    message += `• Grasas: ${result.totals.fat}g\n\n`;
+
+    message += `**Calidad general:** ${result.mealQuality.grade} (${result.mealQuality.overallScore}/100)\n\n`;
+
+    if (result.ingredients.length > 0) {
+      message += `**Desglose por ingrediente:**\n`;
+      result.ingredients.forEach((ing: { name: string; suggestedQuantity: string; nutrition: { calories: number; protein: number } }) => {
+        message += `• ${ing.name} (${ing.suggestedQuantity}): ${ing.nutrition.calories} kcal, ${ing.nutrition.protein}g prot\n`;
+      });
+    }
+
+    if (result.suggestions.warnings && result.suggestions.warnings.length > 0) {
+      message += `\n⚠️ **Advertencias:** ${result.suggestions.warnings.join(', ')}`;
+    }
+
+    return {
+      success: true,
+      message,
+      data: result,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      message: `Error analizando ingredientes: ${error instanceof Error ? error.message : 'Error desconocido'}`,
+    };
+  }
+}
+
+/** Obtener sugerencias de sustitución para ingredientes */
+export async function hankGetSubstitutionSuggestions(
+  _userId: string,
+  params: {
+    ingredients: string;
+    goal: string;
+  }
+): Promise<HankToolResult> {
+  try {
+    const ingredientList = params.ingredients
+      .split(',')
+      .map((i) => i.trim())
+      .filter(Boolean);
+
+    if (ingredientList.length === 0) {
+      return {
+        success: false,
+        message: 'No se proporcionaron ingredientes válidos.',
+      };
+    }
+
+    // Mapear el goal del usuario al tipo esperado
+    const goalMap: Record<string, 'healthier' | 'allergy' | 'cheaper' | 'available'> = {
+      healthier: 'healthier',
+      high_protein: 'healthier',
+      low_carb: 'healthier',
+      low_fat: 'healthier',
+      budget: 'cheaper',
+      allergen_free: 'allergy',
+    };
+    const reason = goalMap[params.goal] || 'healthier';
+
+    // Obtener sustituciones para cada ingrediente
+    const allSuggestions = [];
+    for (const ingredientName of ingredientList) {
+      const suggestions = await getSubstitutionSuggestions(ingredientName, reason);
+      allSuggestions.push(...suggestions);
+    }
+
+    let message = `🔄 **SUGERENCIAS DE SUSTITUCIÓN** (Meta: ${params.goal})\n\n`;
+
+    if (allSuggestions.length === 0) {
+      message += 'No se encontraron sugerencias de sustitución.';
+    } else {
+      allSuggestions.forEach((sug) => {
+        const impact = sug.healthScore > 0 ? `+${sug.healthScore}` : `${sug.healthScore}`;
+        message += `**${sug.original}** → **${sug.substitute}**\n`;
+        message += `  Razón: ${sug.reason}\n`;
+        message += `  Impacto salud: ${impact} | Cal: ${sug.macroImpact.caloriesDiff > 0 ? '+' : ''}${sug.macroImpact.caloriesDiff}\n\n`;
+      });
+    }
+
+    return {
+      success: true,
+      message,
+      data: allSuggestions,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      message: `Error: ${error instanceof Error ? error.message : 'Error desconocido'}`,
+    };
+  }
+}
+
+/** Verificar alérgenos en ingredientes */
+export async function hankCheckAllergens(
+  _userId: string,
+  params: {
+    ingredients: string;
+    userAllergens?: string;
+  }
+): Promise<HankToolResult> {
+  try {
+    const ingredientList = params.ingredients
+      .split(',')
+      .map((i) => i.trim())
+      .filter(Boolean);
+
+    if (ingredientList.length === 0) {
+      return {
+        success: false,
+        message: 'No se proporcionaron ingredientes válidos.',
+      };
+    }
+
+    const ingredientsArray = ingredientList.map((name) => ({ name }));
+    const userAllergies = params.userAllergens || '';
+
+    const result = await checkAllergens(ingredientsArray, userAllergies);
+
+    let message = `🔍 **ANÁLISIS DE ALÉRGENOS**\n\n`;
+
+    if (!result.hasAllergens) {
+      message += `✅ **Seguro** - No se detectaron alérgenos peligrosos para ti.\n\n`;
+    } else {
+      message += `⚠️ **ALERTA** - Se detectaron alérgenos:\n`;
+      result.problematicIngredients.forEach((p) => {
+        message += `• **${p.ingredient}** contiene ${p.allergen} (severidad: ${p.severity})\n`;
+      });
+      message += '\n';
+    }
+
+    if (result.safeAlternatives.length > 0) {
+      message += `💡 **Alternativas seguras:**\n`;
+      result.safeAlternatives.forEach((alt) => {
+        message += `• ${alt.original} → ${alt.alternative}\n`;
+      });
+    }
+
+    return {
+      success: true,
+      message,
+      data: result,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      message: `Error: ${error instanceof Error ? error.message : 'Error desconocido'}`,
+    };
+  }
+}
+
+/** Optimizar comida para macros específicos */
+export async function hankOptimizeMealForMacros(
+  userId: string,
+  params: {
+    mealDescription: string;
+    targetCalories?: number;
+    targetProtein?: number;
+    targetCarbs?: number;
+    targetFat?: number;
+    constraints?: string;
+  }
+): Promise<HankToolResult> {
+  try {
+    // Obtener perfil del usuario para metas
+    const { data: profile } = await supabase
+      .from('user_profiles')
+      .select('daily_calories, daily_protein, daily_carbs, daily_fat')
+      .eq('id', userId)
+      .single();
+
+    // Parsear ingredientes del mealDescription (asumimos formato "100g arroz, 150g pollo")
+    const ingredientStrings = params.mealDescription.split(',').map((s) => s.trim());
+    const currentIngredients = ingredientStrings.map((str) => {
+      // Intentar extraer cantidad y nombre
+      const match = str.match(/^(\d+\s*(?:g|ml|kg|oz)?)\s*(.+)$/i);
+      if (match) {
+        return { name: match[2].trim(), quantity: match[1].trim() };
+      }
+      return { name: str };
+    });
+
+    const targetMacros = {
+      calories: params.targetCalories ?? profile?.daily_calories ?? 2000,
+      protein: params.targetProtein ?? profile?.daily_protein ?? 150,
+      carbs: params.targetCarbs ?? profile?.daily_carbs ?? 200,
+      fat: params.targetFat ?? profile?.daily_fat ?? 60,
+    };
+
+    const userContext = params.constraints
+      ? { goal: params.constraints }
+      : undefined;
+
+    const result = await optimizeMealForMacros(currentIngredients, targetMacros, userContext);
+
+    let message = `⚡ **COMIDA OPTIMIZADA**\n\n`;
+    message += `**Ingredientes originales:** ${params.mealDescription}\n\n`;
+    message += `**Versión optimizada:**\n`;
+    result.optimizedIngredients.forEach((ing) => {
+      const adjusted = ing.adjusted ? ' ✏️' : '';
+      message += `• ${ing.name}: ${ing.quantity}${adjusted}\n`;
+    });
+    message += '\n';
+
+    message += `**Macros alcanzados:**\n`;
+    message += `• Calorías: ${result.achievedMacros.calories} kcal\n`;
+    message += `• Proteína: ${result.achievedMacros.protein}g\n`;
+    message += `• Carbos: ${result.achievedMacros.carbs}g\n`;
+    message += `• Grasas: ${result.achievedMacros.fat}g\n\n`;
+
+    message += `**Precisión:** ${result.accuracy}%\n`;
+
+    if (result.suggestions.length > 0) {
+      message += `\n💡 **Sugerencias:**\n`;
+      result.suggestions.forEach((sug) => {
+        message += `• ${sug}\n`;
+      });
+    }
+
+    return {
+      success: true,
+      message,
+      data: result,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      message: `Error: ${error instanceof Error ? error.message : 'Error desconocido'}`,
+    };
+  }
+}
+
+// ============================================================================
+// AI-POWERED VISUAL ANALYSIS TOOLS
+// ============================================================================
+
+/** Analizar foto de progreso corporal */
+export async function hankAnalyzeProgressPhoto(
+  userId: string,
+  params: {
+    photoUrl?: string;
+    photoId?: string;
+  }
+): Promise<HankToolResult> {
+  try {
+    let imageUrl = params.photoUrl;
+
+    // Si se proporciona photoId, buscar la URL
+    if (!imageUrl && params.photoId) {
+      const { data: photo } = await supabase
+        .from('progress_photos')
+        .select('photo_url')
+        .eq('id', params.photoId)
+        .eq('user_id', userId)
+        .single();
+
+      if (photo) {
+        imageUrl = photo.photo_url;
+      }
+    }
+
+    // Si no hay URL, buscar la foto más reciente
+    if (!imageUrl) {
+      const { data: recentPhoto } = await supabase
+        .from('progress_photos')
+        .select('photo_url, id')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
+
+      if (recentPhoto) {
+        imageUrl = recentPhoto.photo_url;
+      }
+    }
+
+    if (!imageUrl) {
+      return {
+        success: false,
+        message: 'No se encontró ninguna foto de progreso. Sube una foto primero.',
+      };
+    }
+
+    const result = await analyzeProgressPhoto(imageUrl);
+
+    if (!result.success) {
+      return {
+        success: false,
+        message: 'Error analizando foto de progreso.',
+      };
+    }
+
+    let message = `📸 **ANÁLISIS DE PROGRESO CORPORAL**\n\n`;
+
+    // Composición corporal
+    message += `**Composición Corporal:**\n`;
+    message += `• Grasa corporal estimada: ${result.bodyComposition.bodyFatPercentage.estimate}% `;
+    message += `(${result.bodyComposition.bodyFatPercentage.range.min}-${result.bodyComposition.bodyFatPercentage.range.max}%)\n`;
+    message += `• Nivel de abs: ${result.bodyComposition.visibleAbsLevel}/6\n`;
+    message += `• Vascularidad: ${result.bodyComposition.vascularity}\n`;
+    message += `• Condición: ${result.bodyComposition.overallCondition}\n\n`;
+
+    // Músculos destacados
+    if (result.muscleGroups.length > 0) {
+      message += `**Análisis Muscular:**\n`;
+      result.muscleGroups.forEach((mg: { name: string; developmentLevel: string; score: number }) => {
+        message += `• ${mg.name}: ${mg.developmentLevel} (${mg.score}/10)\n`;
+      });
+      message += '\n';
+    }
+
+    // Postura
+    message += `**Postura:** ${result.posture.overallPosture}\n`;
+    if (result.posture.imbalances.length > 0) {
+      message += `Desbalances detectados: ${result.posture.imbalances.length}\n`;
+    }
+
+    // Recomendaciones
+    if (result.trainingRecommendations && result.trainingRecommendations.notes.length > 0) {
+      message += `\n💡 **Recomendaciones:**\n`;
+      result.trainingRecommendations.notes.slice(0, 3).forEach((rec: string) => {
+        message += `• ${rec}\n`;
+      });
+    }
+
+    return {
+      success: true,
+      message,
+      data: result,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      message: `Error: ${error instanceof Error ? error.message : 'Error desconocido'}`,
+    };
+  }
+}
+
+/** Comparar dos fotos de progreso */
+export async function hankCompareProgressPhotos(
+  userId: string,
+  params: {
+    beforePhotoUrl?: string;
+    afterPhotoUrl?: string;
+    beforePhotoId?: string;
+    afterPhotoId?: string;
+  }
+): Promise<HankToolResult> {
+  try {
+    let beforeUrl = params.beforePhotoUrl;
+    let afterUrl = params.afterPhotoUrl;
+    let beforeDate = new Date().toISOString();
+    let afterDate = new Date().toISOString();
+
+    // Si se proporcionan IDs, buscar URLs y fechas
+    if (!beforeUrl && params.beforePhotoId) {
+      const { data } = await supabase
+        .from('progress_photos')
+        .select('photo_url, created_at')
+        .eq('id', params.beforePhotoId)
+        .eq('user_id', userId)
+        .single();
+      if (data) {
+        beforeUrl = data.photo_url;
+        beforeDate = data.created_at;
+      }
+    }
+
+    if (!afterUrl && params.afterPhotoId) {
+      const { data } = await supabase
+        .from('progress_photos')
+        .select('photo_url, created_at')
+        .eq('id', params.afterPhotoId)
+        .eq('user_id', userId)
+        .single();
+      if (data) {
+        afterUrl = data.photo_url;
+        afterDate = data.created_at;
+      }
+    }
+
+    // Si no hay URLs, buscar las dos fotos más recientes
+    if (!beforeUrl || !afterUrl) {
+      const { data: photos } = await supabase
+        .from('progress_photos')
+        .select('photo_url, created_at')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(2);
+
+      if (photos && photos.length >= 2) {
+        afterUrl = afterUrl || photos[0].photo_url;
+        afterDate = photos[0].created_at;
+        beforeUrl = beforeUrl || photos[1].photo_url;
+        beforeDate = photos[1].created_at;
+      } else {
+        return {
+          success: false,
+          message: 'Necesitas al menos 2 fotos de progreso para comparar.',
+        };
+      }
+    }
+
+    const result = await compareProgressPhotos(beforeUrl!, beforeDate, afterUrl!, afterDate);
+
+    if (!result.success) {
+      return {
+        success: false,
+        message: 'Error comparando fotos de progreso.',
+      };
+    }
+
+    let message = `📊 **COMPARACIÓN DE PROGRESO**\n\n`;
+
+    // Puntuación de transformación
+    message += `🏆 **Puntuación de Transformación: ${result.progressMetrics.transformationScore}/100**\n\n`;
+
+    // Cambios de composición
+    message += `**Cambios Detectados:**\n`;
+    message += `• Grasa corporal: ${result.changes.bodyFatChange.direction} (${result.changes.bodyFatChange.estimatedChange}%)\n`;
+    message += `• Progreso general: ${result.changes.overallProgress.direction}\n\n`;
+
+    // Grupos musculares mejorados
+    if (result.changes.muscleChanges.length > 0) {
+      message += `💪 **Cambios Musculares:**\n`;
+      result.changes.muscleChanges.forEach((mc: { muscleGroup: string; change: string }) => {
+        message += `• ${mc.muscleGroup}: ${mc.change}\n`;
+      });
+      message += '\n';
+    }
+
+    // Feedback positivo
+    if (result.feedback.positives.length > 0) {
+      message += `✅ **Logros:**\n`;
+      result.feedback.positives.slice(0, 3).forEach((pos: string) => {
+        message += `• ${pos}\n`;
+      });
+    }
+
+    // Recomendaciones
+    if (result.feedback.actionItems.length > 0) {
+      message += `\n💡 **Próximos Pasos:**\n`;
+      result.feedback.actionItems.slice(0, 3).forEach((rec: string) => {
+        message += `• ${rec}\n`;
+      });
+    }
+
+    return {
+      success: true,
+      message,
+      data: result,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      message: `Error: ${error instanceof Error ? error.message : 'Error desconocido'}`,
+    };
+  }
+}
+
+/** Analizar foto de comida */
+export async function hankAnalyzeFoodPhoto(
+  _userId: string,
+  params: {
+    photoUrl: string;
+  }
+): Promise<HankToolResult> {
+  try {
+    if (!params.photoUrl) {
+      return {
+        success: false,
+        message: 'Se requiere una URL de foto de comida.',
+      };
+    }
+
+    const result = await analyzeFoodPhoto(params.photoUrl);
+
+    if (!result.success) {
+      return {
+        success: false,
+        message: 'Error analizando foto de comida.',
+      };
+    }
+
+    let message = `🍽️ **ANÁLISIS DE COMIDA**\n\n`;
+
+    // Ingredientes detectados
+    if (result.detectedIngredients.length > 0) {
+      message += `**Alimentos identificados:**\n`;
+      result.detectedIngredients.forEach((item: { name: string; estimatedQuantity: string }) => {
+        message += `• ${item.name}: ~${item.estimatedQuantity}\n`;
+      });
+      message += '\n';
+    }
+
+    // Macros estimados
+    message += `**Macros Estimados:**\n`;
+    message += `• Calorías: ${result.estimatedMacros.calories} kcal\n`;
+    message += `• Proteína: ${result.estimatedMacros.protein}g\n`;
+    message += `• Carbos: ${result.estimatedMacros.carbs}g\n`;
+    message += `• Grasas: ${result.estimatedMacros.fat}g\n\n`;
+
+    // Puntuación de calidad
+    message += `**Calidad de Comida:** ${result.mealQuality.grade} (${result.mealQuality.score}/100)\n`;
+
+    if (result.suggestions.length > 0) {
+      message += `\n💡 **Sugerencias:**\n`;
+      result.suggestions.forEach((sug: string) => {
+        message += `• ${sug}\n`;
+      });
+    }
+
+    return {
+      success: true,
+      message,
+      data: result,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      message: `Error: ${error instanceof Error ? error.message : 'Error desconocido'}`,
+    };
+  }
+}
+
+/** Generar timeline de progreso */
+export async function hankGenerateProgressTimeline(
+  userId: string,
+  params: {
+    limit?: number;
+  }
+): Promise<HankToolResult> {
+  try {
+    // Obtener fotos de progreso del usuario
+    const { data: photos } = await supabase
+      .from('progress_photos')
+      .select('photo_url, created_at, snapshot')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: true })
+      .limit(params.limit ?? 10);
+
+    if (!photos || photos.length < 2) {
+      return {
+        success: true,
+        message:
+          '📈 **TIMELINE DE PROGRESO**\n\nNo tienes suficientes fotos de progreso aún. ¡Sube al menos 2 fotos para comenzar a trackear tu transformación!',
+        data: null,
+      };
+    }
+
+    // Formatear fotos para la función
+    const formattedPhotos = photos.map((p) => ({
+      url: p.photo_url,
+      date: p.created_at,
+      weight: p.snapshot?.weight as number | undefined,
+    }));
+
+    const result = await generateProgressTimeline(formattedPhotos);
+
+    if (!result.success) {
+      return {
+        success: false,
+        message: 'Error generando timeline de progreso.',
+      };
+    }
+
+    let message = `📈 **TIMELINE DE PROGRESO**\n\n`;
+
+    // Resumen general
+    message += `**Período:** ${result.dateRange.start} → ${result.dateRange.end}\n`;
+    message += `**Fotos analizadas:** ${result.totalPhotos}\n`;
+    message += `**Días totales:** ${result.dateRange.totalDays}\n\n`;
+
+    // Tendencias
+    message += `**Tendencias:**\n`;
+    message += `• Grasa corporal: ${result.trends.bodyFat}\n`;
+    message += `• Masa muscular: ${result.trends.muscleMass}\n`;
+    message += `• Progreso general: ${result.trends.overall}\n\n`;
+
+    // Períodos
+    if (result.periods.length > 0) {
+      message += `**Fases detectadas:**\n`;
+      result.periods.forEach((p: { startDate: string; endDate: string; phase: string; effectiveness: number }) => {
+        message += `• ${p.startDate} - ${p.endDate}: ${p.phase} (efectividad: ${p.effectiveness}/10)\n`;
+      });
+      message += '\n';
+    }
+
+    // Predicciones
+    if (result.predictions) {
+      message += `🎯 **Predicciones:**\n`;
+      message += `• Tiempo estimado a meta: ${result.predictions.estimatedTimeToGoal}\n`;
+      message += `• Próximo hito: ${result.predictions.nextMilestone}\n`;
+      message += `• Fase recomendada: ${result.predictions.recommendedPhase}\n`;
+    }
+
+    return {
+      success: true,
+      message,
+      data: result,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      message: `Error: ${error instanceof Error ? error.message : 'Error desconocido'}`,
+    };
+  }
+}
+
+// ============================================================================
 // TOOL DEFINITIONS - Exportables para el LLM (Function Calling)
 // ============================================================================
 export const TOOL_DEFINITIONS: ToolDefinition[] = [
@@ -8548,11 +9381,12 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     name: 'PLAN_UPDATE_INGREDIENTS',
     description:
-      'Actualiza los ingredientes de una comida. Usa cuando diga "cambia el pollo por pescado", "agrega arroz a la comida", "quita los carbohidratos".',
+      'Actualiza los ingredientes de una comida. Acepta identificadores naturales como "cena", "almuerzo", "desayuno", "comida 3", "la última", "la primera", etc. Usa cuando diga "cambia el pollo por pescado", "agrega arroz a la cena", "actualiza mi almuerzo".',
     parameters: {
-      mealId: {
+      mealIdentifier: {
         type: 'string',
-        description: 'ID de la comida',
+        description:
+          'Identificador de la comida. Acepta: nombres ("cena", "almuerzo", "desayuno"), posiciones ("comida 1", "primera", "última"), o horas ("12:00")',
         required: true,
       },
       ingredients: {
@@ -8561,7 +9395,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         required: true,
       },
     },
-    requiredParams: ['mealId', 'ingredients'],
+    requiredParams: ['mealIdentifier', 'ingredients'],
   },
   {
     name: 'PLAN_CALCULATE_MACROS',
@@ -9448,6 +10282,197 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       },
     },
     requiredParams: ['dayName'],
+  },
+  // ============================================================================
+  // AI-POWERED INGREDIENT ANALYSIS TOOLS
+  // ============================================================================
+  {
+    name: 'ANALYZE_INGREDIENTS_AI',
+    description:
+      'Análisis nutricional avanzado de ingredientes usando IA. Proporciona desglose detallado de macros, calidad nutricional, nivel de procesamiento y más. Usa cuando el usuario diga "analiza estos ingredientes", "qué tan saludable es esta comida", "dame información nutricional detallada de...".',
+    parameters: {
+      ingredients: {
+        type: 'string',
+        description:
+          'Lista de ingredientes separados por comas. Ejemplo: "100g pollo, 200g arroz, 50g aguacate"',
+        required: true,
+      },
+      userContext: {
+        type: 'string',
+        description:
+          'Contexto adicional del usuario (objetivo, restricciones). Ejemplo: "definición", "ganar masa", "diabético"',
+        required: false,
+      },
+      includeQuality: {
+        type: 'boolean',
+        description: 'Incluir análisis de calidad nutricional (A-F score)',
+        required: false,
+      },
+      includeAllergens: {
+        type: 'boolean',
+        description: 'Incluir detección de alérgenos',
+        required: false,
+      },
+      includeSuggestions: {
+        type: 'boolean',
+        description: 'Incluir sugerencias de mejora',
+        required: false,
+      },
+    },
+    requiredParams: ['ingredients'],
+  },
+  {
+    name: 'GET_SUBSTITUTION_SUGGESTIONS',
+    description:
+      'Obtiene sugerencias de sustitución para ingredientes según un objetivo específico. Usa cuando el usuario diga "por qué puedo cambiar...", "alternativas más saludables", "sustitutos con más proteína", "opciones más baratas".',
+    parameters: {
+      ingredients: {
+        type: 'string',
+        description: 'Lista de ingredientes a sustituir, separados por comas',
+        required: true,
+      },
+      goal: {
+        type: 'string',
+        description:
+          'Objetivo de la sustitución: healthier (más saludable), high_protein (más proteína), low_carb (menos carbos), low_fat (menos grasa), budget (más económico), allergen_free (sin alérgenos)',
+        required: true,
+      },
+    },
+    requiredParams: ['ingredients', 'goal'],
+  },
+  {
+    name: 'CHECK_ALLERGENS',
+    description:
+      'Verifica alérgenos en una lista de ingredientes. Detecta gluten, lácteos, frutos secos, mariscos, etc. Usa cuando el usuario diga "tiene gluten?", "es seguro para celíacos?", "contiene lácteos?", "verificar alérgenos".',
+    parameters: {
+      ingredients: {
+        type: 'string',
+        description: 'Lista de ingredientes a verificar, separados por comas',
+        required: true,
+      },
+      userAllergens: {
+        type: 'string',
+        description:
+          'Alérgenos específicos del usuario a buscar, separados por comas. Ejemplo: "gluten, maní, lácteos"',
+        required: false,
+      },
+    },
+    requiredParams: ['ingredients'],
+  },
+  {
+    name: 'OPTIMIZE_MEAL_MACROS',
+    description:
+      'Optimiza una comida para alcanzar macros específicos. Ajusta cantidades y sugiere cambios para cumplir objetivos. Usa cuando el usuario diga "ajusta esta comida para...", "necesito X proteína", "optimiza los macros de...", "hazla más alta en proteína".',
+    parameters: {
+      mealDescription: {
+        type: 'string',
+        description:
+          'Descripción de la comida a optimizar. Ejemplo: "200g arroz con 150g pollo y verduras"',
+        required: true,
+      },
+      targetCalories: {
+        type: 'number',
+        description: 'Calorías objetivo para la comida',
+        required: false,
+      },
+      targetProtein: {
+        type: 'number',
+        description: 'Gramos de proteína objetivo',
+        required: false,
+      },
+      targetCarbs: {
+        type: 'number',
+        description: 'Gramos de carbohidratos objetivo',
+        required: false,
+      },
+      targetFat: {
+        type: 'number',
+        description: 'Gramos de grasa objetivo',
+        required: false,
+      },
+      constraints: {
+        type: 'string',
+        description:
+          'Restricciones adicionales separadas por comas. Ejemplo: "sin lácteos, económico, rápido"',
+        required: false,
+      },
+    },
+    requiredParams: ['mealDescription'],
+  },
+  // ============================================================================
+  // AI-POWERED VISUAL ANALYSIS TOOLS
+  // ============================================================================
+  {
+    name: 'ANALYZE_PROGRESS_PHOTO',
+    description:
+      'Analiza una foto de progreso corporal usando IA vision. Estima composición corporal, evalúa grupos musculares, detecta postura e identifica desbalances. Usa cuando el usuario diga "analiza mi foto", "cómo voy de progreso", "evalúa mi físico", "qué tal me veo".',
+    parameters: {
+      photoUrl: {
+        type: 'string',
+        description: 'URL directa de la foto a analizar',
+        required: false,
+      },
+      photoId: {
+        type: 'string',
+        description: 'ID de una foto de progreso guardada en el sistema',
+        required: false,
+      },
+    },
+    requiredParams: [],
+  },
+  {
+    name: 'COMPARE_PROGRESS_PHOTOS',
+    description:
+      'Compara dos fotos de progreso para analizar cambios y transformación. Calcula puntuación de transformación, cambios de composición corporal y mejoras musculares. Usa cuando el usuario diga "compara mis fotos", "cuánto he cambiado", "mi transformación", "antes y después".',
+    parameters: {
+      beforePhotoUrl: {
+        type: 'string',
+        description: 'URL de la foto "antes"',
+        required: false,
+      },
+      afterPhotoUrl: {
+        type: 'string',
+        description: 'URL de la foto "después"',
+        required: false,
+      },
+      beforePhotoId: {
+        type: 'string',
+        description: 'ID de la foto "antes" guardada en el sistema',
+        required: false,
+      },
+      afterPhotoId: {
+        type: 'string',
+        description: 'ID de la foto "después" guardada en el sistema',
+        required: false,
+      },
+    },
+    requiredParams: [],
+  },
+  {
+    name: 'ANALYZE_FOOD_PHOTO',
+    description:
+      'Analiza una foto de comida para identificar alimentos y estimar macros. Detecta ingredientes, porciones y calcula nutrición aproximada. Usa cuando el usuario envíe foto de comida diciendo "qué tiene esto", "cuántas calorías", "analiza mi comida", "estima los macros de esta foto".',
+    parameters: {
+      photoUrl: {
+        type: 'string',
+        description: 'URL directa de la foto de comida a analizar',
+        required: true,
+      },
+    },
+    requiredParams: ['photoUrl'],
+  },
+  {
+    name: 'GENERATE_PROGRESS_TIMELINE',
+    description:
+      'Genera un timeline visual del progreso del usuario basado en todas sus fotos de progreso. Muestra evolución, hitos alcanzados y próximas metas. Usa cuando el usuario diga "mi timeline", "cómo ha sido mi progreso", "resumen de mi transformación", "historial de fotos".',
+    parameters: {
+      limit: {
+        type: 'number',
+        description: 'Número máximo de fotos a incluir en el timeline (default: 10)',
+        required: false,
+      },
+    },
+    requiredParams: [],
   },
   // ============================================================================
   // NOTA: CUSTOM_PLAN_* tools fueron removidas.

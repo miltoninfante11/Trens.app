@@ -122,6 +122,7 @@ interface Video {
   views?: number;
   created_at: string;
   source: 'asset' | 'pro';
+  media_type?: 'video' | 'photo';
   exercise_name?: string;
   weight_kg?: number;
   reps?: number;
@@ -539,13 +540,17 @@ function AdnScreenContent() {
       // Map pro_videos to videos format
       const proVideos: Video[] = (proVideosData || []).map((video: any) => ({
         id: video.id,
-        title: video.exercise_name || video.free_text || 'Video PRO',
+        title:
+          video.exercise_name ||
+          video.free_text ||
+          (video.media_type === 'photo' ? 'Foto PRO' : 'Video PRO'),
         thumbnail_url: video.thumbnail_url || video.video_url,
         video_url: video.video_url,
         cloudflare_video_id: video.cloudflare_video_id,
         is_public: video.is_public,
         created_at: video.created_at,
         source: 'pro' as const,
+        media_type: video.media_type || 'video',
         exercise_name: video.exercise_name,
         weight_kg: video.weight_kg,
         reps: video.reps,
@@ -1342,13 +1347,19 @@ function AdnScreenContent() {
                       style={{ aspectRatio: 9 / 16 }}
                       onPress={() => {
                         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                        if (vid.video_url) {
+                        if (vid.video_url || vid.thumbnail_url) {
                           setSelectedVideo(vid);
                           setVideoViewerVisible(true);
                         }
                       }}
                     >
-                      {vid.video_url ? (
+                      {vid.media_type === 'photo' ? (
+                        <Image
+                          source={{ uri: vid.video_url || vid.thumbnail_url }}
+                          className="w-full h-full opacity-80"
+                          resizeMode="cover"
+                        />
+                      ) : vid.video_url ? (
                         <View className="w-full h-full opacity-80">
                           <VideoThumbnail videoUrl={vid.video_url} size={videoTileSize} />
                         </View>
@@ -1361,7 +1372,11 @@ function AdnScreenContent() {
                       )}
                       <View className="absolute inset-0 items-center justify-center bg-black/20">
                         <View className="w-8 h-8 rounded-full bg-black/50 items-center justify-center">
-                          <Play size={14} color="#fff" fill="#fff" />
+                          {vid.media_type === 'photo' ? (
+                            <ImageIcon size={14} color="#fff" />
+                          ) : (
+                            <Play size={14} color="#fff" fill="#fff" />
+                          )}
                         </View>
                       </View>
                       {vid.spotify?.enabled && (
@@ -1414,14 +1429,20 @@ function AdnScreenContent() {
                       {/* Thumbnail */}
                       <TouchableOpacity
                         onPress={() => {
-                          if (vid.video_url) {
+                          if (vid.video_url || vid.thumbnail_url) {
                             setSelectedVideo(vid);
                             setVideoViewerVisible(true);
                           }
                         }}
                         className="w-20 h-28 bg-zinc-800 rounded-lg overflow-hidden"
                       >
-                        {vid.video_url ? (
+                        {vid.media_type === 'photo' ? (
+                          <Image
+                            source={{ uri: vid.video_url || vid.thumbnail_url }}
+                            className="w-full h-full opacity-60"
+                            resizeMode="cover"
+                          />
+                        ) : vid.video_url ? (
                           <VideoThumbnail videoUrl={vid.video_url} size={80} />
                         ) : (
                           <Image
@@ -1431,7 +1452,11 @@ function AdnScreenContent() {
                           />
                         )}
                         <View className="absolute inset-0 items-center justify-center">
-                          <Play size={16} color="#fff" fill="#fff" />
+                          {vid.media_type === 'photo' ? (
+                            <ImageIcon size={16} color="#fff" />
+                          ) : (
+                            <Play size={16} color="#fff" fill="#fff" />
+                          )}
                         </View>
                       </TouchableOpacity>
 
@@ -1631,22 +1656,28 @@ function AdnScreenContent() {
             </View>
           </View>
 
-          {/* Video Player */}
+          {/* Video/Photo Player */}
           <TouchableOpacity
             activeOpacity={1}
-            onPress={handleVideoTap}
+            onPress={selectedVideo?.media_type === 'photo' ? undefined : handleVideoTap}
             className="flex-1 items-center justify-center"
           >
-            {selectedVideo?.video_url && (
+            {selectedVideo?.media_type === 'photo' ? (
+              <Image
+                source={{ uri: selectedVideo.video_url || selectedVideo.thumbnail_url }}
+                style={{ width: screenWidth, height: screenWidth * (16 / 9) }}
+                resizeMode="contain"
+              />
+            ) : selectedVideo?.video_url ? (
               <VideoView
                 player={videoPlayer}
                 style={{ width: screenWidth, height: screenWidth * (16 / 9) }}
                 contentFit="contain"
                 nativeControls={false}
               />
-            )}
-            {/* Icono de Play cuando está pausado manualmente */}
-            {isVideoManuallyPaused && (
+            ) : null}
+            {/* Icono de Play cuando está pausado manualmente (solo para videos) */}
+            {isVideoManuallyPaused && selectedVideo?.media_type !== 'photo' && (
               <View className="absolute inset-0 items-center justify-center">
                 <View className="w-20 h-20 rounded-full bg-black/50 items-center justify-center">
                   <Play size={40} color="#FFFFFF" fill="#FFFFFF" />

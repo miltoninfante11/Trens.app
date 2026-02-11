@@ -46,94 +46,411 @@ import type {
 const GEMINI_API_KEY = process.env.EXPO_PUBLIC_GEMINI_API_KEY || '';
 
 // ============================================================================
-// HELPER: Determinar si una herramienta es de ESCRITURA (modifica datos)
-// Las herramientas de LECTURA no deben disparar animación ni cerrar chat
-// Sistema más robusto: usa patrones + whitelist explícita
+// HELPER: Clasificación inteligente de herramientas v3.0
+// Sistema más robusto con categorización por impacto
 // ============================================================================
-const isWriteTool = (toolName: string): boolean => {
-  // =========================================================================
-  // WHITELIST: Herramientas de ESCRITURA explícitas (SÍ disparan animación)
-  // =========================================================================
-  const writeTools = new Set([
-    // GYM - Modificar ejercicios
-    'GYM_ADD_EXERCISE',
-    'GYM_REMOVE_EXERCISE',
-    'GYM_REPLACE_EXERCISE',
-    'GYM_UPDATE_SERIES_DETAIL',
-    // ASSET - Modificar series y datos
-    'ASSET_UPDATE_FIELD',
-    'ASSET_REMOVE_SERIES',
-    'ASSET_ADD_SERIES',
-    'ASSET_REPLACE_SERIES',
-    'ASSET_SET_SERIES',
-    // ADN - Modificar perfil
-    'ADN_UPDATE_PROFILE',
-    'ADN_SET_BIOMETRICS',
-    'ADN_ADD_MEASUREMENT',
-    'ADN_REMOVE_MEASUREMENT',
-    'ADN_UPDATE_MEASUREMENT',
-    // PLAN - Modificar comidas/suplementos
-    'PLAN_ADD_MEAL',
-    'PLAN_REMOVE_MEAL',
-    'PLAN_UPDATE_MEAL_TIME',
-    'PLAN_UPDATE_INGREDIENTS',
-    'PLAN_ADD_SUPPLEMENT',
-    'PLAN_REMOVE_SUPPLEMENT',
-    'PLAN_UPDATE_SUPPLEMENT_TIME',
-    // PLAN BUILDER - Ejecutar plan
-    'PLAN_BUILDER_START',
-    'PLAN_BUILDER_ADD_MEAL',
-    'PLAN_BUILDER_EDIT_MEAL',
-    'PLAN_BUILDER_REMOVE_MEAL',
-    'PLAN_BUILDER_ADD_SUPPLEMENT',
-    'PLAN_BUILDER_REMOVE_SUPPLEMENT',
-    'PLAN_BUILDER_SET_TRAINING',
-    'PLAN_BUILDER_EXECUTE',
-    // TRAINING - Modificar plan de entrenamiento
-    'TRAINING_ASSIGN_PLAN',
-    'TRAINING_RESTRUCTURE',
-    'TRAINING_RENAME_DAY',
-    'TRAINING_ADD_DAY',
-    'TRAINING_REMOVE_DAY',
-    // TRAINING - Modo personalizado
-    'TRAINING_SET_EXTERNAL_MODE',
-    'TRAINING_SET_EXTERNAL_SCHEDULE',
-    'TRAINING_REMOVE_EXTERNAL_DAY',
-    // SYNC - Sincronizar datos
-    'SYNC_NUTRITION_MACROS',
-    'AUTO_ADJUST_ALL',
-    // PRO - Guardar notas
-    'PRO_ADD_EXERCISE_NOTE',
-    // GOALS - Gestionar metas
-    'SET_USER_GOAL',
-    'UPDATE_GOAL_PROGRESS',
-    // INVENTORY - Modificar inventario
-    'INVENTORY_ADD_ITEM',
-    'INVENTORY_UPDATE_ITEM',
-    'INVENTORY_REMOVE_ITEM',
-    // MAINTENANCE - Registrar mantenimiento
-    'MAINTENANCE_LOG',
-    // EVENTS - Gestionar eventos
-    'EVENT_CREATE',
-    'EVENT_UPDATE',
-    'EVENT_DELETE',
-    // SURF - Registrar sesiones
-    'SURF_LOG_SESSION',
-    'SURF_FAVORITE_SPOT',
-    // DIET - Legacy
-    'DIET_ADD_CALORIES',
-    // LOGGING
-    'LOG_WORKOUT_SET',
-  ]);
 
-  // Si está en la whitelist de escritura, es write
-  if (writeTools.has(toolName)) {
-    return true;
+type ToolCategory = 'read' | 'write' | 'system' | 'builder';
+type ToolImpact = 'none' | 'low' | 'medium' | 'high';
+
+interface ToolClassification {
+  category: ToolCategory;
+  impact: ToolImpact;
+  triggersAnimation: boolean;
+  triggersRefresh: boolean;
+}
+
+const TOOL_CLASSIFICATIONS: Record<string, ToolClassification> = {
+  // =========================================================================
+  // WRITE TOOLS - Alto impacto, modifican datos del usuario
+  // =========================================================================
+  // GYM - Modificar ejercicios
+  GYM_ADD_EXERCISE: {
+    category: 'write',
+    impact: 'high',
+    triggersAnimation: true,
+    triggersRefresh: true,
+  },
+  GYM_REMOVE_EXERCISE: {
+    category: 'write',
+    impact: 'high',
+    triggersAnimation: true,
+    triggersRefresh: true,
+  },
+  GYM_REPLACE_EXERCISE: {
+    category: 'write',
+    impact: 'high',
+    triggersAnimation: true,
+    triggersRefresh: true,
+  },
+  GYM_UPDATE_SERIES_DETAIL: {
+    category: 'write',
+    impact: 'medium',
+    triggersAnimation: true,
+    triggersRefresh: true,
+  },
+
+  // ASSET - Modificar series y datos
+  ASSET_UPDATE_FIELD: {
+    category: 'write',
+    impact: 'medium',
+    triggersAnimation: true,
+    triggersRefresh: true,
+  },
+  ASSET_REMOVE_SERIES: {
+    category: 'write',
+    impact: 'medium',
+    triggersAnimation: true,
+    triggersRefresh: true,
+  },
+  ASSET_ADD_SERIES: {
+    category: 'write',
+    impact: 'medium',
+    triggersAnimation: true,
+    triggersRefresh: true,
+  },
+  ASSET_REPLACE_SERIES: {
+    category: 'write',
+    impact: 'medium',
+    triggersAnimation: true,
+    triggersRefresh: true,
+  },
+  ASSET_SET_SERIES: {
+    category: 'write',
+    impact: 'high',
+    triggersAnimation: true,
+    triggersRefresh: true,
+  },
+
+  // ADN - Modificar perfil
+  ADN_UPDATE_PROFILE: {
+    category: 'write',
+    impact: 'high',
+    triggersAnimation: true,
+    triggersRefresh: true,
+  },
+  ADN_SET_BIOMETRICS: {
+    category: 'write',
+    impact: 'high',
+    triggersAnimation: true,
+    triggersRefresh: true,
+  },
+  ADN_ADD_MEASUREMENT: {
+    category: 'write',
+    impact: 'medium',
+    triggersAnimation: true,
+    triggersRefresh: true,
+  },
+  ADN_REMOVE_MEASUREMENT: {
+    category: 'write',
+    impact: 'medium',
+    triggersAnimation: true,
+    triggersRefresh: true,
+  },
+  ADN_UPDATE_MEASUREMENT: {
+    category: 'write',
+    impact: 'medium',
+    triggersAnimation: true,
+    triggersRefresh: true,
+  },
+
+  // PLAN - Modificar comidas/suplementos
+  PLAN_ADD_MEAL: {
+    category: 'write',
+    impact: 'high',
+    triggersAnimation: true,
+    triggersRefresh: true,
+  },
+  PLAN_REMOVE_MEAL: {
+    category: 'write',
+    impact: 'high',
+    triggersAnimation: true,
+    triggersRefresh: true,
+  },
+  PLAN_UPDATE_MEAL_TIME: {
+    category: 'write',
+    impact: 'medium',
+    triggersAnimation: true,
+    triggersRefresh: true,
+  },
+  PLAN_UPDATE_INGREDIENTS: {
+    category: 'write',
+    impact: 'medium',
+    triggersAnimation: true,
+    triggersRefresh: true,
+  },
+  PLAN_ADD_SUPPLEMENT: {
+    category: 'write',
+    impact: 'high',
+    triggersAnimation: true,
+    triggersRefresh: true,
+  },
+  PLAN_REMOVE_SUPPLEMENT: {
+    category: 'write',
+    impact: 'high',
+    triggersAnimation: true,
+    triggersRefresh: true,
+  },
+  PLAN_UPDATE_SUPPLEMENT_TIME: {
+    category: 'write',
+    impact: 'medium',
+    triggersAnimation: true,
+    triggersRefresh: true,
+  },
+
+  // TRAINING - Modificar plan de entrenamiento
+  TRAINING_ASSIGN_PLAN: {
+    category: 'write',
+    impact: 'high',
+    triggersAnimation: true,
+    triggersRefresh: true,
+  },
+  TRAINING_RESTRUCTURE: {
+    category: 'write',
+    impact: 'high',
+    triggersAnimation: true,
+    triggersRefresh: true,
+  },
+  TRAINING_RENAME_DAY: {
+    category: 'write',
+    impact: 'low',
+    triggersAnimation: true,
+    triggersRefresh: true,
+  },
+  TRAINING_ADD_DAY: {
+    category: 'write',
+    impact: 'high',
+    triggersAnimation: true,
+    triggersRefresh: true,
+  },
+  TRAINING_REMOVE_DAY: {
+    category: 'write',
+    impact: 'high',
+    triggersAnimation: true,
+    triggersRefresh: true,
+  },
+  TRAINING_SET_EXTERNAL_MODE: {
+    category: 'write',
+    impact: 'medium',
+    triggersAnimation: true,
+    triggersRefresh: true,
+  },
+  TRAINING_SET_EXTERNAL_SCHEDULE: {
+    category: 'write',
+    impact: 'high',
+    triggersAnimation: true,
+    triggersRefresh: true,
+  },
+  TRAINING_REMOVE_EXTERNAL_DAY: {
+    category: 'write',
+    impact: 'medium',
+    triggersAnimation: true,
+    triggersRefresh: true,
+  },
+
+  // SYNC y AUTO
+  SYNC_NUTRITION_MACROS: {
+    category: 'write',
+    impact: 'high',
+    triggersAnimation: true,
+    triggersRefresh: true,
+  },
+  AUTO_ADJUST_ALL: {
+    category: 'write',
+    impact: 'high',
+    triggersAnimation: true,
+    triggersRefresh: true,
+  },
+
+  // PRO - Guardar notas
+  PRO_ADD_EXERCISE_NOTE: {
+    category: 'write',
+    impact: 'low',
+    triggersAnimation: true,
+    triggersRefresh: true,
+  },
+
+  // GOALS
+  SET_USER_GOAL: {
+    category: 'write',
+    impact: 'high',
+    triggersAnimation: true,
+    triggersRefresh: true,
+  },
+  UPDATE_GOAL_PROGRESS: {
+    category: 'write',
+    impact: 'medium',
+    triggersAnimation: true,
+    triggersRefresh: true,
+  },
+
+  // INVENTORY
+  INVENTORY_ADD_ITEM: {
+    category: 'write',
+    impact: 'high',
+    triggersAnimation: true,
+    triggersRefresh: true,
+  },
+  INVENTORY_UPDATE_ITEM: {
+    category: 'write',
+    impact: 'medium',
+    triggersAnimation: true,
+    triggersRefresh: true,
+  },
+  INVENTORY_REMOVE_ITEM: {
+    category: 'write',
+    impact: 'high',
+    triggersAnimation: true,
+    triggersRefresh: true,
+  },
+
+  // MAINTENANCE
+  MAINTENANCE_LOG: {
+    category: 'write',
+    impact: 'medium',
+    triggersAnimation: true,
+    triggersRefresh: true,
+  },
+
+  // EVENTS
+  EVENT_CREATE: {
+    category: 'write',
+    impact: 'high',
+    triggersAnimation: true,
+    triggersRefresh: true,
+  },
+  EVENT_UPDATE: {
+    category: 'write',
+    impact: 'medium',
+    triggersAnimation: true,
+    triggersRefresh: true,
+  },
+  EVENT_DELETE: {
+    category: 'write',
+    impact: 'high',
+    triggersAnimation: true,
+    triggersRefresh: true,
+  },
+
+  // SURF
+  SURF_LOG_SESSION: {
+    category: 'write',
+    impact: 'high',
+    triggersAnimation: true,
+    triggersRefresh: true,
+  },
+  SURF_FAVORITE_SPOT: {
+    category: 'write',
+    impact: 'low',
+    triggersAnimation: true,
+    triggersRefresh: true,
+  },
+
+  // DIET - Legacy
+  DIET_ADD_CALORIES: {
+    category: 'write',
+    impact: 'medium',
+    triggersAnimation: true,
+    triggersRefresh: true,
+  },
+
+  // LOGGING
+  LOG_WORKOUT_SET: {
+    category: 'write',
+    impact: 'medium',
+    triggersAnimation: true,
+    triggersRefresh: true,
+  },
+
+  // =========================================================================
+  // BUILDER TOOLS - Plan Builder (manejo especial)
+  // =========================================================================
+  PLAN_BUILDER_START: {
+    category: 'builder',
+    impact: 'none',
+    triggersAnimation: false,
+    triggersRefresh: false,
+  },
+  PLAN_BUILDER_ADD_MEAL: {
+    category: 'builder',
+    impact: 'none',
+    triggersAnimation: false,
+    triggersRefresh: false,
+  },
+  PLAN_BUILDER_EDIT_MEAL: {
+    category: 'builder',
+    impact: 'none',
+    triggersAnimation: false,
+    triggersRefresh: false,
+  },
+  PLAN_BUILDER_REMOVE_MEAL: {
+    category: 'builder',
+    impact: 'none',
+    triggersAnimation: false,
+    triggersRefresh: false,
+  },
+  PLAN_BUILDER_ADD_SUPPLEMENT: {
+    category: 'builder',
+    impact: 'none',
+    triggersAnimation: false,
+    triggersRefresh: false,
+  },
+  PLAN_BUILDER_REMOVE_SUPPLEMENT: {
+    category: 'builder',
+    impact: 'none',
+    triggersAnimation: false,
+    triggersRefresh: false,
+  },
+  PLAN_BUILDER_SET_TRAINING: {
+    category: 'builder',
+    impact: 'none',
+    triggersAnimation: false,
+    triggersRefresh: false,
+  },
+  PLAN_BUILDER_SHOW: {
+    category: 'builder',
+    impact: 'none',
+    triggersAnimation: false,
+    triggersRefresh: false,
+  },
+  PLAN_BUILDER_CLEAR: {
+    category: 'builder',
+    impact: 'none',
+    triggersAnimation: false,
+    triggersRefresh: false,
+  },
+  PLAN_BUILDER_EXECUTE: {
+    category: 'builder',
+    impact: 'high',
+    triggersAnimation: true,
+    triggersRefresh: true,
+  },
+
+  // =========================================================================
+  // SYSTEM TOOLS - Sin animación, sin refresh
+  // =========================================================================
+  HANK_CLEAR_HISTORY: {
+    category: 'system',
+    impact: 'none',
+    triggersAnimation: false,
+    triggersRefresh: false,
+  },
+  HANK_GET_CAPABILITIES: {
+    category: 'system',
+    impact: 'none',
+    triggersAnimation: false,
+    triggersRefresh: false,
+  },
+};
+
+// Función para obtener clasificación de una herramienta
+const getToolClassification = (toolName: string): ToolClassification => {
+  // Buscar en clasificaciones explícitas
+  if (TOOL_CLASSIFICATIONS[toolName]) {
+    return TOOL_CLASSIFICATIONS[toolName];
   }
 
-  // =========================================================================
-  // BLACKLIST: Herramientas de LECTURA (NO disparan animación)
-  // =========================================================================
+  // Patrones de inferencia para herramientas no clasificadas explícitamente
   const readPatterns = [
     '_GET_',
     '_LIST_',
@@ -143,20 +460,23 @@ const isWriteTool = (toolName: string): boolean => {
     'ANALYZE_',
     '_COMPARE_',
     'SPOTIFY_',
-    'HANK_CLEAR_',
-    'HANK_GET_',
   ];
 
-  // Si coincide con patrones de lectura, es read
   for (const pattern of readPatterns) {
     if (toolName.includes(pattern)) {
-      return false;
+      return { category: 'read', impact: 'none', triggersAnimation: false, triggersRefresh: false };
     }
   }
 
-  // Por defecto, asumir que es escritura (fail-safe: mejor animar de más que de menos)
-  console.warn(`⚠️ isWriteTool: Herramienta "${toolName}" no clasificada, asumiendo WRITE`);
-  return true;
+  // Por defecto, asumir WRITE para seguridad
+  console.warn(`⚠️ getToolClassification: "${toolName}" no clasificada, asumiendo WRITE`);
+  return { category: 'write', impact: 'medium', triggersAnimation: true, triggersRefresh: true };
+};
+
+// Helper legacy para compatibilidad
+const isWriteTool = (toolName: string): boolean => {
+  const classification = getToolClassification(toolName);
+  return classification.triggersAnimation;
 };
 
 // ============================================================================
@@ -283,6 +603,122 @@ export const HankProvider = ({ children, userId }: HankProviderProps) => {
 
   // Conversation History - Para que HANK recuerde el contexto del chat (máximo 24h)
   const [conversationHistory, setConversationHistory] = useState<ChatMessage[]>([]);
+
+  // =========================================================================
+  // SISTEMA DE MEMORIA DE CORTO PLAZO v3.0
+  // Almacena información contextual que Hank puede usar entre mensajes
+  // =========================================================================
+  const shortTermMemory = useRef<{
+    // Última acción ejecutada
+    lastExecutedTools: string[];
+    lastExecutionTime: Date | null;
+    // Datos acordados en la conversación (para no preguntar de nuevo)
+    agreedData: {
+      meals?: { count?: number; times?: string[]; ingredients?: string[] };
+      supplements?: { names?: string[]; doses?: string[] };
+      training?: { goal?: string; frequency?: number };
+      profile?: { weight?: number; height?: number; goal?: string };
+    };
+    // Intención del usuario detectada
+    currentIntent: 'query' | 'modify' | 'create' | 'analyze' | 'chat' | null;
+    // Pendientes por ejecutar
+    pendingActions: Array<{ tool: string; params: Record<string, unknown> }>;
+  }>({
+    lastExecutedTools: [],
+    lastExecutionTime: null,
+    agreedData: {},
+    currentIntent: null,
+    pendingActions: [],
+  });
+
+  // Función para actualizar memoria de corto plazo
+  const updateShortTermMemory = useCallback((update: Partial<typeof shortTermMemory.current>) => {
+    shortTermMemory.current = { ...shortTermMemory.current, ...update };
+    hankLogger.debug('🧠 Memoria actualizada:', shortTermMemory.current);
+  }, []);
+
+  // Función para extraer datos acordados del historial de conversación
+  const extractAgreedDataFromHistory = useCallback(
+    (history: ChatMessage[]) => {
+      const agreedData: typeof shortTermMemory.current.agreedData = {};
+
+      // Analizar últimos 10 mensajes
+      const recentHistory = history.slice(-10);
+      for (const msg of recentHistory) {
+        const text = msg.parts.find((p): p is { text: string } => 'text' in p)?.text || '';
+        const lower = text.toLowerCase();
+
+        // Detectar número de comidas mencionadas
+        const mealsMatch = lower.match(/(\d+)\s*comidas?/);
+        if (mealsMatch) {
+          agreedData.meals = agreedData.meals || {};
+          agreedData.meals.count = parseInt(mealsMatch[1], 10);
+        }
+
+        // Detectar horarios mencionados
+        const timeMatches = lower.match(/(\d{1,2})[:\s]?(\d{2})?\s*(am|pm|hrs?)?/gi);
+        if (timeMatches && timeMatches.length > 0) {
+          agreedData.meals = agreedData.meals || {};
+          agreedData.meals.times = agreedData.meals.times || [];
+          agreedData.meals.times.push(...timeMatches);
+        }
+
+        // Detectar suplementos mencionados
+        const supplements = [
+          'creatina',
+          'proteína',
+          'whey',
+          'omega',
+          'pre-entreno',
+          'multivitamínico',
+          'cafeína',
+        ];
+        const foundSupplements = supplements.filter((s) => lower.includes(s));
+        if (foundSupplements.length > 0) {
+          agreedData.supplements = agreedData.supplements || {};
+          agreedData.supplements.names = [
+            ...(agreedData.supplements.names || []),
+            ...foundSupplements,
+          ];
+        }
+
+        // Detectar objetivo
+        const goals = [
+          'ganar masa',
+          'perder grasa',
+          'definir',
+          'volumen',
+          'cutting',
+          'bulking',
+          'recomposición',
+        ];
+        const foundGoal = goals.find((g) => lower.includes(g));
+        if (foundGoal) {
+          agreedData.training = agreedData.training || {};
+          agreedData.training.goal = foundGoal;
+        }
+
+        // Detectar frecuencia de entrenamiento
+        const freqMatch = lower.match(
+          /(\d)\s*(?:días?|veces?)\s*(?:a la semana|por semana|semanales?)?/
+        );
+        if (freqMatch) {
+          agreedData.training = agreedData.training || {};
+          agreedData.training.frequency = parseInt(freqMatch[1], 10);
+        }
+      }
+
+      // Actualizar memoria
+      if (Object.keys(agreedData).length > 0) {
+        updateShortTermMemory({
+          agreedData: { ...shortTermMemory.current.agreedData, ...agreedData },
+        });
+      }
+
+      return agreedData;
+    },
+    [updateShortTermMemory]
+  );
 
   // Flag para indicar si ya se cargó/verificó el historial
   const historyInitialized = useRef(false);
@@ -819,7 +1255,7 @@ export const HankProvider = ({ children, userId }: HankProviderProps) => {
         const { data: userProfile, error: userProfileError } = await supabase
           .from('user_profiles')
           .select(
-            'weight, height, goal, age, sex, body_fat_percentage, muscle_mass, activity_level, training_experience, metabolic_rate, training_days_per_week, injuries, allergies'
+            'weight, height, goal, age, sex, body_fat_percentage, muscle_mass, activity_level, training_experience, metabolic_rate, training_days_per_week'
           )
           .eq('user_id', userId)
           .single();
@@ -827,6 +1263,11 @@ export const HankProvider = ({ children, userId }: HankProviderProps) => {
         if (userProfileError && userProfileError.code !== 'PGRST116') {
           console.warn('⚠️ Error cargando user_profiles:', userProfileError);
         }
+
+        // DEBUG: Log de datos cargados
+        console.warn(
+          `🔍 HANK: user_profiles loaded - weight: ${userProfile?.weight}, goal: ${userProfile?.goal}, height: ${userProfile?.height}`
+        );
 
         // Casting seguro de los perfiles
         const trainingData = trainingProfile as {
@@ -847,8 +1288,6 @@ export const HankProvider = ({ children, userId }: HankProviderProps) => {
           training_experience?: string;
           metabolic_rate?: string;
           training_days_per_week?: number;
-          injuries?: string;
-          allergies?: string;
         } | null;
 
         // Formatear comidas
@@ -907,8 +1346,6 @@ export const HankProvider = ({ children, userId }: HankProviderProps) => {
               trainingExperience: biometricsData.training_experience || undefined,
               metabolicRate: biometricsData.metabolic_rate || undefined,
               trainingDaysPerWeek: biometricsData.training_days_per_week || undefined,
-              injuries: biometricsData.injuries || undefined,
-              allergies: biometricsData.allergies || undefined,
               bmr: undefined, // Calcular si es necesario
               tdee: undefined, // Calcular si es necesario
             }
@@ -1547,11 +1984,15 @@ export const HankProvider = ({ children, userId }: HankProviderProps) => {
   }, []);
 
   // -------------------------------------------------------------------------
-  // BUILD GEMINI CONTEXT
+  // BUILD GEMINI CONTEXT - Optimizado v3.0
   // -------------------------------------------------------------------------
   const buildGeminiContext = useCallback(() => {
     // 🐛 FIX: Usar screenContext.currentTrainingDay (real) en lugar de userProfile.currentTrainingDay (siempre 0)
     const realTrainingDay = screenContext.currentTrainingDay ?? 0;
+
+    // Extraer datos acordados del historial para pasarlos a Gemini
+    const agreedData = extractAgreedDataFromHistory(conversationHistory);
+
     console.warn(
       `📝 buildGeminiContext: día=${realTrainingDay}, ejercicio=${activeAsset?.name || 'NINGUNO'}, planBuilder=${planBuilderState.isActive ? 'ACTIVO' : 'INACTIVO'}`
     );
@@ -1559,6 +2000,10 @@ export const HankProvider = ({ children, userId }: HankProviderProps) => {
     console.warn(
       `📝 buildGeminiContext biometrics: peso=${userPlanContext?.biometrics?.weight || 'N/A'}kg, altura=${userPlanContext?.biometrics?.height || 'N/A'}cm`
     );
+    // Log de memoria de corto plazo
+    if (Object.keys(agreedData).length > 0) {
+      console.warn(`🧠 buildGeminiContext agreedData:`, JSON.stringify(agreedData));
+    }
 
     return {
       screenModule: screenContext.module,
@@ -1610,6 +2055,15 @@ export const HankProvider = ({ children, userId }: HankProviderProps) => {
       progressPhotos: progressPhotos.length > 0 ? progressPhotos : undefined,
       // User Plan Context - Nutrición, stack y entrenamiento actual
       userPlanContext: userPlanContext,
+      // =========================================================================
+      // MEMORIA DE CORTO PLAZO v3.0 - Datos acordados en la conversación
+      // =========================================================================
+      agreedData: Object.keys(agreedData).length > 0 ? agreedData : undefined,
+      // Última acción ejecutada (para continuidad)
+      lastExecutedTools:
+        shortTermMemory.current.lastExecutedTools.length > 0
+          ? shortTermMemory.current.lastExecutedTools
+          : undefined,
     };
   }, [
     screenContext,
@@ -1621,6 +2075,8 @@ export const HankProvider = ({ children, userId }: HankProviderProps) => {
     planBuilderState,
     progressPhotos,
     userPlanContext,
+    conversationHistory,
+    extractAgreedDataFromHistory,
   ]);
 
   // -------------------------------------------------------------------------
@@ -1992,6 +2448,15 @@ INSTRUCCIONES:
             finalResponseText = finalMessage;
           }
 
+          // =========================================================================
+          // ACTUALIZAR MEMORIA DE CORTO PLAZO v3.0
+          // =========================================================================
+          const executedTools = toolResults.map((tr) => tr.toolName);
+          updateShortTermMemory({
+            lastExecutedTools: executedTools,
+            lastExecutionTime: new Date(),
+          });
+
           // Construir resumen de ejecuciones para el historial
           // Esto ayuda a Hank a "recordar" qué acciones realizó
           const executionSummary = toolResults
@@ -2036,11 +2501,18 @@ INSTRUCCIONES:
           );
 
           if (results.length > 0) {
+            // Preservar todos los flags existentes (como clearUIChat) al agregar los nuevos
+            const existingData = results[0].data || {};
+            console.warn('🔧 HANK: existingData antes de merge:', JSON.stringify(existingData));
             results[0].data = {
-              ...(results[0].data || {}),
+              ...existingData,
               hadToolCalls: true,
               hadWriteToolCalls: hadWriteTools,
             };
+            console.warn(
+              '🔧 HANK: results[0].data después de merge:',
+              JSON.stringify(results[0].data)
+            );
           }
 
           return results;
@@ -2206,6 +2678,7 @@ INSTRUCCIONES:
         const result = await executeTool({
           tool: 'ASSET_REMOVE_SERIES',
           parameters: {
+            configId: activeAsset.configId, // BUGFIX: Usar configId para identificación precisa
             assetName: activeAsset.name,
             seriesIndex: seriesIndex,
           },
@@ -2252,6 +2725,7 @@ INSTRUCCIONES:
         const result = await executeTool({
           tool: 'ASSET_ADD_SERIES',
           parameters: {
+            configId: activeAsset.configId, // BUGFIX: Usar configId para identificación precisa
             assetName: activeAsset.name,
             reps,
             weight,

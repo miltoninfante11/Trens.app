@@ -24,7 +24,15 @@ import Animated, {
   SlideOutDown,
 } from 'react-native-reanimated';
 import { Haptics } from '../../lib/haptics';
-import { Music, SkipForward, RotateCcw, Sparkles, GitlabIcon as Bot } from 'lucide-react-native';
+import {
+  Music,
+  SkipForward,
+  RotateCcw,
+  Sparkles,
+  GitlabIcon as Bot,
+  Zap,
+  Wifi,
+} from 'lucide-react-native';
 import { usePathname } from 'expo-router';
 import spotify, { SpotifyTrack, SpotifyPlaybackState } from '../../services/spotify/spotify';
 import SpotifyModal from './SpotifyModal';
@@ -364,6 +372,14 @@ export function SpotifyOverlay() {
   // Estado separado para albumArt para evitar re-renders de imagen
   const [albumArtUrl, setAlbumArtUrl] = useState<string | null>(null);
 
+  // 🔥 Estado de warm-up para indicador visual
+  const [warmUpStatus, setWarmUpStatus] = useState<{
+    isWarmedUp: boolean;
+    isReady: boolean;
+    useNativeSDK: boolean;
+    nativeAvailable: boolean;
+  }>({ isWarmedUp: false, isReady: false, useNativeSDK: false, nativeAvailable: false });
+
   // -------------------------------------------------------------------------
   // HANK INSIGHT - Swipe down para mensaje savage
   // -------------------------------------------------------------------------
@@ -395,6 +411,51 @@ export function SpotifyOverlay() {
   const isHidden = isFeedModule || (!spotifyConnected && !isGymModule);
 
   // -------------------------------------------------------------------------
+  // 🔥 WARM UP AUTOMÁTICO - Pre-calentar Spotify al entrar a GYM
+  // -------------------------------------------------------------------------
+  useEffect(() => {
+    // Solo hacer warm-up si:
+    // 1. Spotify está conectado
+    // 2. Estamos en el módulo GYM
+    // 3. No está oculto
+    if (spotifyConnected && isGymModule && !isHidden) {
+      // Warm-up silencioso en segundo plano
+      spotify.warmUp().then((ready) => {
+        if (ready) {
+          console.log('🔥 SpotifyOverlay: Spotify está caliente y listo');
+        }
+        // Actualizar estado de warm-up para UI
+        setWarmUpStatus(spotify.getWarmUpStatus());
+      });
+    }
+  }, [spotifyConnected, isGymModule, isHidden]);
+
+  // -------------------------------------------------------------------------
+  // 🔥 POLLING DE WARM-UP STATUS
+  // -------------------------------------------------------------------------
+  useEffect(() => {
+    if (!spotifyConnected) {
+      setWarmUpStatus({
+        isWarmedUp: false,
+        isReady: false,
+        useNativeSDK: false,
+        nativeAvailable: false,
+      });
+      return;
+    }
+
+    // Verificar status inicial
+    setWarmUpStatus(spotify.getWarmUpStatus());
+
+    // Actualizar cada 10 segundos
+    const interval = setInterval(() => {
+      setWarmUpStatus(spotify.getWarmUpStatus());
+    }, 10000);
+
+    return () => clearInterval(interval);
+  }, [spotifyConnected]);
+
+  // -------------------------------------------------------------------------
   // SINCRONIZAR ESTADO DE SPOTIFY
   // -------------------------------------------------------------------------
   useEffect(() => {
@@ -404,6 +465,9 @@ export function SpotifyOverlay() {
       setSpotifyConnected(connected);
 
       if (connected) {
+        // 🔥 Warm-up junto con la verificación inicial
+        spotify.warmUp();
+
         const playback = await spotify.getPlaybackState();
         setPlaybackState(playback);
         // Solo actualizar si hay track y cambió el URI
@@ -498,6 +562,9 @@ export function SpotifyOverlay() {
 
     setSpotifyConnected(success);
     if (success) {
+      // 🔥 Warm-up inmediato después de conectar para preparar Spotify
+      spotify.warmUp();
+
       const playback = await spotify.getPlaybackState();
       setPlaybackState(playback);
       setCurrentTrack(playback?.track || null);
@@ -918,6 +985,38 @@ export function SpotifyOverlay() {
               glowStyle,
             ]}
           />
+        )}
+
+        {/* 🔥 Indicador de Warm-Up Status */}
+        {spotifyConnected && (
+          <View
+            style={{
+              position: 'absolute',
+              top: -8,
+              right: -8,
+              width: 20,
+              height: 20,
+              borderRadius: 10,
+              backgroundColor: warmUpStatus.isReady
+                ? '#22c55e'
+                : warmUpStatus.isWarmedUp
+                  ? '#eab308'
+                  : '#ef4444',
+              justifyContent: 'center',
+              alignItems: 'center',
+              borderWidth: 2,
+              borderColor: '#000',
+              zIndex: 10,
+            }}
+          >
+            {warmUpStatus.useNativeSDK ? (
+              <Zap size={10} color="#000" />
+            ) : warmUpStatus.isReady ? (
+              <Wifi size={10} color="#000" />
+            ) : (
+              <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#000' }} />
+            )}
+          </View>
         )}
 
         {/* FAB Button con Gestos */}

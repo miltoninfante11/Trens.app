@@ -17,16 +17,45 @@ console.warn(
 );
 
 // ============================================================================
-// PREPROCESADOR: Convertir números en texto a dígitos
-// Esto asegura que Gemini reciba "5" en lugar de "cinco"
+// PREPROCESADOR INTELIGENTE v3.0 - Normalización y enriquecimiento de input
 // ============================================================================
-function preprocessSpanishNumbers(text: string): string {
-  // Log entrada para debug
-  console.warn(`🔢 PREPROCESADOR INPUT: "${text}"`);
 
-  // Mapa de números en español a dígitos
+/**
+ * Normaliza el input del usuario:
+ * - Convierte números en texto a dígitos
+ * - Expande abreviaciones comunes
+ * - Normaliza sinónimos de acciones
+ * - Corrige errores tipográficos comunes
+ */
+function preprocessUserInput(text: string, context?: GeminiContext): string {
+  let result = text;
+
+  // 1. Convertir números en español a dígitos
+  result = convertSpanishNumbers(result);
+
+  // 2. Expandir abreviaciones y jerga fitness
+  result = expandAbbreviations(result);
+
+  // 3. Normalizar sinónimos de acciones
+  result = normalizeActionSynonyms(result);
+
+  // 4. Resolver referencias contextuales
+  if (context?.activeAsset) {
+    result = resolveContextualReferences(result, context);
+  }
+
+  // Solo loguear si hubo cambios
+  if (result !== text) {
+    console.warn(`🔧 PREPROCESSOR: "${text}" → "${result}"`);
+  }
+
+  return result;
+}
+
+// Convertir números en español
+function convertSpanishNumbers(text: string): string {
   const numberMap: [RegExp, string][] = [
-    // Centenas compuestas primero (más largas)
+    // Centenas compuestas
     [/ciento\s+cuarenta/gi, '140'],
     [/ciento\s+cincuenta/gi, '150'],
     [/ciento\s+sesenta/gi, '160'],
@@ -36,22 +65,18 @@ function preprocessSpanishNumbers(text: string): string {
     [/ciento\s+diez/gi, '110'],
     [/ciento\s+veinte/gi, '120'],
     [/ciento\s+treinta/gi, '130'],
-    [/doscientos/gi, '200'],
-    [/doscientas/gi, '200'],
+    [/doscientos|doscientas/gi, '200'],
+    [/trescientos|trescientas/gi, '300'],
     // Veinti- compuestos
     [/veinticinco/gi, '25'],
     [/veinticuatro/gi, '24'],
-    [/veintitres/gi, '23'],
-    [/veintitrés/gi, '23'],
-    [/veintidos/gi, '22'],
-    [/veintidós/gi, '22'],
-    [/veintiuno/gi, '21'],
-    [/veintiuna/gi, '21'],
+    [/veintitr[eé]s/gi, '23'],
+    [/veintid[oó]s/gi, '22'],
+    [/veintiun[oa]/gi, '21'],
     [/veintinueve/gi, '29'],
     [/veintiocho/gi, '28'],
     [/veintisiete/gi, '27'],
-    [/veintiseis/gi, '26'],
-    [/veintiséis/gi, '26'],
+    [/veintis[eé]is/gi, '26'],
     // Decenas
     [/\bnoventa\b/gi, '90'],
     [/\bochenta\b/gi, '80'],
@@ -65,15 +90,14 @@ function preprocessSpanishNumbers(text: string): string {
     [/\bdiecinueve\b/gi, '19'],
     [/\bdieciocho\b/gi, '18'],
     [/\bdiecisiete\b/gi, '17'],
-    [/\bdieciseis\b/gi, '16'],
-    [/\bdieciséis\b/gi, '16'],
+    [/\bdiecis[eé]is\b/gi, '16'],
     [/\bquince\b/gi, '15'],
     [/\bcatorce\b/gi, '14'],
     [/\btrece\b/gi, '13'],
     [/\bdoce\b/gi, '12'],
     [/\bonce\b/gi, '11'],
     [/\bdiez\b/gi, '10'],
-    // Unidades (al final para no interferir con compuestos)
+    // Unidades
     [/\bnueve\b/gi, '9'],
     [/\bocho\b/gi, '8'],
     [/\bsiete\b/gi, '7'],
@@ -82,22 +106,111 @@ function preprocessSpanishNumbers(text: string): string {
     [/\bcuatro\b/gi, '4'],
     [/\btres\b/gi, '3'],
     [/\bdos\b/gi, '2'],
-    [/\buna\b/gi, '1'],
-    [/\buno\b/gi, '1'],
+    [/\bun[ao]?\b/gi, '1'],
     [/\bcien\b/gi, '100'],
     [/\bcero\b/gi, '0'],
   ];
 
   let result = text;
-
   for (const [regex, replacement] of numberMap) {
     result = result.replace(regex, replacement);
   }
-
-  // Log resultado
-  console.warn(`🔢 PREPROCESADOR OUTPUT: "${result}"`);
-
   return result;
+}
+
+// Expandir abreviaciones fitness
+function expandAbbreviations(text: string): string {
+  const abbreviations: [RegExp, string][] = [
+    // Series y repeticiones
+    [/\breps?\b/gi, 'repeticiones'],
+    [/\bsets?\b/gi, 'series'],
+    [/\bpr\b/gi, 'personal record'],
+    [/\brm\b/gi, 'repetición máxima'],
+    [/\b1rm\b/gi, '1 repetición máxima'],
+    // Ejercicios comunes
+    [/\bbench\b/gi, 'bench press'],
+    [/\bsquat\b/gi, 'squat'],
+    [/\bdl\b/gi, 'deadlift'],
+    [/\bohp\b/gi, 'overhead press'],
+    [/\bpull ups?\b/gi, 'pull-ups'],
+    [/\bcurl\b/gi, 'curl'],
+    // Músculos
+    [/\bpecs?\b/gi, 'pecho'],
+    [/\bquads?\b/gi, 'cuádriceps'],
+    [/\bhams?\b/gi, 'isquiotibiales'],
+    [/\blats?\b/gi, 'dorsales'],
+    [/\btraps?\b/gi, 'trapecios'],
+    [/\bdelts?\b/gi, 'deltoides'],
+    [/\bglutes?\b/gi, 'glúteos'],
+    [/\babs?\b/gi, 'abdominales'],
+    // Suplementos
+    [/\bwhey\b/gi, 'proteína whey'],
+    [/\bcre\b/gi, 'creatina'],
+    [/\bpre\b/gi, 'pre-entreno'],
+    [/\bpost\b/gi, 'post-entreno'],
+    // Métricas
+    [/\bkg\b/gi, 'kilogramos'],
+    [/\blbs?\b/gi, 'libras'],
+    [/\bkcal\b/gi, 'calorías'],
+    [/\bg\b(?=\s+de\s+prote[ií]na)/gi, 'gramos'],
+  ];
+
+  let result = text;
+  for (const [regex, replacement] of abbreviations) {
+    result = result.replace(regex, replacement);
+  }
+  return result;
+}
+
+// Normalizar sinónimos de acciones
+function normalizeActionSynonyms(text: string): string {
+  const synonyms: [RegExp, string][] = [
+    // Agregar
+    [/\b(pon|ponme|mete|incluye|inserta)\b/gi, 'agrega'],
+    // Quitar
+    [/\b(saca|borra|remueve|retira)\b/gi, 'quita'],
+    // Modificar
+    [/\b(actualiza|edita|ajusta)\b/gi, 'modifica'],
+    // Mostrar
+    [/\b(enséñame|muéstrame|dime|dame)\b/gi, 'muestra'],
+    // Crear
+    [/\b(hazme|prepárame|diseñame|arma|construye)\b/gi, 'crea'],
+    // Incrementar
+    [/\b(incrementa|aumenta|súbele)\b/gi, 'sube'],
+    // Decrementar
+    [/\b(disminuye|reduce|bájale)\b/gi, 'baja'],
+  ];
+
+  let result = text;
+  for (const [regex, replacement] of synonyms) {
+    result = result.replace(regex, replacement);
+  }
+  return result;
+}
+
+// Resolver referencias contextuales
+function resolveContextualReferences(text: string, context: GeminiContext): string {
+  const contextualPhrases = [
+    /\beste ejercicio\b/gi,
+    /\bel actual\b/gi,
+    /\bel que estoy viendo\b/gi,
+    /\bel de ahora\b/gi,
+    /\béste\b/gi,
+    /\besto\b/gi,
+  ];
+
+  let result = text;
+  if (context.activeAsset?.name) {
+    for (const regex of contextualPhrases) {
+      result = result.replace(regex, context.activeAsset.name);
+    }
+  }
+  return result;
+}
+
+// Alias para compatibilidad
+function preprocessSpanishNumbers(text: string): string {
+  return preprocessUserInput(text);
 }
 
 // ============================================================================
@@ -491,8 +604,139 @@ ${trainingSection}
 }
 
 // ============================================================================
-// SYSTEM PROMPT GENERATOR - HANK v2.2 OPTIMIZED
+// SYSTEM PROMPT GENERATOR - HANK v3.0 OMNIPOTENT
 // ============================================================================
+
+// ============================================================================
+// INTENT DETECTION - Clasificar la intención del usuario
+// ============================================================================
+type UserIntent =
+  | 'query_info' // Preguntar información
+  | 'modify_data' // Modificar datos
+  | 'create_plan' // Crear plan completo
+  | 'analyze' // Analizar progreso/datos
+  | 'execute_action' // Acción directa
+  | 'conversational' // Chat normal
+  | 'confirm_action' // Confirmar acción previa
+  | 'unknown';
+
+function detectUserIntent(message: string): UserIntent {
+  const lower = message.toLowerCase().trim();
+
+  // Patrones de CONFIRMACIÓN (prioridad alta)
+  if (/^(sí|si|dale|ok|okey|está bien|confirmo|hazlo|ejecuta|aplica|guarda|listo)$/i.test(lower)) {
+    return 'confirm_action';
+  }
+
+  // Patrones de CONSULTA (sin modificar datos)
+  if (
+    /^(qué|que|cuál|cual|cuánto|cuanto|cómo|como|dónde|donde|cuándo|cuando|muéstrame|muestrame|enséñame|ver|dame|tengo|estoy)/i.test(
+      lower
+    )
+  ) {
+    return 'query_info';
+  }
+
+  // Patrones de ANÁLISIS
+  if (
+    /analiza|compara|evalúa|evalua|progreso|evolución|evolucion|cómo me ve|como me ve|qué tal voy|que tal voy/i.test(
+      lower
+    )
+  ) {
+    return 'analyze';
+  }
+
+  // Patrones de CREACIÓN DE PLAN
+  if (
+    /crea|hazme|diseña|arma|prepara|construye|genera.*plan|dieta|rutina|entrenamiento completo/i.test(
+      lower
+    )
+  ) {
+    return 'create_plan';
+  }
+
+  // Patrones de MODIFICACIÓN
+  if (
+    /agrega|añade|quita|elimina|borra|cambia|modifica|actualiza|sube|baja|pon|reemplaza|configura|ajusta/i.test(
+      lower
+    )
+  ) {
+    return 'modify_data';
+  }
+
+  // Patrones de ACCIÓN DIRECTA
+  if (/activa|desactiva|ejecuta|inicia|termina|guarda|aplica|sincroniza|recalcula/i.test(lower)) {
+    return 'execute_action';
+  }
+
+  // Por defecto: conversacional
+  return 'conversational';
+}
+
+// ============================================================================
+// CONTEXT ENRICHMENT - Enriquecer contexto para mejor respuesta
+// ============================================================================
+function getRelevantContextSection(context: GeminiContext, intent: UserIntent): string {
+  const sections: string[] = [];
+
+  // Siempre incluir info básica del usuario si está disponible
+  if (context.userPlanContext?.biometrics) {
+    const bio = context.userPlanContext.biometrics;
+    const hasData = bio.weight || bio.height || bio.goal;
+    if (hasData) {
+      sections.push(
+        `🧬 PERFIL: ${bio.weight ? `${bio.weight}kg` : '?'}${bio.height ? ` | ${bio.height}cm` : ''}${bio.goal ? ` | Objetivo: ${bio.goal}` : ''}`
+      );
+    }
+  }
+
+  // Según la intención, agregar contexto relevante
+  switch (intent) {
+    case 'query_info':
+    case 'analyze':
+      // Para consultas, incluir resumen completo
+      if (context.userPlanContext) {
+        const plan = context.userPlanContext;
+        if (plan.meals.length > 0) {
+          sections.push(`🍽️ ${plan.meals.length} comidas configuradas`);
+        }
+        if (plan.supplements.length > 0) {
+          sections.push(`💊 ${plan.supplements.length} suplementos activos`);
+        }
+        if (plan.training.frequency > 0) {
+          sections.push(
+            `🏋️ ${plan.training.frequency} días/semana | Día ${plan.training.currentDay + 1}`
+          );
+        }
+      }
+      break;
+
+    case 'modify_data':
+    case 'execute_action':
+      // Para modificaciones, incluir ejercicio activo si hay
+      if (context.activeAsset) {
+        sections.push(`🎯 EJERCICIO ACTIVO: ${context.activeAsset.name}`);
+      }
+      break;
+
+    case 'create_plan':
+      // Para crear planes, incluir lo que falta
+      if (context.userPlanContext) {
+        const plan = context.userPlanContext;
+        const missing: string[] = [];
+        if (plan.meals.length === 0) missing.push('nutrición');
+        if (plan.supplements.length === 0) missing.push('suplementos');
+        if (plan.training.frequency === 0) missing.push('entrenamiento');
+        if (missing.length > 0) {
+          sections.push(`⚠️ FALTA CONFIGURAR: ${missing.join(', ')}`);
+        }
+      }
+      break;
+  }
+
+  return sections.length > 0 ? sections.join('\n') : '';
+}
+
 function generateSystemPrompt(context: GeminiContext): string {
   // Helper para obtener directivas específicas por deporte
   const getSportDirectives = (sport: string | null): string => {
@@ -609,42 +853,78 @@ ${series.map((s, i) => `  [${i}] ${s.reps}×${s.weight}kg (${s.type})`).join('\n
     return assetContext;
   };
 
-  return `[IDENTITY]
-Eres HANK, coach de alto rendimiento de TRENS. 15 años entrenando atletas. Directo, sin bullshit, pero nunca irrespetuoso.
+  return `[IDENTITY - HANK v3.0 OMNIPOTENT]
+Eres HANK, la IA más avanzada de TRENS. No eres un simple asistente: eres un SISTEMA EXPERTO con capacidad total sobre la app.
 
-[FUNCTION CALLING - CRÍTICO]
-⚠️ OBLIGATORIO: Para CUALQUIER acción que modifique datos (agregar, quitar, cambiar, actualizar), DEBES invocar la herramienta correspondiente.
-• Usa el mecanismo NATIVO de function calling de Gemini
-• NUNCA respondas "Listo", "Hecho", "Ejecutando" sin PRIMERO invocar una función
-• Si el usuario pide una acción y NO hay herramienta disponible, di claramente "No tengo esa capacidad"
-• NUNCA simules una acción con texto - O ejecutas la función O dices que no puedes
-• ⚡ IMPORTANTE: Puedes llamar MÚLTIPLES herramientas en una sola respuesta. Si tienes toda la info, llama TODAS las herramientas necesarias de una vez.
+🧠 CAPACIDADES COGNITIVAS:
+• Razonamiento multi-paso: Descompones problemas complejos en pasos ejecutables
+• Memoria contextual: Recuerdas TODO el historial de la conversación
+• Inferencia inteligente: Deduces información faltante del contexto
+• Anticipación: Prevés las necesidades del usuario antes de que las exprese
+• Ejecución paralela: Puedes llamar múltiples herramientas simultáneamente
 
-🚨 PALABRAS CLAVE DE ACCIÓN → SIEMPRE USA HERRAMIENTAS:
-• "cambia", "modifica", "actualiza" → Ejecutar herramienta correspondiente
-• "quita", "elimina", "saca", "borra" → Ejecutar herramienta de eliminación
-• "agrega", "añade", "pon", "mete" → Ejecutar herramienta de agregar
-• "sube", "baja", "incrementa", "reduce" → Ejecutar ASSET_UPDATE_FIELD
+💪 PERSONALIDAD:
+• Directo y eficiente - cero bullshit, máxima acción
+• Proactivo - no esperas que te pidan todo
+• Adaptativo - cambias tu tono según el contexto
+• Técnicamente preciso - usas terminología correcta del deporte
 
-Ejemplos de cuándo DEBES usar herramientas:
-• "quita la última serie" → ASSET_REMOVE_SERIES
-• "agrega un ejercicio" → GYM_ADD_EXERCISE  
-• "cambia las reps a 10" → ASSET_UPDATE_FIELD
-• "cambia mi peso a 75kg" → ADN_UPDATE_PROFILE(field="weight", value=75)
-• "qué me toca hoy" → GYM_GET_TODAY_ROUTINE
+[🔥 MOTOR DE DECISIÓN - FLUJO CRÍTICO]
 
-Ejemplos de cuándo NO usar herramientas (responde directamente):
-• "¿cuál es mi stack?" → RESPONDE con la info de [📋 PLAN ACTUAL DEL USUARIO]
-• "¿qué suplementos tomo?" → RESPONDE con la info de [📋 PLAN ACTUAL DEL USUARIO]
-• "¿cuál es mi plan de nutrición?" → RESPONDE con la info de [📋 PLAN ACTUAL DEL USUARIO]
-• "¿cuántas comidas tengo?" → RESPONDE con la info de [📋 PLAN ACTUAL DEL USUARIO]
-⚡ Si la info ya está en el contexto de arriba, ÚSALA DIRECTAMENTE sin ejecutar herramientas.
+PASO 1: CLASIFICAR LA INTENCIÓN
+Antes de responder, clasifica mentalmente qué quiere el usuario:
+• CONSULTA → Responde con datos del contexto (NO herramientas)
+• MODIFICACIÓN → EJECUTA herramientas de inmediato
+• CREACIÓN → Inicia flujo de Plan Builder o Training
+• ANÁLISIS → Usa datos + fotos + historial para dar insights
+• CONFIRMACIÓN → EJECUTA lo acordado previamente
 
-[⚠️ REGLA DE ORO: USA EL HISTORIAL]
-• Si el usuario ya mencionó comidas, suplementos, horarios o cualquier dato en mensajes anteriores, ÚSALO SIN PREGUNTAR DE NUEVO.
-• NUNCA digas "dime las horas" o "cuáles comidas" si ya las acordaron antes en la conversación.
-• Revisa el historial antes de preguntar. Si la info está ahí, ACTÚA.
-• Cuando el usuario diga "sí", "dale", "está bien" después de acordar algo, EJECUTA las herramientas inmediatamente.
+PASO 2: VERIFICAR SI TIENES LA INFO
+• ¿La respuesta está en [📋 PLAN ACTUAL DEL USUARIO]? → RESPONDE DIRECTO
+• ¿Necesitas datos de la DB? → Usa herramienta de lectura
+• ¿Es una modificación? → USA HERRAMIENTA OBLIGATORIAMENTE
+
+PASO 3: EJECUTAR CON INTELIGENCIA
+• Si tienes TODA la info → Llama TODAS las herramientas necesarias de una vez
+• Si falta info → Pregunta LO MÍNIMO necesario
+• Si el usuario confirma ("sí", "dale") → EJECUTA SIN PREGUNTAR MÁS
+
+[⚡ REGLAS DE ORO - ROMPER = FALLO TOTAL]
+
+1. NUNCA respondas "Listo/Hecho" sin ANTES ejecutar una función
+2. NUNCA pidas confirmación más de UNA vez
+3. NUNCA preguntes info que ya tienes en el contexto o historial
+4. NUNCA ignores el historial de la conversación
+5. SIEMPRE usa herramientas para modificar datos
+6. SIEMPRE responde en español natural (no técnico)
+
+[🎯 MAPEO INTELIGENTE DE INTENCIONES → ACCIONES]
+
+CONSULTAS (responde CON contexto, SIN herramientas):
+• "¿cuál es mi stack?" → Info de suplementos del contexto
+• "¿qué comidas tengo?" → Info de meals del contexto
+• "¿cuánto peso?" → Biométricos del contexto
+• "¿qué me toca hoy?" → GYM_GET_TODAY_ROUTINE (excepción: necesita datos frescos)
+
+MODIFICACIONES (SIEMPRE con herramientas):
+• "quita/elimina X" → ASSET_REMOVE_SERIES / GYM_REMOVE_EXERCISE
+• "agrega/añade X" → ASSET_ADD_SERIES / GYM_ADD_EXERCISE
+• "cambia/modifica X" → ASSET_UPDATE_FIELD / ADN_UPDATE_PROFILE
+• "sube/baja X" → ASSET_UPDATE_FIELD
+
+CONFIRMACIONES (EJECUTA inmediatamente):
+• "sí", "dale", "ok" → EJECUTA lo acordado previamente
+• "está bien", "hazlo" → EJECUTA lo acordado previamente
+• "confirmo", "aplica" → EJECUTA lo acordado previamente
+
+SISTEMA (EJECUTA herramientas del sistema):
+• "borra el chat", "limpia el historial", "borra historial", "limpia chat", "resetea", "empieza de nuevo", "olvida todo", "nuevo chat" → HANK_CLEAR_HISTORY (OBLIGATORIO llamar la función)
+• "qué puedes hacer", "ayuda", "capacidades" → HANK_GET_CAPABILITIES
+
+⚠️ CRÍTICO PARA LIMPIAR CHAT: Cuando el usuario quiera borrar/limpiar el chat o historial:
+1. DEBES llamar la función HANK_CLEAR_HISTORY (NO solo decir que lo hiciste)
+2. NO escribas "historial borrado" sin llamar la función
+3. La función HANK_CLEAR_HISTORY no tiene parámetros, solo llámala
 
 [CONTEXTO]
 • Módulo: ${context.screenModule.toUpperCase()}
@@ -1003,6 +1283,32 @@ ${context.progressPhotos.map((p, i) => `• Foto ${i + 1}: ${p.date}${p.weight ?
 Si necesitas evaluar su físico para recomendar un plan, pídele que suba una foto desde TRENS ID.`
 }
 
+${
+  // =========================================================================
+  // MEMORIA DE CORTO PLAZO v3.0 - Datos ya acordados
+  // =========================================================================
+  context.agreedData && Object.keys(context.agreedData).length > 0
+    ? `[🧠 MEMORIA ACTIVA - DATOS YA ACORDADOS EN ESTA CONVERSACIÓN]
+⚠️ CRÍTICO: NO preguntes por información que ya fue mencionada. USA estos datos directamente:
+${context.agreedData.meals?.count ? `• Número de comidas: ${context.agreedData.meals.count}` : ''}
+${context.agreedData.meals?.times?.length ? `• Horarios mencionados: ${context.agreedData.meals.times.join(', ')}` : ''}
+${context.agreedData.supplements?.names?.length ? `• Suplementos mencionados: ${context.agreedData.supplements.names.join(', ')}` : ''}
+${context.agreedData.training?.goal ? `• Objetivo acordado: ${context.agreedData.training.goal}` : ''}
+${context.agreedData.training?.frequency ? `• Frecuencia acordada: ${context.agreedData.training.frequency} días/semana` : ''}
+
+🚨 REGLA: Si el usuario dice "sí", "dale", "está bien" → EJECUTA con estos datos, NO preguntes más.`
+    : ''
+}
+
+${
+  // Herramientas ejecutadas recientemente
+  context.lastExecutedTools && context.lastExecutedTools.length > 0
+    ? `[📝 ÚLTIMA ACCIÓN EJECUTADA]
+Herramientas: ${context.lastExecutedTools.join(' → ')}
+⚡ Usa esta información para dar continuidad a la conversación.`
+    : ''
+}
+
 [TONO]
 • Directo, sin bullshit, nunca irrespetuoso
 • Jerga natural: al fallo, PR, pump, gains, sets
@@ -1019,11 +1325,13 @@ Si necesitas evaluar su físico para recomendar un plan, pídele que suba una fo
 5. NO des motivación genérica vacía
 6. NUNCA uses frases en latín ni citas filosóficas
 7. SIEMPRE usa el HISTORIAL DE ENTRENAMIENTOS cuando el usuario pregunte sobre su rendimiento, progreso o levantamientos
-8. Cuando veas datos de peso/reps en el historial, MENCIÓNALOS directamente sin pedir más info`;
+8. Cuando veas datos de peso/reps en el historial, MENCIÓNALOS directamente sin pedir más info
+9. NUNCA preguntes info que ya está en [🧠 MEMORIA ACTIVA]
+10. Si el usuario confirma ("sí", "dale", "ok") → EJECUTA INMEDIATAMENTE`;
 }
 
 // ============================================================================
-// CONTEXT TYPE
+// CONTEXT TYPE - v3.0 con memoria de corto plazo
 // ============================================================================
 export interface GeminiContext {
   screenModule: string;
@@ -1099,6 +1407,17 @@ export interface GeminiContext {
       routineNames: Record<string, string>;
     };
   } | null;
+  // =========================================================================
+  // MEMORIA DE CORTO PLAZO v3.0 - Datos acordados en la conversación
+  // =========================================================================
+  agreedData?: {
+    meals?: { count?: number; times?: string[]; ingredients?: string[] };
+    supplements?: { names?: string[]; doses?: string[] };
+    training?: { goal?: string; frequency?: number };
+    profile?: { weight?: number; height?: number; goal?: string };
+  };
+  // Última acción ejecutada (para continuidad)
+  lastExecutedTools?: string[];
 }
 
 // ============================================================================
@@ -1118,8 +1437,14 @@ export async function callGemini(
   apiKey: string,
   conversationHistory: GeminiMessage[] = []
 ): Promise<GeminiResult> {
-  // � PREPROCESAR: Convertir números en texto a dígitos
-  const processedMessage = preprocessSpanishNumbers(userMessage);
+  // 🧠 PREPROCESAR: Normalización inteligente del input
+  const processedMessage = preprocessUserInput(userMessage, context);
+
+  // 🎯 DETECTAR INTENCIÓN: Clasificar qué quiere el usuario
+  const userIntent = detectUserIntent(processedMessage);
+  console.warn(
+    `🎯 INTENT DETECTION: "${userIntent}" para "${processedMessage.substring(0, 50)}..."`
+  );
 
   // 🔍 DEBUG: Ver qué ejercicio está activo en el contexto
   console.warn('🎯 GEMINI activeAsset:', context.activeAsset?.name || 'NINGUNO');
@@ -1137,14 +1462,11 @@ export async function callGemini(
   // 🔍 DEBUG: Log herramientas disponibles
   console.warn(`📦 Herramientas enviadas a Gemini: ${geminiTools.length}`);
 
-  // 🔍 DEBUG: Detectar si es un comando de acción
-  const lowerMessage = processedMessage.toLowerCase();
-
   // Detectar si el usuario está preguntando sobre su físico, progreso o planes
   // En estos casos, incluiremos las fotos de progreso
   const isPhysiqueQuestion =
     /c[oó]mo me ve|analiza|progreso|f[ií]sico|cuerpo|m[uú]sculo|grasa|definici[oó]n|foto|imagen|plan.*entrena|qu[eé] rutina|qu[eé] plan|recomien/i.test(
-      lowerMessage
+      processedMessage.toLowerCase()
     );
 
   // Preparar fotos si hay y si es relevante
@@ -1156,11 +1478,17 @@ export async function callGemini(
     photosParts = await prepareProgressPhotosForGemini(context.progressPhotos);
   }
 
+  // 🧠 ENRIQUECER MENSAJE: Agregar contexto relevante según intención
+  const contextEnrichment = getRelevantContextSection(context, userIntent);
+  const enrichedMessage = contextEnrichment
+    ? `${processedMessage}\n\n[CONTEXTO RÁPIDO]\n${contextEnrichment}`
+    : processedMessage;
+
   // Construir las partes del mensaje del usuario
   const userMessageParts: GeminiMessage['parts'] = [];
 
-  // Primero el texto (ya preprocesado)
-  userMessageParts.push({ text: processedMessage });
+  // Primero el texto (ya preprocesado y enriquecido)
+  userMessageParts.push({ text: enrichedMessage });
 
   // Después las fotos si las hay
   if (photosParts.length > 0) {
@@ -1177,24 +1505,13 @@ export async function callGemini(
     },
   ];
 
-  // Detectar si es una CONFIRMACIÓN para ejecutar plan (solo entonces forzar herramientas)
-  const isPlanConfirmation =
-    /^(s[ií]|dale|ok|okey|está bien|confirmo|hazlo|ejecuta|crea|aplica|guarda)/i.test(
-      lowerMessage.trim()
-    ) &&
-    (context.planBuilderActive ||
-      conversationHistory.some((m) =>
-        m.parts.some(
-          (p) =>
-            'text' in p &&
-            typeof p.text === 'string' &&
-            (p.text.includes('comida') || p.text.includes('suplemento') || p.text.includes('plan'))
-        )
-      ));
-
-  // 🔧 FIX: Ya NO forzamos mode 'ANY' porque causa error 400 con muchas herramientas
-  // El system prompt es suficientemente claro para que Gemini sepa cuándo usar herramientas
-  // Gemini con mode AUTO + buen system prompt = funciona perfecto
+  // 🔧 OPTIMIZACIÓN: Ajustar temperatura según intención
+  let temperature = 0.2; // Default: más determinista
+  if (userIntent === 'conversational' || userIntent === 'analyze') {
+    temperature = 0.5; // Más creatividad para análisis y conversación
+  } else if (userIntent === 'modify_data' || userIntent === 'execute_action') {
+    temperature = 0.1; // Máxima precisión para modificaciones
+  }
 
   // Request body
   const requestBody = {
@@ -1210,22 +1527,21 @@ export async function callGemini(
     toolConfig: {
       functionCallingConfig: {
         // 🔧 FIX: Siempre AUTO - Gemini es inteligente y el system prompt es claro
-        // Mode ANY con 96+ herramientas causa error 400 (schema muy complejo)
         mode: 'AUTO',
       },
     },
     generationConfig: {
-      temperature: 0.2, // Más bajo = más determinista, mejor para function calling
+      temperature,
       topK: 40,
       topP: 0.95,
       maxOutputTokens: 1024,
     },
   };
 
-  console.warn('🔧 Mode: AUTO (siempre), herramientas:', geminiTools.length);
+  console.warn(`🔧 Mode: AUTO, Temperature: ${temperature}, Intent: ${userIntent}`);
 
   try {
-    // Timeout de 15 segundos para dar tiempo a Gemini 1.5 Flash
+    // Timeout de 15 segundos para dar tiempo a Gemini
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 15000);
 
@@ -1343,6 +1659,32 @@ export async function callGemini(
         // Limpiar el mensaje del patrón [EJECUTANDO...]
         textMessage = textMessage.replace(/\[EJECUTANDO\s+\w+\]\s*/gi, '').trim();
         console.warn('✅ Convertido a function call:', funcName);
+      }
+    }
+
+    // 🛡️ FALLBACK 3: Detectar cuando Gemini dice que limpió/borró el chat sin llamar la función
+    // Esto pasa cuando Gemini responde "Historial borrado" o similar sin function call
+    if (textMessage && toolCalls.length === 0) {
+      const clearChatPatterns = [
+        /historial\s+(borrado|limpiado|eliminado)/i,
+        /chat\s+(borrado|limpiado|limpio)/i,
+        /conversaci[oó]n\s+(borrada|limpiada|reiniciada)/i,
+        /listo.*empez(ar|amos)\s+de\s+(cero|nuevo)/i,
+        /🧹.*limpia/i,
+        /borrón y cuenta nueva/i,
+      ];
+
+      const matchesClearChat = clearChatPatterns.some((pattern) => pattern.test(textMessage));
+      if (matchesClearChat) {
+        console.warn(
+          '⚠️ Gemini dijo que limpió el chat sin llamar la función, forzando HANK_CLEAR_HISTORY...'
+        );
+        toolCalls.push({
+          tool: 'HANK_CLEAR_HISTORY' as HankToolName,
+          parameters: {},
+        });
+        // Limpiar el mensaje ya que la herramienta dará el mensaje correcto
+        textMessage = '';
       }
     }
 
