@@ -121,7 +121,7 @@ export default {
       // POST /delete-batch - Eliminar múltiples archivos
       // ========================================
       if (request.method === 'POST' && path === 'delete-batch') {
-        const body = await request.json() as { keys: string[] };
+        const body = (await request.json()) as { keys: string[] };
         const keys = body.keys || [];
 
         if (!Array.isArray(keys) || keys.length === 0) {

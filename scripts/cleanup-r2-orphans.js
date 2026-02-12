@@ -10,7 +10,8 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL;
-const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
+const SUPABASE_KEY =
+  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
 const R2_WORKER_URL = 'https://trens-r2-upload.trens-app.workers.dev';
 const R2_PUBLIC_URL = 'https://media.trens.app';
 
@@ -173,7 +174,9 @@ async function deleteOrphanFiles(orphanKeys) {
     const result = await response.json();
     if (result.success) {
       deleted += result.deleted;
-      console.log(`   Lote ${Math.floor(i / batchSize) + 1}: ${result.deleted} eliminados (total: ${deleted})`);
+      console.log(
+        `   Lote ${Math.floor(i / batchSize) + 1}: ${result.deleted} eliminados (total: ${deleted})`
+      );
     } else {
       console.error(`   ❌ Error en lote:`, result);
     }
