@@ -10165,30 +10165,6 @@ function GymScreen() {
                           <CameraIcon color="#FFFFFF" size={20} />
                         </TouchableOpacity>
 
-                        {/* BOTÓN RESTAURAR DEFAULT - Solo si tiene media custom en R2 */}
-                        {variation.image_url &&
-                          variation.image_url.includes('media.trens.app') && (
-                            <TouchableOpacity
-                              onPress={() => {
-                                setCurrentExerciseIndex(index);
-                                setCurrentVariationId(variation.id);
-                                restoreDefaultMedia();
-                              }}
-                              className="absolute bottom-24 right-16 items-center justify-center"
-                              style={{
-                                width: 48,
-                                height: 48,
-                                backgroundColor: 'rgba(0,0,0,0.6)',
-                                borderWidth: 1,
-                                borderColor: 'rgba(220,38,38,0.4)',
-                                borderRadius: 12,
-                                marginRight: 8,
-                              }}
-                            >
-                              <Undo2 color="#DC2626" size={20} />
-                            </TouchableOpacity>
-                          )}
-
                         {/* TÍTULO EJERCICIO */}
                         <View className="absolute bottom-4 left-4 right-20">
                           <Text
@@ -10480,6 +10456,14 @@ function GymScreen() {
         onCapture={handleWebCameraCapture}
         allowVideo={true}
         exerciseName={exercises[currentExerciseIndex]?.name}
+        hasCustomMedia={
+          !!(exercises[currentExerciseIndex]?.image_url &&
+            exercises[currentExerciseIndex]?.image_url.includes('media.trens.app'))
+        }
+        onRestoreDefault={() => {
+          setWebCameraModalVisible(false);
+          restoreDefaultMedia();
+        }}
       />
 
       {/* GLOBAL UPLOAD INDICATOR - Se muestra sobre todo cuando está subiendo */}

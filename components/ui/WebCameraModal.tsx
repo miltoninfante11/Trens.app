@@ -6,7 +6,7 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { View, Text, TouchableOpacity, Modal, ActivityIndicator, Platform } from 'react-native';
-import { X, RotateCcw, Camera } from 'lucide-react-native';
+import { X, RotateCcw, Camera, Undo2 } from 'lucide-react-native';
 import * as Haptics from '../../lib/haptics';
 
 export interface WebCameraResult {
@@ -23,6 +23,8 @@ interface WebCameraModalProps {
   onCapture: (result: WebCameraResult) => void;
   allowVideo?: boolean;
   exerciseName?: string;
+  hasCustomMedia?: boolean;
+  onRestoreDefault?: () => void;
 }
 
 type CameraMode = 'photo' | 'video';
@@ -34,6 +36,8 @@ export function WebCameraModal({
   onCapture,
   allowVideo = true,
   exerciseName,
+  hasCustomMedia = false,
+  onRestoreDefault,
 }: WebCameraModalProps) {
   const videoElementRef = useRef<HTMLVideoElement | null>(null);
   const canvasElementRef = useRef<HTMLCanvasElement | null>(null);
@@ -532,8 +536,8 @@ export function WebCameraModal({
 
             {/* Controls */}
             <View className="bg-black py-6 border-t border-zinc-900 pb-12">
-              {/* Gallery button */}
-              <View className="flex-row justify-center mb-4">
+              {/* Gallery + Default buttons */}
+              <View className="flex-row justify-center mb-4" style={{ gap: 12 }}>
                 <TouchableOpacity
                   onPress={pickFromGallery}
                   className="px-6 py-3 rounded-full border border-zinc-700"
@@ -542,6 +546,20 @@ export function WebCameraModal({
                 >
                   <Text className="text-white font-bold">📁 GALERÍA</Text>
                 </TouchableOpacity>
+                {hasCustomMedia && onRestoreDefault && (
+                  <TouchableOpacity
+                    onPress={() => {
+                      cleanup();
+                      onRestoreDefault();
+                    }}
+                    className="px-4 py-3 rounded-full border border-zinc-700 flex-row items-center"
+                    style={{ backgroundColor: '#18181b', gap: 6 }}
+                    disabled={isRecording}
+                  >
+                    <Undo2 color="#DC2626" size={16} />
+                    <Text style={{ color: '#DC2626', fontWeight: 'bold' }}>DEFAULT</Text>
+                  </TouchableOpacity>
+                )}
               </View>
 
               {/* Capture button */}
