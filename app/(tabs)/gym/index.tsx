@@ -3970,25 +3970,32 @@ function GymScreen() {
       }
     }
 
-    // Actualizar estado local
+    // Actualizar estado local INMEDIATAMENTE para reflejar el cambio
     setExercises((prev) =>
       prev.map((ex) => {
-        if (ex.id === exerciseId) {
+        // Verificar si es el ejercicio principal (por id o exercise_id)
+        if (ex.id === exerciseId || ex.exercise_id === exerciseId) {
+          console.log('🔄 Updating main exercise image_url:', ex.name);
           return { ...ex, image_url: mediaUrl };
         }
+        // Verificar si es una alternativa
         if (ex.alternatives) {
-          return {
-            ...ex,
-            alternatives: ex.alternatives.map((alt) =>
-              alt.id === exerciseId ? { ...alt, image_url: mediaUrl } : alt
-            ),
-          };
+          const altIndex = ex.alternatives.findIndex((alt) => alt.id === exerciseId);
+          if (altIndex !== -1) {
+            console.log('🔄 Updating alternative image_url:', ex.alternatives[altIndex].name);
+            const newAlternatives = [...ex.alternatives];
+            newAlternatives[altIndex] = { ...newAlternatives[altIndex], image_url: mediaUrl };
+            return { ...ex, alternatives: newAlternatives };
+          }
         }
         return ex;
       })
     );
+    
+    // Forzar refresh de la lista para que se vea el cambio inmediatamente
+    setListRefreshKey((prev) => prev + 1);
 
-    console.log('✅ Database updated with new media URL');
+    console.log('✅ Database and local state updated with new media URL');
   };
 
   const capturePhoto = async () => {
@@ -4299,6 +4306,9 @@ function GymScreen() {
         return ex;
       });
       setExercises(updatedExercises);
+      
+      // Forzar refresco de la lista para mostrar el nuevo media inmediatamente
+      setListRefreshKey((prev) => prev + 1);
 
       // Actualizar también en allUserExercises para que el catálogo muestre la imagen nueva
       const exerciseName =
