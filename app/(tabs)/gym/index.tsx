@@ -4050,8 +4050,10 @@ function GymScreen() {
       return;
     }
 
-    // Buscar el ejercicio actual
-    let currentExercise = exercises.find((ex) => ex.id === exerciseIdToUpdate);
+    // Buscar el ejercicio actual - por id (config) o exercise_id (catálogo global)
+    let currentExercise = exercises.find(
+      (ex) => ex.id === exerciseIdToUpdate || ex.exercise_id === exerciseIdToUpdate
+    );
     let isAlternative = false;
 
     if (!currentExercise) {
@@ -4141,11 +4143,14 @@ function GymScreen() {
           console.log('🔄 Alt config cleared:', updateErr || 'OK');
         }
       } else {
+        // Para ejercicio principal: exerciseIdToUpdate puede ser exercise_id (global) o id (config)
+        // Intentar primero por id, luego por exercise_id + user_id
+        const configId = currentExercise.id; // user_exercise_config.id
         const { error: updateErr } = await supabase
           .from('user_exercise_config')
           .update({ custom_media_url: null })
-          .eq('id', exerciseIdToUpdate);
-        console.log('🔄 Main config cleared:', updateErr || 'OK');
+          .eq('id', configId);
+        console.log('🔄 Main config cleared (configId:', configId, '):', updateErr || 'OK');
       }
 
       // Limpiar en user_exercise_media
