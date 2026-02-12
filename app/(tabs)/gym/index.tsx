@@ -3635,13 +3635,18 @@ function GymScreen() {
           setMediaType(isVideo ? 'video' : 'photo');
           setImageToEdit(result.uri);
           // Guardar el File original para upload confiable (usando ref para acceso inmediato)
-          galleryFileRef.current = result.file || null;
-          console.log(
-            '📁 Gallery file saved to ref:',
-            result.file?.name,
-            result.file?.size,
-            result.file?.type
-          );
+          if (result.file) {
+            galleryFileRef.current = result.file;
+            console.log(
+              '📁✅ Gallery file saved to ref successfully:',
+              result.file.name,
+              result.file.size,
+              result.file.type
+            );
+          } else {
+            console.warn('⚠️ Gallery result has no file property - upload may fail!');
+            galleryFileRef.current = null;
+          }
           setEditorVisible(true);
         } else if (result.error && result.error !== 'Cancelado por el usuario') {
           alert(result.error);
@@ -3710,6 +3715,7 @@ function GymScreen() {
         }
 
         console.log('🎯 Exercise ID to update:', exerciseIdToUpdate);
+        console.log('📁 galleryFileRef.current at save time:', galleryFileRef.current ? `${galleryFileRef.current.name} (${galleryFileRef.current.size} bytes)` : 'NULL');
 
         // Obtener el blob - usar galleryFileRef si está disponible (más confiable)
         let blob: Blob;
@@ -3723,30 +3729,32 @@ function GymScreen() {
             galleryFileRef.current.type
           );
           blob = galleryFileRef.current;
-        } else {
-          // Fallback: Obtener el blob desde el URI (blob: o data:)
-          console.log('🔗 Getting blob from URI:', imageToEdit.substring(0, 100));
+        } else if (imageToEdit.startsWith('data:')) {
+          // Data URL - convertir directamente
+          console.log('📄 Converting data URL to blob (camera capture)...');
           try {
-            if (imageToEdit.startsWith('data:')) {
-              // Convertir data URL a Blob
-              console.log('📄 Converting data URL to blob...');
-              const response = await fetch(imageToEdit);
-              blob = await response.blob();
-              console.log('📦 Converted data URL to blob, size:', blob.size);
-            } else {
-              // Fetch blob URL directamente
-              console.log('🔗 Fetching blob URL...');
-              const response = await fetch(imageToEdit);
-              console.log('🔗 Fetch response:', response.status, response.statusText);
-              if (!response.ok) {
-                throw new Error(`Failed to fetch blob: ${response.status} ${response.statusText}`);
-              }
-              blob = await response.blob();
-              console.log('📦 Got blob from URL, size:', blob.size, 'type:', blob.type);
+            const response = await fetch(imageToEdit);
+            blob = await response.blob();
+            console.log('📦 Converted data URL to blob, size:', blob.size);
+          } catch (dataError) {
+            console.error('❌ Error converting data URL:', dataError);
+            throw new Error(`Error convirtiendo imagen: ${dataError}`);
+          }
+        } else {
+          // Fallback para blob URLs (después de que la galería cerró sin guardar el File)
+          console.log('🔗 Fetching blob URL (fallback):', imageToEdit.substring(0, 100));
+          console.warn('⚠️ galleryFileRef.current es null - intentando fetch directo (puede fallar)');
+          try {
+            const response = await fetch(imageToEdit);
+            console.log('🔗 Fetch response:', response.status, response.statusText);
+            if (!response.ok) {
+              throw new Error(`Failed to fetch blob: ${response.status} ${response.statusText}`);
             }
+            blob = await response.blob();
+            console.log('📦 Got blob from URL, size:', blob.size, 'type:', blob.type);
           } catch (fetchError) {
-            console.error('❌ Error getting blob:', fetchError);
-            throw new Error(`Error obteniendo imagen: ${fetchError}`);
+            console.error('❌ Error fetching blob URL:', fetchError);
+            throw new Error(`Error al obtener imagen de galería. Por favor, intenta de nuevo seleccionando la imagen.`);
           }
         }
 
@@ -3991,7 +3999,7 @@ function GymScreen() {
         return ex;
       })
     );
-    
+
     // Forzar refresh de la lista para que se vea el cambio inmediatamente
     setListRefreshKey((prev) => prev + 1);
 
@@ -4306,7 +4314,7 @@ function GymScreen() {
         return ex;
       });
       setExercises(updatedExercises);
-      
+
       // Forzar refresco de la lista para mostrar el nuevo media inmediatamente
       setListRefreshKey((prev) => prev + 1);
 
@@ -9879,9 +9887,11 @@ function GymScreen() {
                           />
                         ) : variation.image_url ? (
                           <Image
+                            key={`img-${variation.id}-${variation.image_url}`}
                             source={{ uri: variation.image_url }}
                             style={{ width: SCREEN_WIDTH, height: '100%' }}
                             contentFit="cover"
+                            cachePolicy="none"
                           />
                         ) : (
                           // Placeholder cuando no hay imagen
