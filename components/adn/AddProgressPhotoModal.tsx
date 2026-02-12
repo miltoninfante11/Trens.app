@@ -4,7 +4,7 @@ import { Alert } from '../../lib/alert';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Camera, Image as ImageIcon, Upload, X } from 'lucide-react-native';
 import * as Haptics from '../../lib/haptics';
-import * as ImagePicker from 'expo-image-picker';
+import { openCamera, openGallery } from '../../lib/webCamera';
 import { uploadProgressPhoto } from '../../services/progress/photos';
 import { BottomSheetModal } from '../ui/BottomSheetModal';
 
@@ -40,44 +40,44 @@ export default function AddProgressPhotoModal({
   const pickFromCamera = async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
-    const { status } = await ImagePicker.requestCameraPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert('Permiso requerido', 'Necesitamos acceso a la cámara para tomar fotos.');
-      return;
-    }
-
-    const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: ['images'],
+    const result = await openCamera({
       quality: 0.8,
       base64: true,
       allowsEditing: true,
       aspect: [3, 4],
     });
 
-    if (!result.canceled && result.assets[0].base64) {
-      setSelectedImage(`data:image/jpeg;base64,${result.assets[0].base64}`);
+    if (result.success && result.uri) {
+      // Si ya viene como data URL, usarlo directamente
+      if (result.uri.startsWith('data:')) {
+        setSelectedImage(result.uri);
+      } else if (result.base64) {
+        setSelectedImage(`data:image/jpeg;base64,${result.base64}`);
+      }
+    } else if (result.error && result.error !== 'Cancelado por el usuario') {
+      Alert.alert('Error', result.error);
     }
   };
 
   const pickFromGallery = async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert('Permiso requerido', 'Necesitamos acceso a tu galería.');
-      return;
-    }
-
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
+    const result = await openGallery({
       quality: 0.8,
       base64: true,
       allowsEditing: true,
       aspect: [3, 4],
     });
 
-    if (!result.canceled && result.assets[0].base64) {
-      setSelectedImage(`data:image/jpeg;base64,${result.assets[0].base64}`);
+    if (result.success && result.uri) {
+      // Si ya viene como data URL, usarlo directamente
+      if (result.uri.startsWith('data:')) {
+        setSelectedImage(result.uri);
+      } else if (result.base64) {
+        setSelectedImage(`data:image/jpeg;base64,${result.base64}`);
+      }
+    } else if (result.error && result.error !== 'Cancelado por el usuario') {
+      Alert.alert('Error', result.error);
     }
   };
 

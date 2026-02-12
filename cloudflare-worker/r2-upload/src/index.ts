@@ -6,14 +6,24 @@
 export interface Env {
   BUCKET: R2Bucket;
   ALLOWED_ORIGINS: string;
+  PUBLIC_URL: string;
 }
 
 const corsHeaders = (origin: string, allowedOrigins: string) => {
-  const origins = allowedOrigins.split(',');
-  const isAllowed = origins.some((o) => origin.startsWith(o.trim()));
+  const origins = allowedOrigins.split(',').map((o) => o.trim());
+
+  // Verificar si el origen está permitido (soporta wildcards básicos)
+  const isAllowed = origins.some((pattern) => {
+    if (pattern.includes('*')) {
+      // Convertir patron wildcard a regex
+      const regexPattern = pattern.replace(/\./g, '\\.').replace(/\*/g, '.*');
+      return new RegExp(`^${regexPattern}$`).test(origin);
+    }
+    return origin.startsWith(pattern);
+  });
 
   return {
-    'Access-Control-Allow-Origin': isAllowed ? origin : origins[0],
+    'Access-Control-Allow-Origin': isAllowed ? origin : origins[0].replace('*', ''),
     'Access-Control-Allow-Methods': 'GET, PUT, POST, DELETE, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-File-Key, X-Content-Type',
     'Access-Control-Max-Age': '86400',
@@ -56,7 +66,9 @@ export default {
           },
         });
 
-        const publicUrl = `https://media.trens.app/${fileKey}`;
+        // Usar PUBLIC_URL de la configuración o fallback
+        const publicBaseUrl = env.PUBLIC_URL || 'https://media.trens.app';
+        const publicUrl = `${publicBaseUrl}/${fileKey}`;
 
         return new Response(
           JSON.stringify({

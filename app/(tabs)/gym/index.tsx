@@ -47,6 +47,13 @@ import {
 } from 'lucide-react-native';
 import * as Haptics from '../../../lib/haptics';
 import { CameraView, useCameraPermissions } from 'expo-camera';
+import {
+  openCamera as openWebCamera,
+  openGallery as openWebGallery,
+  compressImage,
+  compressVideo,
+} from '../../../lib/webCamera';
+import { WebCameraModal, WebCameraResult } from '../../../components/ui/WebCameraModal';
 import * as FileSystem from 'expo-file-system/legacy';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
@@ -725,6 +732,7 @@ function GymScreen() {
   const [imageToEdit, setImageToEdit] = useState<string | null>(null);
   const [editorVisible, setEditorVisible] = useState(false);
   const [mediaType, setMediaType] = useState<'photo' | 'video'>('photo');
+  const galleryFileRef = useRef<File | null>(null); // Ref para archivo de galería (más confiable que state)
 
   // Video Player para preview en editor (cuando se selecciona video de galería)
   const editorVideoPlayer = useVideoPlayer(
@@ -846,9 +854,11 @@ function GymScreen() {
 
   // Camera State
   const [cameraModalVisible, setCameraModalVisible] = useState(false);
+  const [webCameraModalVisible, setWebCameraModalVisible] = useState(false);
   const [permission, requestPermission] = useCameraPermissions();
   const cameraRef = useRef<any>(null);
   const [captureProcessing, setCaptureProcessing] = useState(false);
+  const [uploadingMessage, setUploadingMessage] = useState<string | null>(null);
   const [cameraMode, setCameraMode] = useState<'photo' | 'video'>('photo');
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
@@ -3582,6 +3592,14 @@ function GymScreen() {
   // CAMERA FUNCTIONS
   // ============================================================================
   const openCamera = async () => {
+    // En web/PWA usar el WebCameraModal con preview en tiempo real
+    if (Platform.OS === 'web') {
+      setWebCameraModalVisible(true);
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      return;
+    }
+
+    // En nativo, usar expo-camera con modal de preview
     if (!permission || !permission.granted) {
       const result = await requestPermission();
       if (!result.granted) {
@@ -3594,10 +3612,45 @@ function GymScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
   };
 
+  // Handler para cuando se captura algo en WebCameraModal
+  const handleWebCameraCapture = (result: WebCameraResult) => {
+    setWebCameraModalVisible(false);
+    if (result.success && result.uri) {
+      setMediaType(result.type === 'video' ? 'video' : 'photo');
+      setImageToEdit(result.uri);
+      setEditorVisible(true);
+    }
+  };
+
   const pickFromGallery = async () => {
     try {
       setIsPickingFromGallery(true); // Pausar videos mientras se elige de galería
 
+      // En web/PWA usar el selector de archivos universal
+      if (Platform.OS === 'web') {
+        const result = await openWebGallery({ quality: 0.5 });
+        if (result.success && result.uri) {
+          // Usar el tipo detectado por webCamera
+          const isVideo = result.type === 'video';
+          setMediaType(isVideo ? 'video' : 'photo');
+          setImageToEdit(result.uri);
+          // Guardar el File original para upload confiable (usando ref para acceso inmediato)
+          galleryFileRef.current = result.file || null;
+          console.log(
+            '📁 Gallery file saved to ref:',
+            result.file?.name,
+            result.file?.size,
+            result.file?.type
+          );
+          setEditorVisible(true);
+        } else if (result.error && result.error !== 'Cancelado por el usuario') {
+          alert(result.error);
+        }
+        setIsPickingFromGallery(false);
+        return;
+      }
+
+      // En nativo, usar expo-image-picker
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== 'granted') {
         alert('Se requiere permiso para acceder a la galería');
@@ -3633,8 +3686,134 @@ function GymScreen() {
 
     try {
       setCaptureProcessing(true);
+      setUploadingMessage(mediaType === 'video' ? '📹 SUBIENDO VIDEO...' : '📷 SUBIENDO FOTO...');
       setEditorVisible(false);
 
+      // En web con blob URLs o data URLs, usar uploadFromBlob directamente
+      const isWebUpload =
+        Platform.OS === 'web' &&
+        (imageToEdit.startsWith('blob:') || imageToEdit.startsWith('data:'));
+      if (isWebUpload) {
+        console.log(
+          '🌐 Web upload detected, using blob upload. URI type:',
+          imageToEdit.substring(0, 30)
+        );
+
+        if (!user) {
+          throw new Error('Usuario no autenticado');
+        }
+
+        // Obtener el ejercicio actual
+        const exerciseIdToUpdate = currentVariationId || exercises[currentExerciseIndex]?.id;
+        if (!exerciseIdToUpdate) {
+          throw new Error('No hay ejercicio seleccionado');
+        }
+
+        console.log('🎯 Exercise ID to update:', exerciseIdToUpdate);
+
+        // Obtener el blob - usar galleryFileRef si está disponible (más confiable)
+        let blob: Blob;
+
+        if (galleryFileRef.current) {
+          // Usar el archivo original guardado de la galería
+          console.log(
+            '📁 Using saved gallery file from ref:',
+            galleryFileRef.current.name,
+            galleryFileRef.current.size,
+            galleryFileRef.current.type
+          );
+          blob = galleryFileRef.current;
+        } else {
+          // Fallback: Obtener el blob desde el URI (blob: o data:)
+          console.log('🔗 Getting blob from URI:', imageToEdit.substring(0, 100));
+          try {
+            if (imageToEdit.startsWith('data:')) {
+              // Convertir data URL a Blob
+              console.log('📄 Converting data URL to blob...');
+              const response = await fetch(imageToEdit);
+              blob = await response.blob();
+              console.log('📦 Converted data URL to blob, size:', blob.size);
+            } else {
+              // Fetch blob URL directamente
+              console.log('🔗 Fetching blob URL...');
+              const response = await fetch(imageToEdit);
+              console.log('🔗 Fetch response:', response.status, response.statusText);
+              if (!response.ok) {
+                throw new Error(`Failed to fetch blob: ${response.status} ${response.statusText}`);
+              }
+              blob = await response.blob();
+              console.log('📦 Got blob from URL, size:', blob.size, 'type:', blob.type);
+            }
+          } catch (fetchError) {
+            console.error('❌ Error getting blob:', fetchError);
+            throw new Error(`Error obteniendo imagen: ${fetchError}`);
+          }
+        }
+
+        console.log('📦 Original Blob - size:', blob.size, 'type:', blob.type);
+
+        if (blob.size === 0) {
+          throw new Error('El archivo está vacío (blob size = 0)');
+        }
+
+        // Determinar tipo y extensión
+        const isVideo = mediaType === 'video' || blob.type.startsWith('video');
+
+        // COMPRIMIR antes de subir
+        setUploadingMessage(isVideo ? '🗜️ COMPRIMIENDO VIDEO...' : '🗜️ COMPRIMIENDO FOTO...');
+
+        let compressedBlob: Blob;
+        try {
+          if (isVideo) {
+            // Comprimir video a 720p max, 10 segundos max
+            console.log('🎬 Starting video compression...');
+            compressedBlob = await compressVideo(blob, 720, 10);
+          } else {
+            // Comprimir imagen a 1080px max, calidad 0.7
+            console.log('📸 Starting image compression...');
+            compressedBlob = await compressImage(blob, 1080, 0.7);
+          }
+          console.log(
+            `✅ Compression complete: ${Math.round(blob.size / 1024)}KB → ${Math.round(compressedBlob.size / 1024)}KB`
+          );
+        } catch (compressError) {
+          console.warn('⚠️ Compression failed, using original:', compressError);
+          compressedBlob = blob; // Fallback al original si falla la compresión
+        }
+
+        setUploadingMessage(isVideo ? '📹 SUBIENDO VIDEO...' : '📷 SUBIENDO FOTO...');
+
+        const extension = isVideo ? 'mp4' : 'jpg';
+        const contentType = isVideo ? 'video/mp4' : 'image/jpeg';
+        const timestamp = Date.now();
+        const key = `exercises/${user.id}/${exerciseIdToUpdate}/${timestamp}.${extension}`;
+
+        // Subir usando el método blob (vía Worker)
+        console.log('☁️ Uploading to R2 via Worker...', {
+          key,
+          contentType,
+          blobSize: compressedBlob.size,
+        });
+        const result = await cloudflareR2.uploadFromBlob(compressedBlob, key, contentType);
+        console.log('☁️ Upload result:', JSON.stringify(result));
+
+        if (!result.success || !result.url) {
+          console.error('❌ Upload failed:', result);
+          throw new Error(result.error || 'Error subiendo archivo');
+        }
+
+        console.log('✅ Blob upload success:', result.url);
+
+        // Actualizar en la base de datos
+        await updateExerciseMediaInDB(exerciseIdToUpdate, result.url, isVideo ? 'video' : 'image');
+
+        setImageToEdit(null);
+        galleryFileRef.current = null; // Limpiar archivo de galería
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        return;
+      }
+
+      // Flujo nativo (no web)
       if (mediaType === 'video') {
         // Para videos, subir directamente sin procesamiento
         await uploadExerciseMedia(imageToEdit, 'video');
@@ -3670,13 +3849,146 @@ function GymScreen() {
       }
 
       setImageToEdit(null);
+      galleryFileRef.current = null; // Limpiar archivo de galería
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (error) {
       console.error('💥 Error saving edited image:', error);
-      alert('Error al guardar');
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error('💥 Error details:', errorMessage);
+      alert(`Error al guardar: ${errorMessage}`);
     } finally {
       setCaptureProcessing(false);
+      setUploadingMessage(null);
     }
+  };
+
+  // Helper para actualizar la DB después de subir media en web
+  const updateExerciseMediaInDB = async (
+    exerciseId: string,
+    mediaUrl: string,
+    mediaType: 'image' | 'video'
+  ) => {
+    if (!user) {
+      console.error('❌ updateExerciseMediaInDB: No user');
+      return;
+    }
+
+    console.log('💾 updateExerciseMediaInDB:', { exerciseId, mediaUrl, mediaType });
+
+    // Buscar el ejercicio por ID directo o por exercise_id (catálogo global)
+    let currentExercise = exercises.find(
+      (ex) => ex.id === exerciseId || ex.exercise_id === exerciseId
+    );
+    let isAlternative = false;
+
+    if (!currentExercise) {
+      for (const ex of exercises) {
+        // Para alternativas, el id ya es el exercise_id global
+        const found = ex.alternatives?.find((alt) => alt.id === exerciseId);
+        if (found) {
+          currentExercise = found as any;
+          isAlternative = true;
+          break;
+        }
+      }
+    }
+
+    if (!currentExercise) {
+      console.error('❌ updateExerciseMediaInDB: Exercise not found for ID:', exerciseId);
+      console.log(
+        '💾 Available exercise IDs:',
+        exercises.map((ex) => ({ id: ex.id, exercise_id: ex.exercise_id, name: ex.name }))
+      );
+      return;
+    }
+
+    console.log('💾 Exercise found:', { name: currentExercise.name, isAlternative });
+
+    const globalExerciseId = isAlternative ? exerciseId : currentExercise.exercise_id || exerciseId;
+
+    // Guardar en tabla persistente
+    const { error: persistError } = await supabase.from('user_exercise_media').upsert(
+      {
+        user_id: user.id,
+        exercise_id: globalExerciseId,
+        custom_media_url: mediaUrl,
+        media_type: mediaType,
+      },
+      { onConflict: 'user_id,exercise_id' }
+    );
+
+    if (persistError) {
+      console.error('❌ Error saving to user_exercise_media:', persistError);
+    } else {
+      console.log('✅ Saved to user_exercise_media');
+    }
+
+    // Actualizar en user_exercise_config
+    if (isAlternative) {
+      const { data: existingConfig, error: checkError } = await supabase
+        .from('user_exercise_config')
+        .select('id')
+        .eq('user_id', user.id)
+        .eq('exercise_id', exerciseId)
+        .single();
+
+      if (checkError && checkError.code !== 'PGRST116') {
+        console.error('❌ Error checking existing config:', checkError);
+      }
+
+      if (existingConfig) {
+        const { error: updateError } = await supabase
+          .from('user_exercise_config')
+          .update({ custom_media_url: mediaUrl })
+          .eq('id', existingConfig.id);
+        if (updateError) {
+          console.error('❌ Error updating config:', updateError);
+        } else {
+          console.log('✅ Updated existing config');
+        }
+      } else {
+        const { error: insertError } = await supabase.from('user_exercise_config').insert({
+          user_id: user.id,
+          exercise_id: exerciseId,
+          custom_media_url: mediaUrl,
+        });
+        if (insertError) {
+          console.error('❌ Error inserting config:', insertError);
+        } else {
+          console.log('✅ Inserted new config');
+        }
+      }
+    } else {
+      const { error: updateError } = await supabase
+        .from('user_exercise_config')
+        .update({ custom_media_url: mediaUrl })
+        .eq('id', exerciseId);
+      if (updateError) {
+        console.error('❌ Error updating main exercise config:', updateError);
+      } else {
+        console.log('✅ Updated main exercise config');
+      }
+    }
+
+    // Actualizar estado local
+    setExercises((prev) =>
+      prev.map((ex) => {
+        if (ex.id === exerciseId) {
+          return { ...ex, image_url: mediaUrl };
+        }
+        if (ex.alternatives) {
+          return {
+            ...ex,
+            alternatives: ex.alternatives.map((alt) =>
+              alt.id === exerciseId ? { ...alt, image_url: mediaUrl } : alt
+            ),
+          };
+        }
+        return ex;
+      })
+    );
+
+    console.log('✅ Database updated with new media URL');
   };
 
   const capturePhoto = async () => {
@@ -3684,12 +3996,15 @@ function GymScreen() {
 
     try {
       setCaptureProcessing(true);
+      setUploadingMessage('📷 CAPTURANDO...');
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
 
       const photo = await cameraRef.current.takePictureAsync({
         quality: 0.8,
         base64: false,
       });
+
+      setUploadingMessage('📷 SUBIENDO FOTO...');
 
       // Comprimir a 720p y hacer cuadrada la imagen (1:1)
       const manipulatedImage = await manipulateAsync(
@@ -3714,6 +4029,7 @@ function GymScreen() {
       alert('Error al capturar foto');
     } finally {
       setCaptureProcessing(false);
+      setUploadingMessage(null);
     }
   };
 
@@ -3802,6 +4118,7 @@ function GymScreen() {
 
     try {
       setCaptureProcessing(true);
+      setUploadingMessage('📹 SUBIENDO VIDEO...');
       await uploadExerciseMedia(capturedVideoUri, 'video');
       setCapturedVideoUri(null);
       setCameraModalVisible(false);
@@ -3810,6 +4127,7 @@ function GymScreen() {
       alert('Error al guardar video');
     } finally {
       setCaptureProcessing(false);
+      setUploadingMessage(null);
     }
   };
 
@@ -7968,6 +8286,7 @@ function GymScreen() {
             onPress={() => {
               setEditorVisible(false);
               setImageToEdit(null);
+              galleryFileRef.current = null; // Limpiar archivo de galería
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
             }}
             className="bg-zinc-900 px-4 py-2 rounded-full"
@@ -7991,15 +8310,44 @@ function GymScreen() {
           {imageToEdit && (
             <View className="w-full max-w-[90%]" style={{ aspectRatio: 1 }}>
               {mediaType === 'video' ? (
-                // Para videos, usar VideoView
-                <VideoView
-                  player={editorVideoPlayer}
-                  style={{ width: '100%', height: '100%', borderRadius: 8 }}
-                  contentFit="cover"
-                  nativeControls={false}
+                // Para videos, usar VideoView o video nativo en web
+                Platform.OS === 'web' ? (
+                  <video
+                    src={imageToEdit}
+                    style={{
+                      width: '100%',
+                      height: '100%',
+                      borderRadius: 8,
+                      objectFit: 'cover',
+                      backgroundColor: '#000',
+                    }}
+                    autoPlay
+                    loop
+                    muted
+                    playsInline
+                  />
+                ) : (
+                  <VideoView
+                    player={editorVideoPlayer}
+                    style={{ width: '100%', height: '100%', borderRadius: 8 }}
+                    contentFit="cover"
+                    nativeControls={false}
+                  />
+                )
+              ) : // Para fotos, usar img nativo en web (más confiable con blob URLs)
+              Platform.OS === 'web' ? (
+                <img
+                  src={imageToEdit}
+                  style={{
+                    width: '100%',
+                    height: '100%',
+                    borderRadius: 8,
+                    objectFit: 'cover',
+                    backgroundColor: '#000',
+                  }}
+                  alt="Preview"
                 />
               ) : (
-                // Para fotos, usar Image con style explícito
                 <Image
                   source={{ uri: imageToEdit }}
                   style={{ width: '100%', height: '100%', borderRadius: 8 }}
@@ -8208,11 +8556,21 @@ function GymScreen() {
                 </View>
               </View>
 
-              {/* PROCESSING INDICATOR */}
+              {/* PROCESSING/UPLOAD INDICATOR */}
               {captureProcessing && (
-                <View className="absolute inset-0 bg-black/80 justify-center items-center z-50">
-                  <ActivityIndicator size="large" color="#DC2626" />
-                  <Text className="text-white mt-4 font-bold">PROCESANDO...</Text>
+                <View className="absolute inset-0 bg-black/90 justify-center items-center z-50">
+                  <View className="bg-zinc-900 rounded-2xl p-8 items-center border border-zinc-800">
+                    {/* Animated upload icon */}
+                    <View className="w-20 h-20 rounded-full bg-savage-red/20 items-center justify-center mb-4">
+                      <ActivityIndicator size="large" color="#DC2626" />
+                    </View>
+                    <Text className="text-white text-lg font-bold tracking-wider">
+                      {uploadingMessage || 'PROCESANDO...'}
+                    </Text>
+                    <Text className="text-zinc-500 text-xs mt-2">
+                      {uploadingMessage ? 'Por favor espera' : 'Preparando archivo'}
+                    </Text>
+                  </View>
                 </View>
               )}
 
@@ -9918,6 +10276,35 @@ function GymScreen() {
       {renderFocusSeriesModal()}
       {renderCameraModal()}
       {renderEditorModal()}
+
+      {/* Web Camera Modal - Solo para PWA */}
+      <WebCameraModal
+        visible={webCameraModalVisible}
+        onClose={() => setWebCameraModalVisible(false)}
+        onCapture={handleWebCameraCapture}
+        allowVideo={true}
+        exerciseName={exercises[currentExerciseIndex]?.name}
+      />
+
+      {/* GLOBAL UPLOAD INDICATOR - Se muestra sobre todo cuando está subiendo */}
+      {captureProcessing && !cameraModalVisible && (
+        <View
+          className="absolute inset-0 bg-black/95 justify-center items-center z-50"
+          style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
+        >
+          <View className="bg-zinc-900 rounded-2xl p-8 items-center border border-zinc-800 mx-8">
+            <View className="w-20 h-20 rounded-full bg-savage-red/20 items-center justify-center mb-4">
+              <ActivityIndicator size="large" color="#DC2626" />
+            </View>
+            <Text className="text-white text-lg font-bold tracking-wider text-center">
+              {uploadingMessage || 'PROCESANDO...'}
+            </Text>
+            <Text className="text-zinc-500 text-xs mt-2 text-center">
+              {uploadingMessage ? 'Por favor espera' : 'Preparando archivo'}
+            </Text>
+          </View>
+        </View>
+      )}
     </GestureHandlerRootView>
   );
 }

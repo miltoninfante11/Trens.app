@@ -1,23 +1,21 @@
 // ============================================================================
 // CLOUDFLARE R2 SERVICE - TRENS
-// Storage para fotos y videos cortos de ejercicios (máx 15s)
-// Usa crypto-js para AWS Signature V4 compatible con React Native
+// Storage para fotos y videos cortos de ejercicios
+// Usa Worker proxy para uploads (más seguro y funciona en web + móvil)
 // ============================================================================
 
 import * as FileSystem from 'expo-file-system/legacy';
-import CryptoJS from 'crypto-js';
+import { Platform } from 'react-native';
 
 // ============================================================================
 // CONFIGURACIÓN
 // ============================================================================
-const ACCOUNT_ID = process.env.EXPO_PUBLIC_CLOUDFLARE_ACCOUNT_ID;
-const ACCESS_KEY_ID = process.env.EXPO_PUBLIC_CLOUDFLARE_R2_ACCESS_KEY_ID;
-const SECRET_ACCESS_KEY = process.env.EXPO_PUBLIC_CLOUDFLARE_R2_SECRET_ACCESS_KEY;
-const BUCKET_NAME = process.env.EXPO_PUBLIC_CLOUDFLARE_R2_BUCKET_NAME || 'trens-exercise-media';
 const PUBLIC_URL = process.env.EXPO_PUBLIC_CLOUDFLARE_R2_PUBLIC_URL || 'https://media.trens.app';
 
-// R2 API endpoint
-const R2_ENDPOINT = `https://${ACCOUNT_ID}.r2.cloudflarestorage.com`;
+// Worker URL para uploads (funciona en web y móvil)
+const R2_WORKER_URL =
+  process.env.EXPO_PUBLIC_CLOUDFLARE_R2_WORKER_URL ||
+  'https://trens-r2-upload.trens-app.workers.dev';
 
 // ============================================================================
 // TIPOS
@@ -35,189 +33,211 @@ export interface R2DeleteResult {
 }
 
 // ============================================================================
-// UTILIDADES - AWS Signature V4 con crypto-js (HMAC real)
+// UTILIDADES
 // ============================================================================
 
-const sha256 = (message: string): string => {
-  return CryptoJS.SHA256(message).toString(CryptoJS.enc.Hex);
-};
+/**
+ * Convierte un URI de archivo a Blob (funciona en móvil y web)
+ */
+async function uriToBlob(uri: string): Promise<Blob> {
+  // Si es una URL blob o data URL, hacer fetch directamente
+  if (uri.startsWith('blob:') || uri.startsWith('data:')) {
+    const response = await fetch(uri);
+    return response.blob();
+  }
 
-const hmacSha256 = (
-  key: string | CryptoJS.lib.WordArray,
-  message: string
-): CryptoJS.lib.WordArray => {
-  return CryptoJS.HmacSHA256(message, key);
-};
+  // En web, intentar fetch directo
+  if (Platform.OS === 'web') {
+    const response = await fetch(uri);
+    return response.blob();
+  }
 
-const getSignatureKey = (
-  secretKey: string,
-  dateStamp: string,
-  region: string,
-  service: string
-): CryptoJS.lib.WordArray => {
-  const kDate = hmacSha256('AWS4' + secretKey, dateStamp);
-  const kRegion = hmacSha256(kDate, region);
-  const kService = hmacSha256(kRegion, service);
-  const kSigning = hmacSha256(kService, 'aws4_request');
-  return kSigning;
-};
+  // En móvil, leer como base64 y convertir a blob
+  const base64 = await FileSystem.readAsStringAsync(uri, {
+    encoding: FileSystem.EncodingType.Base64,
+  });
+
+  // Detectar tipo MIME del archivo
+  const mimeType = uri.toLowerCase().endsWith('.mp4')
+    ? 'video/mp4'
+    : uri.toLowerCase().endsWith('.png')
+      ? 'image/png'
+      : 'image/jpeg';
+
+  return base64ToBlob(base64, mimeType);
+}
+
+/**
+ * Convierte base64 a Blob
+ */
+function base64ToBlob(base64: string, mimeType: string): Blob {
+  const byteCharacters = atob(base64);
+  const byteNumbers = new Array(byteCharacters.length);
+  for (let i = 0; i < byteCharacters.length; i++) {
+    byteNumbers[i] = byteCharacters.charCodeAt(i);
+  }
+  const byteArray = new Uint8Array(byteNumbers);
+  return new Blob([byteArray], { type: mimeType });
+}
 
 // ============================================================================
 // SERVICIO PRINCIPAL
 // ============================================================================
 class CloudflareR2Service {
+  constructor() {
+    console.log('☁️ Cloudflare R2 Service initialized');
+    console.log('   Worker URL:', R2_WORKER_URL);
+    console.log('   Public URL:', PUBLIC_URL);
+  }
+
   // --------------------------------------------------------------------------
-  // SUBIR ARCHIVO A R2 usando FileSystem.uploadAsync
+  // MÉTODO PRINCIPAL: SUBIR VIA WORKER (funciona en web y móvil)
   // --------------------------------------------------------------------------
-  async uploadFile(fileUri: string, key: string, contentType: string): Promise<R2UploadResult> {
+  private async uploadViaWorker(
+    blob: Blob,
+    key: string,
+    contentType: string
+  ): Promise<R2UploadResult> {
     try {
-      const uploadUrl = `${R2_ENDPOINT}/${BUCKET_NAME}/${key}`;
+      const workerUrl = `${R2_WORKER_URL}/upload`;
 
-      // Preparar headers de autenticación AWS4
-      const now = new Date();
-      const amzDate = now.toISOString().replace(/[:-]|\.\d{3}/g, '');
-      const dateStamp = amzDate.substring(0, 8);
-      const region = 'auto';
-      const service = 's3';
-
-      // Usar UNSIGNED-PAYLOAD para evitar calcular hash del contenido
-      const contentHash = 'UNSIGNED-PAYLOAD';
-
-      // Headers canónicos
-      const host = `${ACCOUNT_ID}.r2.cloudflarestorage.com`;
-      const canonicalHeaders =
-        `content-type:${contentType}\n` +
-        `host:${host}\n` +
-        `x-amz-content-sha256:${contentHash}\n` +
-        `x-amz-date:${amzDate}\n`;
-
-      const signedHeaders = 'content-type;host;x-amz-content-sha256;x-amz-date';
-
-      // Request canónico
-      const canonicalRequest =
-        `PUT\n` +
-        `/${BUCKET_NAME}/${key}\n` +
-        `\n` +
-        `${canonicalHeaders}\n` +
-        `${signedHeaders}\n` +
-        `${contentHash}`;
-
-      // String to sign
-      const algorithm = 'AWS4-HMAC-SHA256';
-      const credentialScope = `${dateStamp}/${region}/${service}/aws4_request`;
-      const canonicalRequestHash = sha256(canonicalRequest);
-
-      const stringToSign = `${algorithm}\n${amzDate}\n${credentialScope}\n${canonicalRequestHash}`;
-
-      // Calcular firma con HMAC real
-      const signingKey = getSignatureKey(SECRET_ACCESS_KEY!, dateStamp, region, service);
-      const signature = hmacSha256(signingKey, stringToSign).toString(CryptoJS.enc.Hex);
-
-      // Authorization header
-      const authorization =
-        `${algorithm} ` +
-        `Credential=${ACCESS_KEY_ID}/${credentialScope}, ` +
-        `SignedHeaders=${signedHeaders}, ` +
-        `Signature=${signature}`;
-
-      // Subir usando FileSystem.uploadAsync (maneja archivos binarios correctamente)
-      const response = await FileSystem.uploadAsync(uploadUrl, fileUri, {
-        httpMethod: 'PUT',
-        uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
-        headers: {
-          'Content-Type': contentType,
-          'x-amz-content-sha256': contentHash,
-          'x-amz-date': amzDate,
-          Authorization: authorization,
-        },
+      console.log('📤 R2 Upload iniciando...', {
+        workerUrl,
+        key,
+        contentType,
+        blobSize: blob.size,
+        blobType: blob.type,
       });
 
-      if (response.status !== 200 && response.status !== 201) {
-        console.error('❌ R2 Upload Error:', response.status, response.body);
-        return { success: false, error: `Upload failed: ${response.status} - ${response.body}` };
+      const response = await fetch(workerUrl, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': contentType,
+          'X-File-Key': key,
+          'X-Content-Type': contentType,
+        },
+        body: blob,
+      });
+
+      console.log('📤 R2 Response status:', response.status, response.statusText);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('❌ Worker Upload Error:', response.status, errorText);
+        return { success: false, error: `Upload failed: ${response.status} - ${errorText}` };
       }
 
-      const publicUrl = `${PUBLIC_URL}/${key}`;
+      const result = await response.json();
+      console.log('📤 R2 Response body:', JSON.stringify(result));
+
+      if (!result.success) {
+        console.error('❌ Worker returned error:', result.error);
+        return { success: false, error: result.error || 'Unknown error' };
+      }
+
+      console.log('✅ Upload Success:', result.url);
 
       return {
         success: true,
-        url: publicUrl,
-        key,
+        url: result.url,
+        key: result.key,
       };
     } catch (error) {
       console.error('💥 R2 Upload Exception:', error);
+      // En producción también mostrar el error
+      if (typeof window !== 'undefined') {
+        console.error('💥 R2 Error details:', {
+          name: (error as any)?.name,
+          message: (error as any)?.message,
+          stack: (error as any)?.stack,
+        });
+      }
       return { success: false, error: String(error) };
     }
   }
 
   // --------------------------------------------------------------------------
-  // ELIMINAR ARCHIVO DE R2
+  // SUBIR ARCHIVO DESDE URI (funciona en web y móvil)
+  // --------------------------------------------------------------------------
+  async uploadFile(fileUri: string, key: string, contentType: string): Promise<R2UploadResult> {
+    try {
+      console.log('📁 uploadFile:', { fileUri: fileUri.substring(0, 50), key, contentType });
+
+      const blob = await uriToBlob(fileUri);
+
+      if (blob.size === 0) {
+        return { success: false, error: 'Archivo vacío' };
+      }
+
+      return this.uploadViaWorker(blob, key, contentType);
+    } catch (error) {
+      console.error('💥 uploadFile Exception:', error);
+      return { success: false, error: String(error) };
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // SUBIR DESDE BLOB DIRECTAMENTE
+  // --------------------------------------------------------------------------
+  async uploadFromBlob(blob: Blob, key: string, contentType: string): Promise<R2UploadResult> {
+    if (blob.size === 0) {
+      return { success: false, error: 'Blob vacío' };
+    }
+    return this.uploadViaWorker(blob, key, contentType);
+  }
+
+  // --------------------------------------------------------------------------
+  // SUBIR DESDE BASE64
+  // --------------------------------------------------------------------------
+  async uploadFromBase64(
+    base64Data: string,
+    key: string,
+    contentType: string
+  ): Promise<R2UploadResult> {
+    try {
+      console.log('📝 uploadFromBase64:', { key, contentType });
+
+      // Remover prefijo data URL si existe
+      const cleanBase64 = base64Data.replace(/^data:[^;]+;base64,/, '');
+      const blob = base64ToBlob(cleanBase64, contentType);
+
+      if (blob.size === 0) {
+        return { success: false, error: 'Base64 inválido o vacío' };
+      }
+
+      return this.uploadViaWorker(blob, key, contentType);
+    } catch (error) {
+      console.error('💥 uploadFromBase64 Exception:', error);
+      return { success: false, error: String(error) };
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // ELIMINAR ARCHIVO VIA WORKER
   // --------------------------------------------------------------------------
   async deleteFile(key: string): Promise<R2DeleteResult> {
     try {
-      const url = `${R2_ENDPOINT}/${BUCKET_NAME}/${key}`;
-      const now = new Date();
-      const amzDate = now.toISOString().replace(/[:-]|\.\d{3}/g, '');
-      const dateStamp = amzDate.substring(0, 8);
-      const region = 'auto';
-      const service = 's3';
+      console.log('🗑️ deleteFile:', key);
 
-      // Hash de contenido vacío para DELETE (sha256 de string vacío)
-      const contentHash = sha256('');
-      const host = `${ACCOUNT_ID}.r2.cloudflarestorage.com`;
-
-      const canonicalHeaders =
-        `host:${host}\n` + `x-amz-content-sha256:${contentHash}\n` + `x-amz-date:${amzDate}\n`;
-
-      const signedHeaders = 'host;x-amz-content-sha256;x-amz-date';
-
-      const canonicalRequest =
-        `DELETE\n` +
-        `/${BUCKET_NAME}/${key}\n` +
-        `\n` +
-        `${canonicalHeaders}\n` +
-        `${signedHeaders}\n` +
-        `${contentHash}`;
-
-      const algorithm = 'AWS4-HMAC-SHA256';
-      const credentialScope = `${dateStamp}/${region}/${service}/aws4_request`;
-      const canonicalRequestHash = sha256(canonicalRequest);
-
-      const stringToSign = `${algorithm}\n${amzDate}\n${credentialScope}\n${canonicalRequestHash}`;
-
-      // Calcular firma con HMAC real
-      const signingKey = getSignatureKey(SECRET_ACCESS_KEY!, dateStamp, region, service);
-      const signature = hmacSha256(signingKey, stringToSign).toString(CryptoJS.enc.Hex);
-
-      const authorization =
-        `${algorithm} ` +
-        `Credential=${ACCESS_KEY_ID}/${credentialScope}, ` +
-        `SignedHeaders=${signedHeaders}, ` +
-        `Signature=${signature}`;
-
-      const response = await fetch(url, {
+      const response = await fetch(`${R2_WORKER_URL}/${key}`, {
         method: 'DELETE',
-        headers: {
-          'x-amz-content-sha256': contentHash,
-          'x-amz-date': amzDate,
-          Authorization: authorization,
-        },
       });
 
       if (!response.ok && response.status !== 404) {
-        console.error('❌ R2 Delete Error:', response.status);
+        console.error('❌ Delete Error:', response.status);
         return { success: false, error: `Delete failed: ${response.status}` };
       }
 
+      console.log('✅ Delete Success');
       return { success: true };
     } catch (error) {
-      console.error('💥 R2 Delete Exception:', error);
+      console.error('💥 deleteFile Exception:', error);
       return { success: false, error: String(error) };
     }
   }
 
   // --------------------------------------------------------------------------
-  // SUBIR MEDIA DE EJERCICIO (HELPER)
+  // HELPERS: SUBIR MEDIA DE EJERCICIO
   // --------------------------------------------------------------------------
   async uploadExerciseMedia(
     fileUri: string,
@@ -234,49 +254,7 @@ class CloudflareR2Service {
   }
 
   // --------------------------------------------------------------------------
-  // EXTRAER KEY DE URL PÚBLICA
-  // --------------------------------------------------------------------------
-  getKeyFromUrl(url: string): string | null {
-    if (!url.startsWith(PUBLIC_URL)) return null;
-    return url.replace(`${PUBLIC_URL}/`, '');
-  }
-
-  // --------------------------------------------------------------------------
-  // SUBIR DESDE BASE64 (guarda temporalmente y sube)
-  // --------------------------------------------------------------------------
-  async uploadFromBase64(
-    base64Data: string,
-    key: string,
-    contentType: string
-  ): Promise<R2UploadResult> {
-    try {
-      // Crear archivo temporal
-      const tempUri = `${FileSystem.cacheDirectory}temp_upload_${Date.now()}.tmp`;
-
-      // Escribir base64 a archivo temporal
-      await FileSystem.writeAsStringAsync(tempUri, base64Data, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
-
-      // Subir usando el método existente
-      const result = await this.uploadFile(tempUri, key, contentType);
-
-      // Limpiar archivo temporal
-      try {
-        await FileSystem.deleteAsync(tempUri, { idempotent: true });
-      } catch {
-        // Ignorar errores de limpieza
-      }
-
-      return result;
-    } catch (error) {
-      console.error('💥 R2 Base64 Upload Exception:', error);
-      return { success: false, error: String(error) };
-    }
-  }
-
-  // --------------------------------------------------------------------------
-  // SUBIR FOTO DE PROGRESO (HELPER)
+  // HELPER: SUBIR FOTO DE PROGRESO
   // --------------------------------------------------------------------------
   async uploadProgressPhoto(base64Data: string, userId: string): Promise<R2UploadResult> {
     const timestamp = Date.now();
@@ -286,7 +264,7 @@ class CloudflareR2Service {
   }
 
   // --------------------------------------------------------------------------
-  // SUBIR THUMBNAIL DE EJERCICIO (ADMIN)
+  // HELPER: SUBIR THUMBNAIL DE EJERCICIO
   // --------------------------------------------------------------------------
   async uploadExerciseThumbnail(base64Data: string, exerciseId: string): Promise<R2UploadResult> {
     const timestamp = Date.now();
@@ -296,7 +274,7 @@ class CloudflareR2Service {
   }
 
   // --------------------------------------------------------------------------
-  // SUBIR VIDEO DE EJERCICIO (ADMIN)
+  // HELPER: SUBIR VIDEO DE EJERCICIO
   // --------------------------------------------------------------------------
   async uploadExerciseVideo(fileUri: string, exerciseId: string): Promise<R2UploadResult> {
     const timestamp = Date.now();
@@ -306,29 +284,7 @@ class CloudflareR2Service {
   }
 
   // --------------------------------------------------------------------------
-  // ELIMINAR THUMBNAIL DE EJERCICIO
-  // --------------------------------------------------------------------------
-  async deleteExerciseThumbnail(thumbnailUrl: string): Promise<R2DeleteResult> {
-    const key = this.getKeyFromUrl(thumbnailUrl);
-    if (!key) {
-      return { success: false, error: 'URL inválida' };
-    }
-    return this.deleteFile(key);
-  }
-
-  // --------------------------------------------------------------------------
-  // ELIMINAR FOTO DE PROGRESO
-  // --------------------------------------------------------------------------
-  async deleteProgressPhoto(photoUrl: string): Promise<R2DeleteResult> {
-    const key = this.getKeyFromUrl(photoUrl);
-    if (!key) {
-      return { success: false, error: 'URL inválida' };
-    }
-    return this.deleteFile(key);
-  }
-
-  // --------------------------------------------------------------------------
-  // SUBIR AVATAR DE USUARIO
+  // HELPER: SUBIR AVATAR
   // --------------------------------------------------------------------------
   async uploadAvatar(fileUri: string, userId: string): Promise<R2UploadResult> {
     const timestamp = Date.now();
@@ -338,59 +294,38 @@ class CloudflareR2Service {
   }
 
   // --------------------------------------------------------------------------
-  // ELIMINAR AVATAR DE USUARIO
+  // HELPER: EXTRAER KEY DE URL
   // --------------------------------------------------------------------------
-  async deleteAvatar(avatarUrl: string): Promise<R2DeleteResult> {
-    const key = this.getKeyFromUrl(avatarUrl);
+  getKeyFromUrl(url: string): string | null {
+    if (!url.startsWith(PUBLIC_URL)) return null;
+    return url.replace(`${PUBLIC_URL}/`, '');
+  }
+
+  // --------------------------------------------------------------------------
+  // HELPERS: ELIMINAR
+  // --------------------------------------------------------------------------
+  async deleteExerciseThumbnail(thumbnailUrl: string): Promise<R2DeleteResult> {
+    const key = this.getKeyFromUrl(thumbnailUrl);
     if (!key) {
       return { success: false, error: 'URL inválida' };
     }
     return this.deleteFile(key);
   }
 
-  // --------------------------------------------------------------------------
-  // SUBIR DESDE BLOB (para WEB)
-  // Usa el Worker proxy para evitar CORS
-  // --------------------------------------------------------------------------
-  async uploadFromBlob(blob: Blob, key: string, contentType: string): Promise<R2UploadResult> {
-    try {
-      const workerUrl = 'https://trens-r2-upload.trens-app.workers.dev/upload';
-
-      console.log('📤 Uploading via Worker:', key);
-
-      const response = await fetch(workerUrl, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': contentType,
-          'X-File-Key': key,
-          'X-Content-Type': contentType,
-        },
-        body: blob,
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('❌ Worker Upload Error:', response.status, errorText);
-        return { success: false, error: `Upload failed: ${response.status} - ${errorText}` };
-      }
-
-      const result = await response.json();
-
-      if (!result.success) {
-        return { success: false, error: result.error || 'Unknown error' };
-      }
-
-      console.log('✅ Worker Upload Success:', result.url);
-
-      return {
-        success: true,
-        url: result.url,
-        key: result.key,
-      };
-    } catch (error) {
-      console.error('💥 R2 Blob Upload Exception:', error);
-      return { success: false, error: String(error) };
+  async deleteProgressPhoto(photoUrl: string): Promise<R2DeleteResult> {
+    const key = this.getKeyFromUrl(photoUrl);
+    if (!key) {
+      return { success: false, error: 'URL inválida' };
     }
+    return this.deleteFile(key);
+  }
+
+  async deleteAvatar(avatarUrl: string): Promise<R2DeleteResult> {
+    const key = this.getKeyFromUrl(avatarUrl);
+    if (!key) {
+      return { success: false, error: 'URL inválida' };
+    }
+    return this.deleteFile(key);
   }
 }
 

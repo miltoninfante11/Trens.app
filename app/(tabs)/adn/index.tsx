@@ -38,7 +38,7 @@ import {
   Pencil,
 } from 'lucide-react-native';
 import * as Haptics from '../../../lib/haptics';
-import * as ImagePicker from 'expo-image-picker';
+import { openCamera, openGallery } from '../../../lib/webCamera';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { supabase } from '../../../lib/supabase';
 import cloudflareStream from '../../../services/cloudflare/stream';
@@ -599,42 +599,30 @@ function AdnScreenContent() {
   };
 
   const pickImageFromGallery = async () => {
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert(
-        'Permiso requerido',
-        'Necesitamos acceso a tu galería para seleccionar una foto.'
-      );
-      return;
-    }
-
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
+    const result = await openGallery({
       allowsEditing: true,
       aspect: [1, 1],
       quality: 0.8,
     });
 
-    if (!result.canceled && result.assets[0]) {
-      setEditAvatarUri(result.assets[0].uri);
+    if (result.success && result.uri) {
+      setEditAvatarUri(result.uri);
+    } else if (result.error && result.error !== 'Cancelado por el usuario') {
+      Alert.alert('Error', result.error);
     }
   };
 
   const takePhoto = async () => {
-    const { status } = await ImagePicker.requestCameraPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert('Permiso requerido', 'Necesitamos acceso a tu cámara para tomar una foto.');
-      return;
-    }
-
-    const result = await ImagePicker.launchCameraAsync({
+    const result = await openCamera({
       allowsEditing: true,
       aspect: [1, 1],
       quality: 0.8,
     });
 
-    if (!result.canceled && result.assets[0]) {
-      setEditAvatarUri(result.assets[0].uri);
+    if (result.success && result.uri) {
+      setEditAvatarUri(result.uri);
+    } else if (result.error && result.error !== 'Cancelado por el usuario') {
+      Alert.alert('Error', result.error);
     }
   };
 

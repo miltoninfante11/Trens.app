@@ -28,9 +28,10 @@ import {
   Image as ImageIcon,
   Video,
 } from 'lucide-react-native';
-import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
+import * as ImagePicker from 'expo-image-picker';
 import * as Haptics from '../../../lib/haptics';
+import { openCamera, openGallery } from '../../../lib/webCamera';
 import { supabase } from '../../../lib/supabase';
 import cloudflareR2 from '../../../services/cloudflare/r2';
 
@@ -123,21 +124,16 @@ export default function AdminEjerciciosScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setShowMediaPicker(false);
 
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert('Permiso requerido', 'Necesitamos acceso a tu galería.');
-      return;
-    }
-
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
+    const result = await openGallery({
       quality: 1,
       allowsEditing: true,
       aspect: [1, 1],
     });
 
-    if (!result.canceled && result.assets[0]) {
-      await processAndUploadImage(result.assets[0].uri);
+    if (result.success && result.uri) {
+      await processAndUploadImage(result.uri);
+    } else if (result.error && result.error !== 'Cancelado por el usuario') {
+      Alert.alert('Error', result.error);
     }
   };
 
@@ -148,21 +144,16 @@ export default function AdminEjerciciosScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setShowMediaPicker(false);
 
-    const { status } = await ImagePicker.requestCameraPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert('Permiso requerido', 'Necesitamos acceso a la cámara.');
-      return;
-    }
-
-    const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: ['images'],
+    const result = await openCamera({
       quality: 1,
       allowsEditing: true,
       aspect: [1, 1],
     });
 
-    if (!result.canceled && result.assets[0]) {
-      await processAndUploadImage(result.assets[0].uri);
+    if (result.success && result.uri) {
+      await processAndUploadImage(result.uri);
+    } else if (result.error && result.error !== 'Cancelado por el usuario') {
+      Alert.alert('Error', result.error);
     }
   };
 

@@ -8,4 +8,7 @@ binding = "BUCKET"
 bucket_name = "trens-exercise-media"
 
 [vars]
-ALLOWED_ORIGINS = "https://trens.app,https://www.trens.app,http://localhost:8081"
+# Orígenes permitidos para CORS (separados por coma)
+# Incluye: producción, preview de Vercel, y desarrollo local
+ALLOWED_ORIGINS = "https://trens.app,https://www.trens.app,https://share.trens.app,http://localhost:8081,http://localhost:19006,https://*.vercel.app"
+PUBLIC_URL = "https://media.trens.app"

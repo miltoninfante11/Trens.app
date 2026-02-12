@@ -10,9 +10,23 @@ import * as FileSystem from 'expo-file-system/legacy';
 // ============================================================================
 const ACCOUNT_ID = process.env.EXPO_PUBLIC_CLOUDFLARE_ACCOUNT_ID;
 const API_TOKEN = process.env.EXPO_PUBLIC_CLOUDFLARE_STREAM_TOKEN;
-const STREAM_SUBDOMAIN = process.env.EXPO_PUBLIC_CLOUDFLARE_STREAM_SUBDOMAIN;
+const STREAM_SUBDOMAIN = process.env.EXPO_PUBLIC_CLOUDFLARE_STREAM_SUBDOMAIN || 'videodelivery.net';
 
 const API_BASE = `https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}/stream`;
+
+// Validar configuración
+const isStreamConfigured = (): boolean => {
+  return !!(ACCOUNT_ID && API_TOKEN && STREAM_SUBDOMAIN);
+};
+
+const validateStreamConfig = (): void => {
+  if (!isStreamConfigured()) {
+    console.warn('⚠️ Cloudflare Stream no está configurado. Verifica las variables de entorno:');
+    console.warn('   - EXPO_PUBLIC_CLOUDFLARE_ACCOUNT_ID');
+    console.warn('   - EXPO_PUBLIC_CLOUDFLARE_STREAM_TOKEN');
+    console.warn('   - EXPO_PUBLIC_CLOUDFLARE_STREAM_SUBDOMAIN');
+  }
+};
 
 // ============================================================================
 // TIPOS
@@ -78,6 +92,11 @@ class CloudflareStreamService {
     'Content-Type': 'application/json',
   };
 
+  constructor() {
+    // Validar configuración al inicializar el servicio
+    validateStreamConfig();
+  }
+
   // --------------------------------------------------------------------------
   // UPLOAD DIRECTO (Para videos pequeños < 200MB)
   // --------------------------------------------------------------------------
@@ -91,6 +110,14 @@ class CloudflareStreamService {
     }
   ): Promise<UploadResult> {
     try {
+      // Validar credenciales antes de intentar subir
+      if (!isStreamConfigured()) {
+        return {
+          success: false,
+          error: 'Cloudflare Stream no está configurado. Verifica las variables de entorno.',
+        };
+      }
+
       // 1. Leer el archivo como base64
       const fileInfo = await FileSystem.getInfoAsync(videoUri);
       if (!fileInfo.exists) {
