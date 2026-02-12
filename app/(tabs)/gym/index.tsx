@@ -44,6 +44,7 @@ import {
   Lock,
   Volume2,
   Zap,
+  Undo2,
 } from 'lucide-react-native';
 import * as Haptics from '../../../lib/haptics';
 import { CameraView, useCameraPermissions } from 'expo-camera';
@@ -3715,7 +3716,12 @@ function GymScreen() {
         }
 
         console.log('🎯 Exercise ID to update:', exerciseIdToUpdate);
-        console.log('📁 galleryFileRef.current at save time:', galleryFileRef.current ? `${galleryFileRef.current.name} (${galleryFileRef.current.size} bytes)` : 'NULL');
+        console.log(
+          '📁 galleryFileRef.current at save time:',
+          galleryFileRef.current
+            ? `${galleryFileRef.current.name} (${galleryFileRef.current.size} bytes)`
+            : 'NULL'
+        );
 
         // Obtener el blob - usar galleryFileRef si está disponible (más confiable)
         let blob: Blob;
@@ -3743,7 +3749,9 @@ function GymScreen() {
         } else {
           // Fallback para blob URLs (después de que la galería cerró sin guardar el File)
           console.log('🔗 Fetching blob URL (fallback):', imageToEdit.substring(0, 100));
-          console.warn('⚠️ galleryFileRef.current es null - intentando fetch directo (puede fallar)');
+          console.warn(
+            '⚠️ galleryFileRef.current es null - intentando fetch directo (puede fallar)'
+          );
           try {
             const response = await fetch(imageToEdit);
             console.log('🔗 Fetch response:', response.status, response.statusText);
@@ -3754,7 +3762,9 @@ function GymScreen() {
             console.log('📦 Got blob from URL, size:', blob.size, 'type:', blob.type);
           } catch (fetchError) {
             console.error('❌ Error fetching blob URL:', fetchError);
-            throw new Error(`Error al obtener imagen de galería. Por favor, intenta de nuevo seleccionando la imagen.`);
+            throw new Error(
+              `Error al obtener imagen de galería. Por favor, intenta de nuevo seleccionando la imagen.`
+            );
           }
         }
 
@@ -3912,6 +3922,19 @@ function GymScreen() {
 
     console.log('💾 Exercise found:', { name: currentExercise.name, isAlternative });
 
+    // BORRAR archivo anterior de R2 si existe (para no acumular archivos)
+    if (currentExercise.image_url && currentExercise.image_url.includes('media.trens.app')) {
+      const oldKey = cloudflareR2.getKeyFromUrl(currentExercise.image_url);
+      if (oldKey) {
+        try {
+          await cloudflareR2.deleteFile(oldKey);
+          console.log('🗑️ Archivo anterior eliminado de R2:', oldKey);
+        } catch (deleteError) {
+          console.warn('⚠️ No se pudo eliminar archivo anterior de R2:', deleteError);
+        }
+      }
+    }
+
     const globalExerciseId = isAlternative ? exerciseId : currentExercise.exercise_id || exerciseId;
 
     // Guardar en tabla persistente
@@ -4004,6 +4027,126 @@ function GymScreen() {
     setListRefreshKey((prev) => prev + 1);
 
     console.log('✅ Database and local state updated with new media URL');
+  };
+
+  // Restaurar la imagen/video por defecto del ejercicio (la que pone el admin)
+  const restoreDefaultMedia = async () => {
+    if (!user) return;
+
+    const exerciseIdToUpdate = currentVariationId || exercises[currentExerciseIndex]?.id;
+    if (!exerciseIdToUpdate) return;
+
+    // Buscar el ejercicio actual
+    let currentExercise = exercises.find((ex) => ex.id === exerciseIdToUpdate);
+    let isAlternative = false;
+
+    if (!currentExercise) {
+      for (const ex of exercises) {
+        const found = ex.alternatives?.find((alt) => alt.id === exerciseIdToUpdate);
+        if (found) {
+          currentExercise = found as any;
+          isAlternative = true;
+          break;
+        }
+      }
+    }
+
+    if (!currentExercise) return;
+
+    try {
+      setCaptureProcessing(true);
+      setUploadingMessage('🔄 RESTAURANDO...');
+
+      // Obtener la imagen por defecto del catálogo de ejercicios
+      const globalExerciseId = isAlternative
+        ? exerciseIdToUpdate
+        : currentExercise.exercise_id || exerciseIdToUpdate;
+
+      const { data: exerciseData } = await supabase
+        .from('exercises')
+        .select('default_media_url, thumbnail_url')
+        .eq('id', globalExerciseId)
+        .single();
+
+      const defaultUrl = exerciseData?.default_media_url || exerciseData?.thumbnail_url || '';
+
+      if (!defaultUrl) {
+        alert('Este ejercicio no tiene imagen por defecto del sistema.');
+        return;
+      }
+
+      // Borrar el archivo custom de R2 si existe
+      if (currentExercise.image_url && currentExercise.image_url.includes('media.trens.app')) {
+        const oldKey = cloudflareR2.getKeyFromUrl(currentExercise.image_url);
+        if (oldKey) {
+          try {
+            await cloudflareR2.deleteFile(oldKey);
+            console.log('🗑️ Custom media eliminada de R2:', oldKey);
+          } catch (deleteError) {
+            console.warn('⚠️ No se pudo eliminar custom media de R2:', deleteError);
+          }
+        }
+      }
+
+      // Limpiar custom_media_url en user_exercise_config
+      if (isAlternative) {
+        const { data: existingConfig } = await supabase
+          .from('user_exercise_config')
+          .select('id')
+          .eq('user_id', user.id)
+          .eq('exercise_id', exerciseIdToUpdate)
+          .single();
+
+        if (existingConfig) {
+          await supabase
+            .from('user_exercise_config')
+            .update({ custom_media_url: null })
+            .eq('id', existingConfig.id);
+        }
+      } else {
+        await supabase
+          .from('user_exercise_config')
+          .update({ custom_media_url: null })
+          .eq('id', exerciseIdToUpdate);
+      }
+
+      // Limpiar en user_exercise_media
+      await supabase
+        .from('user_exercise_media')
+        .delete()
+        .eq('user_id', user.id)
+        .eq('exercise_id', globalExerciseId);
+
+      console.log('✅ Media restaurada a default:', defaultUrl);
+
+      // Actualizar estado local
+      setExercises((prev) =>
+        prev.map((ex) => {
+          if (ex.id === exerciseIdToUpdate || ex.exercise_id === exerciseIdToUpdate) {
+            return { ...ex, image_url: defaultUrl };
+          }
+          if (ex.alternatives) {
+            const altIndex = ex.alternatives.findIndex((alt) => alt.id === exerciseIdToUpdate);
+            if (altIndex !== -1) {
+              const newAlternatives = [...ex.alternatives];
+              newAlternatives[altIndex] = { ...newAlternatives[altIndex], image_url: defaultUrl };
+              return { ...ex, alternatives: newAlternatives };
+            }
+          }
+          return ex;
+        })
+      );
+
+      setListRefreshKey((prev) => prev + 1);
+      setCameraModalVisible(false);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (error) {
+      console.error('💥 Error restaurando media por defecto:', error);
+      alert('Error al restaurar. Intenta de nuevo.');
+    } finally {
+      setCaptureProcessing(false);
+      setUploadingMessage(null);
+    }
   };
 
   const capturePhoto = async () => {
@@ -8594,8 +8737,8 @@ function GymScreen() {
 
               {/* CONTROLS */}
               <View className="bg-black py-4 border-t border-zinc-900">
-                {/* BOTÓN GALERÍA */}
-                <View className="flex-row justify-center mb-4">
+                {/* BOTÓN GALERÍA + RESTAURAR DEFAULT */}
+                <View className="flex-row justify-center mb-4" style={{ gap: 12 }}>
                   <TouchableOpacity
                     onPress={() => {
                       setCameraModalVisible(false);
@@ -8605,6 +8748,15 @@ function GymScreen() {
                     disabled={isRecording}
                   >
                     <Text className="text-white font-bold">📁 GALERÍA</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={restoreDefaultMedia}
+                    className="bg-zinc-900 px-4 py-3 rounded-full border border-zinc-700 flex-row items-center"
+                    style={{ gap: 6 }}
+                    disabled={isRecording || captureProcessing}
+                  >
+                    <Undo2 color="#DC2626" size={16} />
+                    <Text className="text-savage-red font-bold">DEFAULT</Text>
                   </TouchableOpacity>
                 </View>
 
