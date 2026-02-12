@@ -4031,10 +4031,24 @@ function GymScreen() {
 
   // Restaurar la imagen/video por defecto del ejercicio (la que pone el admin)
   const restoreDefaultMedia = async () => {
-    if (!user) return;
+    if (!user) {
+      console.error('❌ restoreDefaultMedia: No user');
+      return;
+    }
 
     const exerciseIdToUpdate = currentVariationId || exercises[currentExerciseIndex]?.id;
-    if (!exerciseIdToUpdate) return;
+    console.log('🔄 restoreDefaultMedia called:', {
+      currentVariationId,
+      currentExerciseIndex,
+      exerciseIdToUpdate,
+      exerciseName: exercises[currentExerciseIndex]?.name,
+    });
+
+    if (!exerciseIdToUpdate) {
+      console.error('❌ restoreDefaultMedia: No exerciseIdToUpdate');
+      alert('Error: No se pudo identificar el ejercicio.');
+      return;
+    }
 
     // Buscar el ejercicio actual
     let currentExercise = exercises.find((ex) => ex.id === exerciseIdToUpdate);
@@ -4051,7 +4065,18 @@ function GymScreen() {
       }
     }
 
-    if (!currentExercise) return;
+    if (!currentExercise) {
+      console.error('❌ restoreDefaultMedia: Exercise not found for ID:', exerciseIdToUpdate);
+      alert('Error: Ejercicio no encontrado.');
+      return;
+    }
+
+    console.log('🔄 Exercise found:', {
+      name: currentExercise.name,
+      exercise_id: currentExercise.exercise_id,
+      image_url: currentExercise.image_url?.substring(0, 60),
+      isAlternative,
+    });
 
     try {
       setCaptureProcessing(true);
@@ -4062,18 +4087,29 @@ function GymScreen() {
         ? exerciseIdToUpdate
         : currentExercise.exercise_id || exerciseIdToUpdate;
 
-      const { data: exerciseData } = await supabase
+      console.log('🔄 Fetching default media for globalExerciseId:', globalExerciseId);
+
+      const { data: exerciseData, error: fetchError } = await supabase
         .from('exercises')
         .select('default_media_url, thumbnail_url')
         .eq('id', globalExerciseId)
         .single();
 
+      console.log('🔄 Exercise data from DB:', {
+        data: exerciseData,
+        error: fetchError,
+      });
+
       const defaultUrl = exerciseData?.default_media_url || exerciseData?.thumbnail_url || '';
 
       if (!defaultUrl) {
         alert('Este ejercicio no tiene imagen por defecto del sistema.');
+        setCaptureProcessing(false);
+        setUploadingMessage(null);
         return;
       }
+
+      console.log('🔄 Default URL found:', defaultUrl.substring(0, 80));
 
       // Borrar el archivo custom de R2 si existe
       if (currentExercise.image_url && currentExercise.image_url.includes('media.trens.app')) {
@@ -4098,24 +4134,27 @@ function GymScreen() {
           .single();
 
         if (existingConfig) {
-          await supabase
+          const { error: updateErr } = await supabase
             .from('user_exercise_config')
             .update({ custom_media_url: null })
             .eq('id', existingConfig.id);
+          console.log('🔄 Alt config cleared:', updateErr || 'OK');
         }
       } else {
-        await supabase
+        const { error: updateErr } = await supabase
           .from('user_exercise_config')
           .update({ custom_media_url: null })
           .eq('id', exerciseIdToUpdate);
+        console.log('🔄 Main config cleared:', updateErr || 'OK');
       }
 
       // Limpiar en user_exercise_media
-      await supabase
+      const { error: deleteErr } = await supabase
         .from('user_exercise_media')
         .delete()
         .eq('user_id', user.id)
         .eq('exercise_id', globalExerciseId);
+      console.log('🔄 user_exercise_media deleted:', deleteErr || 'OK');
 
       console.log('✅ Media restaurada a default:', defaultUrl);
 
