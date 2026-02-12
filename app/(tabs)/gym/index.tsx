@@ -10501,8 +10501,10 @@ function GymScreen() {
         allowVideo={true}
         exerciseName={exercises[currentExerciseIndex]?.name}
         hasCustomMedia={
-          !!(exercises[currentExerciseIndex]?.image_url &&
-            exercises[currentExerciseIndex]?.image_url.includes('media.trens.app'))
+          !!(
+            exercises[currentExerciseIndex]?.image_url &&
+            exercises[currentExerciseIndex]?.image_url.includes('media.trens.app')
+          )
         }
         onRestoreDefault={() => {
           setWebCameraModalVisible(false);

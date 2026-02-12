@@ -84,6 +84,74 @@ export default {
       }
 
       // ========================================
+      // GET /list - Listar archivos en R2
+      // ========================================
+      if (request.method === 'GET' && (path === 'list' || path.startsWith('list?'))) {
+        const prefix = url.searchParams.get('prefix') || '';
+        const cursor = url.searchParams.get('cursor') || undefined;
+        const limit = parseInt(url.searchParams.get('limit') || '1000');
+
+        const listed = await env.BUCKET.list({
+          prefix: prefix || undefined,
+          cursor,
+          limit: Math.min(limit, 1000),
+        });
+
+        const objects = listed.objects.map((obj) => ({
+          key: obj.key,
+          size: obj.size,
+          uploaded: obj.uploaded.toISOString(),
+        }));
+
+        return new Response(
+          JSON.stringify({
+            success: true,
+            objects,
+            truncated: listed.truncated,
+            cursor: listed.truncated ? listed.cursor : null,
+            count: objects.length,
+          }),
+          {
+            headers: { ...headers, 'Content-Type': 'application/json' },
+          }
+        );
+      }
+
+      // ========================================
+      // POST /delete-batch - Eliminar múltiples archivos
+      // ========================================
+      if (request.method === 'POST' && path === 'delete-batch') {
+        const body = await request.json() as { keys: string[] };
+        const keys = body.keys || [];
+
+        if (!Array.isArray(keys) || keys.length === 0) {
+          return new Response(JSON.stringify({ error: 'Missing keys array' }), {
+            status: 400,
+            headers: { ...headers, 'Content-Type': 'application/json' },
+          });
+        }
+
+        // R2 soporta delete de hasta 1000 objetos a la vez
+        const batchSize = 1000;
+        let deleted = 0;
+        for (let i = 0; i < keys.length; i += batchSize) {
+          const batch = keys.slice(i, i + batchSize);
+          await env.BUCKET.delete(batch);
+          deleted += batch.length;
+        }
+
+        return new Response(
+          JSON.stringify({
+            success: true,
+            deleted,
+          }),
+          {
+            headers: { ...headers, 'Content-Type': 'application/json' },
+          }
+        );
+      }
+
+      // ========================================
       // DELETE /{key} - Eliminar archivo
       // ========================================
       if (request.method === 'DELETE' && path) {
