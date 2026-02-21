@@ -239,14 +239,14 @@ export async function deleteUserCard(userId: string, cardId: string): Promise<vo
 /**
  * Impersonar usuario - genera un magic link para iniciar sesión como otro usuario (solo CEO)
  */
-export async function impersonateUser(userId: string): Promise<{ url: string; email: string }> {
+export async function impersonateUser(userId: string): Promise<{ token_hash: string; email: string }> {
   const { data, error } = await supabase.functions.invoke('admin-users', {
     body: { action: 'impersonate', userId },
   });
 
   if (error) throw new Error(error.message);
   if (!data.success) throw new Error(data.error);
-  return { url: data.url, email: data.email };
+  return { token_hash: data.token_hash, email: data.email };
 }
 
 export default {

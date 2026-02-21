@@ -920,7 +920,7 @@ serve(async (req) => {
         return new Response(
           JSON.stringify({
             success: true,
-            url: linkData.properties.action_link,
+            token_hash: linkData.properties.hashed_token,
             email: targetProfile.email,
           }),
           { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }

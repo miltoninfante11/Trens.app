@@ -36,7 +36,7 @@ import adminUsers, { AdminUser, OpenpayPayment } from '../../../services/admin/u
 import { getUserCards } from '../../../services/admin/users';
 import * as Haptics from '../../../lib/haptics';
 import * as Clipboard from 'expo-clipboard';
-import { Linking } from 'react-native';
+import { supabase } from '../../../lib/supabase';
 
 // ============================================================================
 // COLORS
@@ -510,22 +510,28 @@ export default function UsuarioDetailScreen() {
     if (!id) return;
     Alert.alert(
       '🎭 Entrar como usuario',
-      'Se generará un enlace mágico para iniciar sesión como este usuario.\n\nSe abrirá en una nueva pestaña. Tu sesión actual no se verá afectada.',
+      `Iniciarás sesión como ${user?.full_name || user?.email || 'este usuario'}.\n\n⚠️ Tu sesión de CEO se cerrará. Para volver, tendrás que iniciar sesión de nuevo con tu cuenta.`,
       [
         { text: 'Cancelar', style: 'cancel' },
         {
           text: 'ENTRAR',
+          style: 'destructive',
           onPress: async () => {
             setActionLoading(true);
             try {
-              const { url, email } = await adminUsers.impersonateUser(id);
-              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+              const { token_hash, email } = await adminUsers.impersonateUser(id);
 
-              if (Platform.OS === 'web') {
-                window.open(url, '_blank');
-              } else {
-                await Linking.openURL(url);
-              }
+              // Verificar OTP para iniciar sesión como el usuario
+              const { error: otpError } = await supabase.auth.verifyOtp({
+                token_hash,
+                type: 'magiclink',
+              });
+
+              if (otpError) throw otpError;
+
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+              // onAuthStateChange detectará el cambio y redirigirá automáticamente
+              router.replace('/(tabs)/plan');
             } catch (err: any) {
               Alert.alert('Error', err.message);
             } finally {
