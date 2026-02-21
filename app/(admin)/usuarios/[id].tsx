@@ -32,6 +32,7 @@ import {
   Activity,
 } from 'lucide-react-native';
 import adminUsers, { AdminUser, OpenpayPayment } from '../../../services/admin/users';
+import { getUserCards } from '../../../services/admin/users';
 import * as Haptics from '../../../lib/haptics';
 import * as Clipboard from 'expo-clipboard';
 
@@ -152,6 +153,8 @@ function PaymentCard({ payment }: { payment: OpenpayPayment }) {
         return COLORS.yellow;
       case 'failed':
         return COLORS.red;
+      case 'past_due':
+        return COLORS.orange;
       default:
         return COLORS.zinc400;
     }
@@ -336,6 +339,7 @@ export default function UsuarioDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const [user, setUser] = useState<AdminUser | null>(null);
   const [payments, setPayments] = useState<OpenpayPayment[]>([]);
+  const [userCards, setUserCards] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
@@ -357,6 +361,14 @@ export default function UsuarioDetailScreen() {
       // Fetch payments
       const paymentsData = await adminUsers.getPayments(id);
       setPayments(paymentsData);
+
+      // Fetch saved cards
+      try {
+        const cardsData = await adminUsers.getUserCards(id);
+        setUserCards(cardsData);
+      } catch (e) {
+        console.warn('No cards found:', e);
+      }
     } catch (err: any) {
       console.error('Error fetching user:', err);
       setError(err.message);
@@ -588,6 +600,12 @@ export default function UsuarioDetailScreen() {
                   <Text className="text-green-400 text-xs font-mono ml-1">PAGANDO</Text>
                 </View>
               )}
+              {user.subscription?.status === 'past_due' && (
+                <View className="flex-row items-center bg-yellow-600/20 px-2 py-1 rounded-full">
+                  <CreditCard size={12} color={COLORS.yellow} />
+                  <Text className="text-yellow-400 text-xs font-mono ml-1">PAGO PENDIENTE</Text>
+                </View>
+              )}
             </View>
           </View>
         </View>
@@ -686,6 +704,17 @@ export default function UsuarioDetailScreen() {
             />
           )}
 
+          {user.subscription?.status === 'past_due' && (
+            <ActionButton
+              icon={Ban}
+              label="Cancelar Suscripción (Pago Pendiente)"
+              color={COLORS.red}
+              onPress={handleCancelSubscription}
+              loading={actionLoading}
+              destructive
+            />
+          )}
+
           <ActionButton
             icon={Trash2}
             label="Eliminar Usuario"
@@ -695,6 +724,69 @@ export default function UsuarioDetailScreen() {
             destructive
           />
         </View>
+
+        {/* Saved Cards */}
+        {userCards.length > 0 && (
+          <View className="mt-6">
+            <Text className="text-zinc-500 text-xs font-mono mb-2 ml-1">
+              TARJETAS GUARDADAS ({userCards.length})
+            </Text>
+            {userCards.map((card: any) => (
+              <View
+                key={card.id}
+                className={`bg-zinc-900 rounded-xl p-4 mb-2 flex-row items-center justify-between border ${
+                  card.is_default ? 'border-orange-500/50' : 'border-zinc-800'
+                }`}
+              >
+                <View className="flex-row items-center gap-3">
+                  <CreditCard size={18} color={card.is_default ? COLORS.orange : COLORS.zinc400} />
+                  <View>
+                    <View className="flex-row items-center gap-2">
+                      <Text className="text-white font-bold font-mono">
+                        {card.brand?.toUpperCase() || 'TARJETA'} •••• {card.last4}
+                      </Text>
+                      {card.is_default && (
+                        <View className="bg-orange-600/20 px-2 py-0.5 rounded-full">
+                          <Text className="text-orange-400 text-[10px] font-bold">DEFAULT</Text>
+                        </View>
+                      )}
+                    </View>
+                    <Text className="text-zinc-500 text-xs font-mono">
+                      {card.holder_name} · Exp {card.expiration_month}/{card.expiration_year}
+                    </Text>
+                  </View>
+                </View>
+                <TouchableOpacity
+                  onPress={() => {
+                    Alert.alert(
+                      'Eliminar Tarjeta',
+                      `¿Eliminar ${card.brand?.toUpperCase()} •••• ${card.last4}?`,
+                      [
+                        { text: 'Cancelar', style: 'cancel' },
+                        {
+                          text: 'Eliminar',
+                          style: 'destructive',
+                          onPress: async () => {
+                            try {
+                              await adminUsers.deleteUserCard(id!, card.id);
+                              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                              setUserCards((prev) => prev.filter((c: any) => c.id !== card.id));
+                            } catch (err: any) {
+                              Alert.alert('Error', err.message);
+                            }
+                          },
+                        },
+                      ]
+                    );
+                  }}
+                  className="p-2"
+                >
+                  <Trash2 size={16} color={COLORS.zinc400} />
+                </TouchableOpacity>
+              </View>
+            ))}
+          </View>
+        )}
 
         {/* Payment History */}
         {payments.length > 0 && (

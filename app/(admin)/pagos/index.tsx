@@ -58,6 +58,7 @@ const STATUS_CONFIG: Record<string, { color: string; label: string; icon: any }>
   failed: { color: COLORS.red, label: 'Fallido', icon: XCircle },
   refunded: { color: COLORS.orange, label: 'Reembolsado', icon: RefreshCw },
   cancelled: { color: COLORS.zinc400, label: 'Cancelado', icon: X },
+  past_due: { color: COLORS.orange, label: 'Pago Pendiente', icon: AlertTriangle },
 };
 
 // ============================================================================

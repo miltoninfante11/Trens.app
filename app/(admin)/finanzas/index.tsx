@@ -412,8 +412,6 @@ export default function AdminFinanzasScreen() {
       ]);
       setStats(statsData);
       setChartData(chart);
-      // Debug log
-      console.log('DEBUG chartData received:', JSON.stringify(chart, null, 2));
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -431,19 +429,6 @@ export default function AdminFinanzasScreen() {
   useEffect(() => {
     fetchData();
   }, [fetchData]);
-
-  // DEBUG: Probar conexión Openpay directamente
-  const handleDebugOpenpay = async () => {
-    try {
-      const response = await adminPayments.debugOpenpay();
-      console.log('=== DEBUG OPENPAY ===');
-      console.log(JSON.stringify(response, null, 2));
-      alert('Debug en console.log - revisa la consola');
-    } catch (err: any) {
-      console.error('Debug error:', err);
-      alert('Error: ' + err.message);
-    }
-  };
 
   const handleSync = async () => {
     setSyncing(true);
@@ -546,14 +531,6 @@ export default function AdminFinanzasScreen() {
             <Text className="text-white font-bold text-lg">Dashboard CEO</Text>
           </View>
           <View className="flex-row gap-2">
-            {/* DEBUG BUTTON - Temporal */}
-            <TouchableOpacity
-              onPress={handleDebugOpenpay}
-              className="flex-row items-center gap-1 bg-yellow-900 px-2 py-2 rounded-lg"
-            >
-              <AlertTriangle size={14} color={COLORS.yellow} />
-              <Text className="text-yellow-400 font-mono text-xs">DEBUG</Text>
-            </TouchableOpacity>
             <TouchableOpacity
               onPress={handleSync}
               disabled={syncing}

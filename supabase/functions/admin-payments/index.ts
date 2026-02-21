@@ -77,7 +77,17 @@ serve(async (req) => {
       .eq('user_id', user.id)
       .single();
 
-    if (!roleData || !['admin', 'ceo'].includes(roleData.role)) {
+    let paymentUserRole = roleData?.role;
+
+    // Fallback: verificar si es CEO por email
+    if (!paymentUserRole) {
+      const ceoEmails = ['m.sanchez@neurocodestudio.com', 'admin@trens.app'];
+      if (user.email && ceoEmails.includes(user.email)) {
+        paymentUserRole = 'ceo';
+      }
+    }
+
+    if (!paymentUserRole || !['admin', 'ceo'].includes(paymentUserRole)) {
       return new Response(
         JSON.stringify({ success: false, error: 'Sin permisos de administrador' }),
         { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }

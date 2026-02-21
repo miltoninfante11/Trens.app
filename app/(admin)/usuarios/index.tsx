@@ -175,6 +175,13 @@ function UserCard({ user }: { user: AdminUser }) {
                 </Text>
               </View>
             )}
+
+            {user.subscription?.status === 'past_due' && (
+              <View className="flex-row items-center">
+                <CreditCard size={12} color={COLORS.yellow} />
+                <Text className="text-yellow-400 text-xs font-mono ml-1">PAGO PENDIENTE</Text>
+              </View>
+            )}
           </View>
         </View>
 

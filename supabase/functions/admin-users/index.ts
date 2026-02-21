@@ -427,7 +427,7 @@ serve(async (req) => {
         if (!userId || !role) throw new Error('userId y role requeridos');
 
         // Solo CEO puede crear otros admins
-        if (role === 'admin' && roleData.role !== 'ceo') {
+        if (role === 'admin' && userRole !== 'ceo') {
           throw new Error('Solo el CEO puede crear administradores');
         }
 
@@ -615,13 +615,28 @@ serve(async (req) => {
       case 'get-payments': {
         if (!userId) throw new Error('userId requerido');
 
-        const { data: subscription } = await supabase
+        // Buscar customer_id en subscriptions O en customer_cards (fallback)
+        let customerId: string | null = null;
+        const { data: subForPayments } = await supabase
           .from('subscriptions')
           .select('openpay_customer_id')
           .eq('user_id', userId)
-          .single();
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        customerId = subForPayments?.openpay_customer_id || null;
 
-        if (!subscription?.openpay_customer_id) {
+        if (!customerId) {
+          const { data: cardForPayments } = await supabase
+            .from('customer_cards')
+            .select('openpay_customer_id')
+            .eq('user_id', userId)
+            .limit(1)
+            .maybeSingle();
+          customerId = cardForPayments?.openpay_customer_id || null;
+        }
+
+        if (!customerId) {
           return new Response(JSON.stringify({ success: true, payments: [] }), {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
           });
@@ -631,7 +646,7 @@ serve(async (req) => {
         let payments = [];
         try {
           const res = await fetch(
-            `${OPENPAY_API_URL}/${OPENPAY_MERCHANT_ID}/customers/${subscription.openpay_customer_id}/charges`,
+            `${OPENPAY_API_URL}/${OPENPAY_MERCHANT_ID}/customers/${customerId}/charges`,
             {
               headers: {
                 Authorization: `Basic ${btoa(OPENPAY_PRIVATE_KEY + ':')}`,
@@ -657,7 +672,7 @@ serve(async (req) => {
         if (!userId) throw new Error('userId requerido');
 
         // Solo CEO puede eliminar usuarios
-        if (roleData.role !== 'ceo') {
+        if (userRole !== 'ceo') {
           throw new Error('Solo el CEO puede eliminar usuarios');
         }
 
@@ -685,6 +700,7 @@ serve(async (req) => {
         }
 
         // Eliminar de tablas relacionadas
+        await supabase.from('customer_cards').delete().eq('user_id', userId);
         await supabase.from('subscriptions').delete().eq('user_id', userId);
         await supabase.from('user_roles').delete().eq('user_id', userId);
         await supabase.from('profiles').delete().eq('id', userId);
@@ -717,17 +733,26 @@ serve(async (req) => {
           .order('created_at', { ascending: false });
 
         // También sincronizar desde OpenPay si hay customer_id
+        // Buscar en subscriptions O en customer_cards (fallback)
+        let cardsCustomerId: string | null = null;
         const { data: subForCards } = await supabase
           .from('subscriptions')
           .select('openpay_customer_id')
           .eq('user_id', userId)
-          .single();
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        cardsCustomerId = subForCards?.openpay_customer_id || null;
+
+        if (!cardsCustomerId && dbCards && dbCards.length > 0) {
+          cardsCustomerId = dbCards[0].openpay_customer_id || null;
+        }
 
         let openpayCardsList: any[] = [];
-        if (subForCards?.openpay_customer_id) {
+        if (cardsCustomerId) {
           try {
             const cardsRes = await fetch(
-              `${OPENPAY_API_URL}/${OPENPAY_MERCHANT_ID}/customers/${subForCards.openpay_customer_id}/cards`,
+              `${OPENPAY_API_URL}/${OPENPAY_MERCHANT_ID}/customers/${cardsCustomerId}/cards`,
               {
                 headers: {
                   Authorization: `Basic ${btoa(OPENPAY_PRIVATE_KEY + ':')}`,
@@ -742,7 +767,7 @@ serve(async (req) => {
                 await supabase.from('customer_cards').upsert(
                   {
                     user_id: userId,
-                    openpay_customer_id: subForCards.openpay_customer_id,
+                    openpay_customer_id: cardsCustomerId,
                     openpay_card_id: card.id,
                     last4: card.card_number?.slice(-4) || '',
                     brand: card.brand || 'unknown',
