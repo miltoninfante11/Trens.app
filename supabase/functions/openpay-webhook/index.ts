@@ -14,6 +14,38 @@ const corsHeaders = {
 // Configuración de Openpay (desde variables de entorno)
 const OPENPAY_PRIVATE_KEY = Deno.env.get('OPENPAY_PRIVATE_KEY') || '';
 const OPENPAY_MERCHANT_ID = Deno.env.get('OPENPAY_MERCHANT_ID') || '';
+const OPENPAY_PLAN_ID = Deno.env.get('OPENPAY_PLAN_ID') || 'pr6jao0vinkuqcqmkl4p';
+const OPENPAY_API_URL = 'https://api.openpay.pe/v1';
+
+const openpayAuth = () => `Basic ${btoa(OPENPAY_PRIVATE_KEY + ':')}`;
+
+// Helper: llamada a OpenPay API
+async function openpayFetch(
+  path: string,
+  options: RequestInit = {}
+): Promise<{ ok: boolean; status: number; data: any }> {
+  const url = `${OPENPAY_API_URL}/${OPENPAY_MERCHANT_ID}${path}`;
+  console.log(`🔗 OpenPay ${options.method || 'GET'}: ${url}`);
+
+  const response = await fetch(url, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: openpayAuth(),
+      ...(options.headers || {}),
+    },
+  });
+
+  const text = await response.text();
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    data = { raw: text };
+  }
+
+  return { ok: response.ok, status: response.status, data };
+}
 
 // Tipos de eventos de Openpay
 type OpenpayEventType =
@@ -181,13 +213,15 @@ serve(async (req) => {
             }
 
             // ================================================================
-            // CARGO DE SUSCRIPCIÓN FALLIDO
+            // CARGO DE SUSCRIPCIÓN FALLIDO → RETRY CON TARJETAS ALTERNATIVAS
             // ================================================================
             case 'subscription.charge.failed': {
               const { customer_id, error_message } = event.transaction;
 
+              console.log(`❌ Subscription charge failed for ${customer_id}: ${error_message}`);
+
               // Marcar como past_due (pago pendiente)
-              const { error } = await supabase
+              await supabase
                 .from('subscriptions')
                 .update({
                   status: 'past_due',
@@ -195,10 +229,101 @@ serve(async (req) => {
                 })
                 .eq('openpay_customer_id', customer_id);
 
-              if (error) {
-                console.error('Error updating subscription:', error);
-              } else {
-                console.log('⚠️ Subscription payment failed:', customer_id, error_message);
+              // ---- RETRY LOGIC: intentar con tarjetas alternativas ----
+              const { data: sub } = await supabase
+                .from('subscriptions')
+                .select('*')
+                .eq('openpay_customer_id', customer_id)
+                .single();
+
+              if (!sub) {
+                console.log('⚠️ No subscription found for retry');
+                break;
+              }
+
+              // Obtener todas las tarjetas del usuario
+              const { data: allCards } = await supabase
+                .from('customer_cards')
+                .select('*')
+                .eq('user_id', sub.user_id)
+                .eq('allows_charges', true)
+                .order('is_default', { ascending: false });
+
+              // Filtrar la tarjeta que falló
+              const failedCardId = sub.openpay_card_id;
+              const alternativeCards = (allCards || []).filter(
+                (c: any) => c.openpay_card_id !== failedCardId
+              );
+
+              if (alternativeCards.length === 0) {
+                console.log('⚠️ No alternative cards for retry, user must update payment');
+                break;
+              }
+
+              console.log(`🔄 Retrying with ${alternativeCards.length} alternative card(s)`);
+
+              let retrySuccess = false;
+              for (const card of alternativeCards) {
+                console.log(`🔄 Trying: ${card.brand} ****${card.last4}`);
+
+                const newSubResult = await openpayFetch(`/customers/${customer_id}/subscriptions`, {
+                  method: 'POST',
+                  body: JSON.stringify({
+                    plan_id: OPENPAY_PLAN_ID,
+                    source_id: card.openpay_card_id,
+                  }),
+                });
+
+                if (newSubResult.ok) {
+                  console.log(`✅ Retry succeeded with ****${card.last4}`);
+
+                  // Cancelar suscripción vieja
+                  await openpayFetch(
+                    `/customers/${customer_id}/subscriptions/${sub.openpay_subscription_id}`,
+                    { method: 'DELETE' }
+                  ).catch(() => {});
+
+                  const newSub = newSubResult.data;
+
+                  // Actualizar DB
+                  await supabase
+                    .from('subscriptions')
+                    .update({
+                      openpay_subscription_id: newSub.id,
+                      openpay_card_id: card.openpay_card_id,
+                      openpay_card_last4: card.last4,
+                      openpay_card_brand: card.brand,
+                      status: 'active',
+                      current_period_end: newSub.period_end_date || newSub.current_period_end_date,
+                      updated_at: new Date().toISOString(),
+                    })
+                    .eq('user_id', sub.user_id);
+
+                  // Actualizar default card
+                  await supabase
+                    .from('customer_cards')
+                    .update({ is_default: false })
+                    .eq('user_id', sub.user_id);
+                  await supabase
+                    .from('customer_cards')
+                    .update({ is_default: true })
+                    .eq('openpay_card_id', card.openpay_card_id);
+
+                  // Mantener rol PRO
+                  await supabase
+                    .from('user_roles')
+                    .update({ role: 'pro', updated_at: new Date().toISOString() })
+                    .eq('user_id', sub.user_id);
+
+                  retrySuccess = true;
+                  break;
+                } else {
+                  console.log(`❌ Card ****${card.last4} also failed`);
+                }
+              }
+
+              if (!retrySuccess) {
+                console.log('❌ All cards failed. User must update payment method.');
               }
               break;
             }

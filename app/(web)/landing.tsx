@@ -709,7 +709,7 @@ export default function LandingPage() {
         cvv2: cvv,
       });
 
-      // 3. Create customer + subscription via Edge Function
+      // 3. Create customer + subscription + save card via Edge Function
       const result = await openpay.createSubscription({
         tokenId: token.id,
         customer: {
@@ -718,6 +718,7 @@ export default function LandingPage() {
           phone_number: fullPhoneNumber,
         },
         userId: authData.user.id,
+        saveCard: true, // Guardar tarjeta para futuros cobros
       });
 
       if (!result.success) {

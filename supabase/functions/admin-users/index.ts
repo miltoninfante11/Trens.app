@@ -26,7 +26,9 @@ type Action =
   | 'revoke-pro' // Revocar PRO
   | 'cancel-subscription' // Cancelar suscripción en Openpay
   | 'get-subscription' // Obtener detalles de suscripción
-  | 'get-payments'; // Historial de pagos
+  | 'get-payments' // Historial de pagos
+  | 'get-cards' // Tarjetas guardadas del usuario
+  | 'delete-card'; // Eliminar tarjeta de un usuario
 
 interface CreateUserData {
   email: string;
@@ -51,6 +53,7 @@ interface RequestBody {
   };
   proExpiresAt?: string; // Para PRO temporal
   createData?: CreateUserData; // Para crear usuario
+  cardId?: string; // Para eliminar tarjeta
 }
 
 serve(async (req) => {
@@ -272,6 +275,14 @@ serve(async (req) => {
           }
         }
 
+        // Obtener tarjetas guardadas
+        const { data: savedCards } = await supabase
+          .from('customer_cards')
+          .select('*')
+          .eq('user_id', userId)
+          .order('is_default', { ascending: false })
+          .order('created_at', { ascending: false });
+
         return new Response(
           JSON.stringify({
             success: true,
@@ -281,6 +292,18 @@ serve(async (req) => {
               pro_expires_at: roleData?.pro_expires_at,
               subscription,
               openpay: openpayData,
+              saved_cards: (savedCards || []).map((c: any) => ({
+                id: c.openpay_card_id,
+                last4: c.last4,
+                brand: c.brand,
+                type: c.type,
+                holder_name: c.holder_name,
+                expiration_month: c.expiration_month,
+                expiration_year: c.expiration_year,
+                is_default: c.is_default,
+                allows_charges: c.allows_charges,
+                created_at: c.created_at,
+              })),
             },
           }),
           {
@@ -673,6 +696,157 @@ serve(async (req) => {
         }
 
         console.log(`✅ User deleted: ${userId}`);
+
+        return new Response(JSON.stringify({ success: true }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      // ----------------------------------------------------------------
+      // OBTENER TARJETAS GUARDADAS DE UN USUARIO
+      // ----------------------------------------------------------------
+      case 'get-cards': {
+        if (!userId) throw new Error('userId requerido');
+
+        // Buscar en DB local
+        const { data: dbCards } = await supabase
+          .from('customer_cards')
+          .select('*')
+          .eq('user_id', userId)
+          .order('is_default', { ascending: false })
+          .order('created_at', { ascending: false });
+
+        // También sincronizar desde OpenPay si hay customer_id
+        const { data: subForCards } = await supabase
+          .from('subscriptions')
+          .select('openpay_customer_id')
+          .eq('user_id', userId)
+          .single();
+
+        let openpayCardsList: any[] = [];
+        if (subForCards?.openpay_customer_id) {
+          try {
+            const cardsRes = await fetch(
+              `${OPENPAY_API_URL}/${OPENPAY_MERCHANT_ID}/customers/${subForCards.openpay_customer_id}/cards`,
+              {
+                headers: {
+                  Authorization: `Basic ${btoa(OPENPAY_PRIVATE_KEY + ':')}`,
+                },
+              }
+            );
+            if (cardsRes.ok) {
+              openpayCardsList = await cardsRes.json();
+
+              // Sincronizar tarjetas nuevas a DB
+              for (const card of openpayCardsList) {
+                await supabase.from('customer_cards').upsert(
+                  {
+                    user_id: userId,
+                    openpay_customer_id: subForCards.openpay_customer_id,
+                    openpay_card_id: card.id,
+                    last4: card.card_number?.slice(-4) || '',
+                    brand: card.brand || 'unknown',
+                    type: card.type || 'credit',
+                    holder_name: card.holder_name || '',
+                    expiration_month: card.expiration_month || '',
+                    expiration_year: card.expiration_year || '',
+                    allows_charges: card.allows_charges ?? true,
+                  },
+                  { onConflict: 'openpay_card_id' }
+                );
+              }
+            }
+          } catch (e) {
+            console.error('Error fetching OpenPay cards:', e);
+          }
+        }
+
+        // Re-leer de DB (ya sincronizado)
+        const { data: finalCards } = await supabase
+          .from('customer_cards')
+          .select('*')
+          .eq('user_id', userId)
+          .order('is_default', { ascending: false })
+          .order('created_at', { ascending: false });
+
+        const cards = (finalCards || []).map((c: any) => ({
+          id: c.openpay_card_id,
+          last4: c.last4,
+          brand: c.brand,
+          type: c.type,
+          holder_name: c.holder_name,
+          expiration_month: c.expiration_month,
+          expiration_year: c.expiration_year,
+          is_default: c.is_default,
+          allows_charges: c.allows_charges,
+          created_at: c.created_at,
+        }));
+
+        return new Response(JSON.stringify({ success: true, cards }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      // ----------------------------------------------------------------
+      // ELIMINAR TARJETA DE UN USUARIO
+      // ----------------------------------------------------------------
+      case 'delete-card': {
+        if (!userId) throw new Error('userId requerido');
+        const { cardId } = body;
+        if (!cardId) throw new Error('cardId requerido');
+
+        // Obtener customer_id
+        const { data: cardRecord } = await supabase
+          .from('customer_cards')
+          .select('openpay_customer_id, is_default')
+          .eq('openpay_card_id', cardId)
+          .eq('user_id', userId)
+          .single();
+
+        if (!cardRecord) {
+          throw new Error('Tarjeta no encontrada');
+        }
+
+        // Eliminar en OpenPay
+        try {
+          await fetch(
+            `${OPENPAY_API_URL}/${OPENPAY_MERCHANT_ID}/customers/${cardRecord.openpay_customer_id}/cards/${cardId}`,
+            {
+              method: 'DELETE',
+              headers: {
+                Authorization: `Basic ${btoa(OPENPAY_PRIVATE_KEY + ':')}`,
+              },
+            }
+          );
+        } catch (e) {
+          console.error('Error deleting card from OpenPay:', e);
+        }
+
+        // Eliminar de DB
+        await supabase
+          .from('customer_cards')
+          .delete()
+          .eq('openpay_card_id', cardId)
+          .eq('user_id', userId);
+
+        // Si era la default, asignar otra
+        if (cardRecord.is_default) {
+          const { data: remaining } = await supabase
+            .from('customer_cards')
+            .select('id')
+            .eq('user_id', userId)
+            .order('created_at', { ascending: false })
+            .limit(1);
+
+          if (remaining && remaining.length > 0) {
+            await supabase
+              .from('customer_cards')
+              .update({ is_default: true })
+              .eq('id', remaining[0].id);
+          }
+        }
+
+        console.log(`✅ Card deleted for user ${userId}: ${cardId}`);
 
         return new Response(JSON.stringify({ success: true }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },

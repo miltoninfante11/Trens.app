@@ -1,6 +1,12 @@
 // ============================================================================
 // OPENPAY CREATE SUBSCRIPTION - Supabase Edge Function
-// Crea cliente + suscripción usando la llave privada (server-side)
+// Crea cliente + suscripción + guarda tarjeta usando llave privada (server-side)
+// ============================================================================
+// Flujo:
+//   1. Crear customer en OpenPay
+//   2. Guardar tarjeta en customer (para futuros cobros)
+//   3. Crear suscripción con la tarjeta guardada
+//   4. Guardar todo en Supabase (subscriptions + customer_cards + user_roles)
 // ============================================================================
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
@@ -11,11 +17,45 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Configuración de Openpay (desde variables de entorno)
+// Configuración de OpenPay (desde variables de entorno)
 const OPENPAY_PRIVATE_KEY = Deno.env.get('OPENPAY_PRIVATE_KEY') || '';
 const OPENPAY_MERCHANT_ID = Deno.env.get('OPENPAY_MERCHANT_ID') || '';
 const OPENPAY_PLAN_ID = Deno.env.get('OPENPAY_PLAN_ID') || 'pr6jao0vinkuqcqmkl4p';
 const OPENPAY_API_URL = 'https://api.openpay.pe/v1';
+
+const openpayAuth = () => `Basic ${btoa(OPENPAY_PRIVATE_KEY + ':')}`;
+
+// Helper: llamada a OpenPay API
+async function openpayFetch(
+  path: string,
+  options: RequestInit = {}
+): Promise<{ ok: boolean; status: number; data: any }> {
+  const url = `${OPENPAY_API_URL}/${OPENPAY_MERCHANT_ID}${path}`;
+  console.log(`🔗 OpenPay ${options.method || 'GET'}: ${url}`);
+
+  const response = await fetch(url, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: openpayAuth(),
+      ...(options.headers || {}),
+    },
+  });
+
+  const text = await response.text();
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    data = { raw: text };
+  }
+
+  if (!response.ok) {
+    console.error(`❌ OpenPay error [${response.status}]:`, data);
+  }
+
+  return { ok: response.ok, status: response.status, data };
+}
 
 interface CreateSubscriptionRequest {
   tokenId: string;
@@ -25,6 +65,8 @@ interface CreateSubscriptionRequest {
     phone: string;
   };
   userId: string;
+  saveCard?: boolean;
+  deviceSessionId?: string;
 }
 
 serve(async (req) => {
@@ -34,19 +76,21 @@ serve(async (req) => {
   }
 
   try {
-    const { tokenId, customer, userId }: CreateSubscriptionRequest = await req.json();
+    const {
+      tokenId,
+      customer,
+      userId,
+      saveCard = true,
+      deviceSessionId,
+    }: CreateSubscriptionRequest = await req.json();
 
-    console.log('📥 Creating subscription for:', customer.email);
+    console.log('📥 Creating subscription for:', customer.email, { saveCard });
 
     // ================================================================
     // 1. CREAR CLIENTE EN OPENPAY
     // ================================================================
-    const customerResponse = await fetch(`${OPENPAY_API_URL}/${OPENPAY_MERCHANT_ID}/customers`, {
+    const customerResult = await openpayFetch('/customers', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Basic ${btoa(OPENPAY_PRIVATE_KEY + ':')}`,
-      },
       body: JSON.stringify({
         name: customer.name,
         email: customer.email,
@@ -55,76 +99,128 @@ serve(async (req) => {
       }),
     });
 
-    if (!customerResponse.ok) {
-      const error = await customerResponse.json();
-      console.error('❌ Error creating customer:', error);
-      throw new Error(error.description || 'Error al crear cliente');
+    if (!customerResult.ok) {
+      throw new Error(customerResult.data?.description || 'Error al crear cliente');
     }
 
-    const customerData = await customerResponse.json();
-    const customerId = customerData.id;
+    const customerId = customerResult.data.id;
     console.log('✅ Customer created:', customerId);
 
     // ================================================================
-    // 2. CREAR SUSCRIPCIÓN
+    // 2. GUARDAR TARJETA EN EL CUSTOMER (para futuros cobros)
     // ================================================================
-    const subscriptionResponse = await fetch(
-      `${OPENPAY_API_URL}/${OPENPAY_MERCHANT_ID}/customers/${customerId}/subscriptions`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Basic ${btoa(OPENPAY_PRIVATE_KEY + ':')}`,
-        },
-        body: JSON.stringify({
-          plan_id: OPENPAY_PLAN_ID,
-          source_id: tokenId,
-        }),
-      }
-    );
+    let savedCardId: string | null = null;
+    let savedCardData: any = null;
 
-    if (!subscriptionResponse.ok) {
-      const error = await subscriptionResponse.json();
-      console.error('❌ Error creating subscription:', error);
-      throw new Error(error.description || 'Error al crear suscripción');
+    if (saveCard) {
+      const cardResult = await openpayFetch(`/customers/${customerId}/cards`, {
+        method: 'POST',
+        body: JSON.stringify({
+          token_id: tokenId,
+          device_session_id: deviceSessionId || null,
+        }),
+      });
+
+      if (cardResult.ok) {
+        savedCardData = cardResult.data;
+        savedCardId = savedCardData.id;
+        console.log('✅ Card saved on customer:', savedCardId);
+      } else {
+        // No es fatal - la suscripción puede funcionar solo con el token
+        console.warn('⚠️ Could not save card on customer, using token for subscription');
+      }
     }
 
-    const subscription = await subscriptionResponse.json();
+    // ================================================================
+    // 3. CREAR SUSCRIPCIÓN
+    // ================================================================
+    const subscriptionBody: any = {
+      plan_id: OPENPAY_PLAN_ID,
+    };
+
+    // Usar la tarjeta guardada si se pudo guardar, sino el token
+    if (savedCardId) {
+      subscriptionBody.source_id = savedCardId;
+    } else {
+      subscriptionBody.source_id = tokenId;
+    }
+
+    const subResult = await openpayFetch(`/customers/${customerId}/subscriptions`, {
+      method: 'POST',
+      body: JSON.stringify(subscriptionBody),
+    });
+
+    if (!subResult.ok) {
+      throw new Error(subResult.data?.description || 'Error al crear suscripción');
+    }
+
+    const subscription = subResult.data;
     console.log('✅ Subscription created:', subscription.id);
 
     // ================================================================
-    // 3. GUARDAR EN SUPABASE
+    // 4. GUARDAR EN SUPABASE
     // ================================================================
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    // Insertar/actualizar suscripción
+    // 4a. Insertar/actualizar suscripción
+    const cardLast4 =
+      savedCardData?.card_number?.slice(-4) || subscription.card?.card_number?.slice(-4) || '';
+    const cardBrand = savedCardData?.brand || subscription.card?.brand || '';
+
     const { error: dbError } = await supabase.from('subscriptions').upsert(
       {
         user_id: userId,
         openpay_customer_id: customerId,
         openpay_subscription_id: subscription.id,
+        openpay_card_id: savedCardId,
+        openpay_card_last4: cardLast4,
+        openpay_card_brand: cardBrand,
         plan_id: OPENPAY_PLAN_ID,
         status: 'active',
+        amount: 59.9,
+        currency: 'PEN',
         current_period_end: subscription.period_end_date || subscription.current_period_end_date,
-        openpay_card_last4: subscription.card?.card_number?.slice(-4) || '',
-        openpay_card_brand: subscription.card?.brand || '',
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       },
-      {
-        onConflict: 'user_id',
-      }
+      { onConflict: 'user_id' }
     );
 
     if (dbError) {
-      console.error('❌ Error saving to database:', dbError);
-      // No lanzar error - la suscripción ya fue creada en Openpay
+      console.error('❌ Error saving subscription to DB:', dbError);
+      // No lanzar error - la suscripción ya fue creada en OpenPay
     }
 
-    // Actualizar rol del usuario a PRO en user_roles
-    // Primero intentar update, si no existe hacer insert
+    // 4b. Guardar tarjeta en customer_cards (si se guardó)
+    if (savedCardId && savedCardData) {
+      const { error: cardDbError } = await supabase.from('customer_cards').upsert(
+        {
+          user_id: userId,
+          openpay_customer_id: customerId,
+          openpay_card_id: savedCardId,
+          last4: cardLast4,
+          brand: cardBrand,
+          type: savedCardData.type || 'credit',
+          holder_name: savedCardData.holder_name || customer.name,
+          expiration_month: savedCardData.expiration_month || '',
+          expiration_year: savedCardData.expiration_year || '',
+          is_default: true,
+          allows_charges: savedCardData.allows_charges ?? true,
+        },
+        { onConflict: 'openpay_card_id' }
+      );
+
+      if (cardDbError) {
+        console.error('⚠️ Error saving card to DB:', cardDbError);
+        // No fatal - la tarjeta ya está en OpenPay
+      } else {
+        console.log('✅ Card saved to customer_cards DB');
+      }
+    }
+
+    // 4c. Actualizar rol del usuario a PRO
     const { data: existingRole } = await supabase
       .from('user_roles')
       .select('user_id')
@@ -132,7 +228,6 @@ serve(async (req) => {
       .single();
 
     if (existingRole) {
-      // Update existing
       const { error: roleError } = await supabase
         .from('user_roles')
         .update({ role: 'pro', updated_at: new Date().toISOString() })
@@ -144,7 +239,6 @@ serve(async (req) => {
         console.log('✅ Role updated to PRO for user:', userId);
       }
     } else {
-      // Insert new
       const { error: roleError } = await supabase
         .from('user_roles')
         .insert({ user_id: userId, role: 'pro' });
@@ -156,13 +250,14 @@ serve(async (req) => {
       }
     }
 
-    console.log('✅ Subscription complete for user:', userId);
+    console.log('🎉 Subscription complete for user:', userId);
 
     return new Response(
       JSON.stringify({
         success: true,
         subscriptionId: subscription.id,
         customerId: customerId,
+        cardId: savedCardId,
         status: subscription.status,
         currentPeriodEnd: subscription.current_period_end_date,
       }),
@@ -171,7 +266,7 @@ serve(async (req) => {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       }
     );
-  } catch (error) {
+  } catch (error: any) {
     console.error('❌ Subscription error:', error);
     return new Response(
       JSON.stringify({

@@ -1,6 +1,7 @@
 // ============================================================================
 // EDIT MEAL MODAL - Modal para editar comidas existentes
 // Análisis inteligente automático (siempre activo)
+// Campos manuales de gramos y porciones con conversión IA
 // Estilo Savage Mode con cierre fluido y vibración
 // ============================================================================
 
@@ -20,11 +21,21 @@ import {
 import Animated, { useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from '../../lib/haptics';
-import { X, Plus, Trash2, AlertTriangle, CheckCircle, Sparkles } from 'lucide-react-native';
+import {
+  X,
+  Plus,
+  Trash2,
+  AlertTriangle,
+  CheckCircle,
+  Sparkles,
+  Scale,
+  Layers,
+} from 'lucide-react-native';
 import {
   analyzeIngredientsSmart,
   IngredientAnalysis,
 } from '../../services/hank/ingredientAnalyzer';
+import { convertGramsPortions } from '../../services/hank/nutrition';
 
 // ============================================================================
 // TYPES
@@ -34,6 +45,13 @@ interface Ingredient {
   name: string;
   quantity: string;
   portion?: string;
+  nutritionInfo?: {
+    calories: number;
+    protein: number;
+    carbs: number;
+    fat: number;
+    suggestedGrams?: number;
+  };
 }
 
 interface MealOption {
@@ -91,6 +109,7 @@ export const EditMealModal: React.FC<EditMealModalProps> = ({
   const [isSaving, setIsSaving] = useState(false);
   const [analysis, setAnalysis] = useState<IngredientAnalysis | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [isConverting, setIsConverting] = useState(false);
 
   // Animated value para el desplazamiento del panel
   const translateY = useSharedValue(0);
@@ -207,10 +226,40 @@ export const EditMealModal: React.FC<EditMealModalProps> = ({
     try {
       let finalIngredients = validIngredients;
 
-      // Siempre usar IA para calcular macros
+      // Primero: conversión gramos ↔ porciones si falta alguno
+      const needsConversion = finalIngredients.some(
+        (ing) =>
+          (ing.quantity.trim() && !(ing.portion || '').trim()) ||
+          (!(ing.quantity || '').trim() && (ing.portion || '').trim())
+      );
+
+      if (needsConversion) {
+        setIsConverting(true);
+        try {
+          const converted = await convertGramsPortions(
+            finalIngredients.map((ing) => ({
+              name: ing.name,
+              quantity: ing.quantity?.trim() || undefined,
+              portion: ing.portion?.trim() || undefined,
+            }))
+          );
+          finalIngredients = converted.map((c, idx) => ({
+            ...finalIngredients[idx],
+            name: c.name,
+            quantity: c.quantity,
+            portion: c.portion,
+          }));
+        } catch (error) {
+          console.error('Error convirtiendo:', error);
+        } finally {
+          setIsConverting(false);
+        }
+      }
+
+      // Luego: usar IA para calcular macros
       if (onCalculateMacros) {
         try {
-          finalIngredients = await onCalculateMacros(validIngredients, meal?.targetMacros);
+          finalIngredients = await onCalculateMacros(finalIngredients, meal?.targetMacros);
           setIngredients(finalIngredients);
         } catch (error) {
           console.error('Error calculating macros:', error);
@@ -398,6 +447,14 @@ export const EditMealModal: React.FC<EditMealModalProps> = ({
 
               {/* Ingredients */}
               <Text className="text-zinc-400 text-xs font-bold mb-2 uppercase">Ingredientes</Text>
+
+              {/* Info: conversión automática */}
+              <View className="bg-purple-500/10 border border-purple-500/20 rounded-xl p-3 mb-3">
+                <Text className="text-purple-300 text-xs">
+                  💡 Ingresa gramos O porciones — la IA calcula el otro al guardar
+                </Text>
+              </View>
+
               {ingredients.map((ing, i) => (
                 <View
                   key={ing.id}
@@ -416,17 +473,46 @@ export const EditMealModal: React.FC<EditMealModalProps> = ({
                     onChangeText={(v) => updateIngredient(i, 'name', v)}
                     placeholder="Nombre (ej. Pollo a la plancha)"
                     placeholderTextColor="#666"
-                    className="bg-transparent border-b border-zinc-700 text-white py-2 mb-2"
+                    className="bg-transparent border-b border-zinc-700 text-white py-2 mb-3"
                   />
-                  {/* IA calcula automáticamente */}
-                  {ing.quantity && (
-                    <View className="mt-2 bg-purple-500/10 p-2 rounded-xl border border-purple-500/20">
-                      <Text className="text-purple-300 text-sm">
-                        {ing.quantity}
-                        {ing.portion ? ` • ${ing.portion}` : ''}
-                      </Text>
+
+                  {/* Campos de Gramos y Porciones */}
+                  <View className="flex-row gap-3">
+                    {/* Gramos */}
+                    <View className="flex-1">
+                      <View className="flex-row items-center gap-1.5 mb-1">
+                        <Scale size={12} color="#3B82F6" />
+                        <Text className="text-zinc-500 text-[10px] font-bold uppercase">
+                          Gramos
+                        </Text>
+                      </View>
+                      <TextInput
+                        value={ing.quantity}
+                        onChangeText={(v) => updateIngredient(i, 'quantity', v)}
+                        placeholder="ej. 200g"
+                        placeholderTextColor="#555"
+                        keyboardType="default"
+                        className="bg-zinc-800/60 border border-zinc-700/50 rounded-lg text-white text-sm px-3 py-2 font-mono"
+                      />
                     </View>
-                  )}
+
+                    {/* Porciones */}
+                    <View className="flex-1">
+                      <View className="flex-row items-center gap-1.5 mb-1">
+                        <Layers size={12} color="#A855F7" />
+                        <Text className="text-zinc-500 text-[10px] font-bold uppercase">
+                          Porciones
+                        </Text>
+                      </View>
+                      <TextInput
+                        value={ing.portion || ''}
+                        onChangeText={(v) => updateIngredient(i, 'portion', v)}
+                        placeholder="ej. 2 tazas"
+                        placeholderTextColor="#555"
+                        className="bg-zinc-800/60 border border-zinc-700/50 rounded-lg text-white text-sm px-3 py-2 font-mono"
+                      />
+                    </View>
+                  </View>
                 </View>
               ))}
 
@@ -442,21 +528,26 @@ export const EditMealModal: React.FC<EditMealModalProps> = ({
 
               <Pressable
                 onPress={handleSave}
-                disabled={isSaving}
+                disabled={isSaving || isConverting}
                 className={`w-full py-4 rounded-xl ${
-                  isSaving ? 'bg-zinc-600' : 'bg-purple-500 active:bg-purple-600'
+                  isSaving || isConverting ? 'bg-zinc-600' : 'bg-purple-500 active:bg-purple-600'
                 }`}
                 style={{
                   marginBottom: Math.max(insets.bottom, 16) + 8,
                   shadowColor: '#A855F7',
                   shadowOffset: { width: 0, height: 4 },
-                  shadowOpacity: isSaving ? 0 : 0.3,
+                  shadowOpacity: isSaving || isConverting ? 0 : 0.3,
                   shadowRadius: 8,
-                  elevation: isSaving ? 0 : 5,
+                  elevation: isSaving || isConverting ? 0 : 5,
                 }}
               >
-                {isSaving ? (
-                  <ActivityIndicator size="small" color="#fff" />
+                {isSaving || isConverting ? (
+                  <View className="flex-row items-center justify-center gap-2">
+                    <ActivityIndicator size="small" color="#fff" />
+                    <Text className="text-white font-bold text-center text-base">
+                      {isConverting ? 'Calculando...' : 'Guardando...'}
+                    </Text>
+                  </View>
                 ) : (
                   <Text className="text-white font-bold text-center text-lg">GUARDAR CAMBIOS</Text>
                 )}

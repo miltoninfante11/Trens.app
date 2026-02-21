@@ -11,7 +11,6 @@ import {
   Modal,
   Dimensions,
   Share,
-  TextInput,
 } from 'react-native';
 import { PWAGuard } from '../../../components/auth/PWAGuard';
 import { Alert } from '../../../lib/alert';
@@ -30,19 +29,17 @@ import {
   Share2,
   MoreVertical,
   Volume2,
-  LogOut,
   Trophy,
   Shield,
-  Camera,
   ImageIcon,
   Pencil,
 } from 'lucide-react-native';
 import * as Haptics from '../../../lib/haptics';
-import { openCamera, openGallery } from '../../../lib/webCamera';
+
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { supabase } from '../../../lib/supabase';
 import cloudflareStream from '../../../services/cloudflare/stream';
-import cloudflareR2 from '../../../services/cloudflare/r2';
+
 import { useUserRoleContext } from '../../../context/UserRoleContext';
 import { useHank } from '../../../context/HankContext';
 import { useSaveGuard } from '../../_layout';
@@ -54,6 +51,7 @@ import { SportBadges } from '../../../components/adn/SportBadges';
 import { TodayCards } from '../../../components/adn/TodayCards';
 import { ProUpgradeModal } from '../../../components/pro/ProUpgradeModal';
 import { ShareModal } from '../../../components/share/ShareModal';
+import AccountModal from '../../../components/account/AccountModal';
 import { calculateUserDailyMacros } from '../../../services/hank/nutrition';
 
 // ============================================================================
@@ -81,7 +79,7 @@ interface UserProfile {
   // Campos CALCULADOS (vienen de GYM y PLAN)
   training_frequency?: number;
   meal_count?: number;
-  // Macros diarios cacheados
+  // Macros diarios cacheados (objetivo/target)
   cached_daily_macros?: {
     totalCalories: number;
     totalProtein: number;
@@ -93,6 +91,13 @@ interface UserProfile {
       carbs: number;
       fat: number;
     };
+  } | null;
+  // Macros reales computados desde ingredientes del plan
+  actual_daily_macros?: {
+    totalCalories: number;
+    totalProtein: number;
+    totalCarbs: number;
+    totalFat: number;
   } | null;
 }
 
@@ -189,9 +194,6 @@ function AdnScreenContent() {
 
   // Edit profile modal state
   const [editProfileVisible, setEditProfileVisible] = useState(false);
-  const [editName, setEditName] = useState('');
-  const [editAvatarUri, setEditAvatarUri] = useState<string | null>(null);
-  const [isSavingProfile, setIsSavingProfile] = useState(false);
 
   // Record viewer state
   const [recordViewerVisible, setRecordViewerVisible] = useState(false);
@@ -380,11 +382,48 @@ function AdnScreenContent() {
         .eq('id', user.id)
         .single();
 
-      // Fetch meal count desde meals (calculado desde PLAN)
-      const { count: mealCount } = await supabase
+      // Fetch meals con ingredientes para calcular macros reales
+      const { data: mealsWithIngredients, count: mealCount } = await supabase
         .from('meals')
-        .select('*', { count: 'exact', head: true })
+        .select('ingredients', { count: 'exact' })
         .eq('user_id', user.id);
+
+      // Computar macros REALES desde nutritionInfo de ingredientes
+      let actualDailyMacros: {
+        totalCalories: number;
+        totalProtein: number;
+        totalCarbs: number;
+        totalFat: number;
+      } | null = null;
+      if (mealsWithIngredients && mealsWithIngredients.length > 0) {
+        let cal = 0,
+          pro = 0,
+          car = 0,
+          fat = 0;
+        let hasNutrition = false;
+        for (const meal of mealsWithIngredients) {
+          const ings = (meal.ingredients as any[]) || [];
+          for (const ing of ings) {
+            // Soportar formato anidado (nutritionInfo) y top-level (calories, protein...)
+            const ni = ing.nutritionInfo || (ing.calories != null ? ing : null);
+            if (ni) {
+              hasNutrition = true;
+              cal += ni.calories || 0;
+              pro += ni.protein || 0;
+              car += ni.carbs || 0;
+              fat += ni.fat || 0;
+            }
+          }
+        }
+        if (hasNutrition) {
+          actualDailyMacros = {
+            totalCalories: Math.round(cal),
+            totalProtein: Math.round(pro),
+            totalCarbs: Math.round(car),
+            totalFat: Math.round(fat),
+          };
+        }
+      }
 
       // Obtener foto de progreso más reciente con datos de snapshot
       const { data: latestProgressPhoto } = await supabase
@@ -480,6 +519,7 @@ function AdnScreenContent() {
         setProfile({
           ...profileData,
           cached_daily_macros: cachedMacros,
+          actual_daily_macros: actualDailyMacros,
           training_frequency: authProfile?.training_frequency || 0,
           meal_count: mealCount || 0,
         });
@@ -589,127 +629,11 @@ function AdnScreenContent() {
   }, [fetchData]);
 
   // -------------------------------------------------------------------------
-  // EDIT PROFILE - Nombre y Foto
+  // OPEN ACCOUNT MODAL
   // -------------------------------------------------------------------------
   const openEditProfile = () => {
-    setEditName(profile?.display_name || '');
-    setEditAvatarUri(null);
     setEditProfileVisible(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-  };
-
-  const pickImageFromGallery = async () => {
-    const result = await openGallery({
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.8,
-    });
-
-    if (result.success && result.uri) {
-      setEditAvatarUri(result.uri);
-    } else if (result.error && result.error !== 'Cancelado por el usuario') {
-      Alert.alert('Error', result.error);
-    }
-  };
-
-  const takePhoto = async () => {
-    const result = await openCamera({
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.8,
-    });
-
-    if (result.success && result.uri) {
-      setEditAvatarUri(result.uri);
-    } else if (result.error && result.error !== 'Cancelado por el usuario') {
-      Alert.alert('Error', result.error);
-    }
-  };
-
-  const saveProfile = async () => {
-    if (!user) {
-      Alert.alert('Error', 'Debes iniciar sesión para editar tu perfil.');
-      return;
-    }
-
-    setIsSavingProfile(true);
-
-    try {
-      let avatarUrl = profile?.avatar_url || null;
-      console.log('📝 Guardando perfil, nombre:', editName, 'avatar nuevo:', !!editAvatarUri);
-
-      // Subir nueva imagen si se seleccionó una
-      if (editAvatarUri) {
-        console.log('📸 Subiendo avatar usando R2 service...');
-
-        // Borrar avatar anterior de R2 si existe
-        const oldAvatarUrl = profile?.avatar_url;
-        if (oldAvatarUrl) {
-          try {
-            const deleteResult = await cloudflareR2.deleteAvatar(oldAvatarUrl);
-            if (deleteResult.success) {
-              console.log('🗑️ Avatar anterior eliminado');
-            }
-          } catch (deleteError) {
-            console.warn('Error eliminando avatar anterior:', deleteError);
-          }
-        }
-
-        // Fetch la imagen como blob
-        const response = await fetch(editAvatarUri);
-        const blob = await response.blob();
-        console.log('📦 Blob creado, tamaño:', blob.size);
-
-        // Subir usando el servicio R2 con método uploadFromBlob
-        const fileName = `avatars/${user.id}_${Date.now()}.jpg`;
-        const uploadResult = await cloudflareR2.uploadFromBlob(blob, fileName, 'image/jpeg');
-
-        if (uploadResult.success && uploadResult.url) {
-          avatarUrl = uploadResult.url;
-          console.log('✅ Avatar subido:', avatarUrl);
-        } else {
-          console.warn('❌ Error subiendo avatar:', uploadResult.error);
-          Alert.alert('Error', 'No se pudo subir la imagen. El nombre se guardará.');
-        }
-      }
-
-      // Actualizar perfil en Supabase
-      console.log('💾 Actualizando Supabase...');
-
-      const { error } = await supabase
-        .from('user_profiles')
-        .update({
-          display_name: editName.trim() || profile?.display_name,
-          avatar_url: avatarUrl,
-        })
-        .eq('user_id', user.id);
-
-      if (error) {
-        console.error('❌ Error Supabase:', error);
-        throw error;
-      }
-
-      console.log('✅ Perfil actualizado en Supabase');
-
-      // Actualizar estado local
-      setProfile((prev) =>
-        prev
-          ? {
-              ...prev,
-              display_name: editName.trim() || prev.display_name,
-              avatar_url: avatarUrl,
-            }
-          : prev
-      );
-
-      setEditProfileVisible(false);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    } catch (error) {
-      console.error('Error guardando perfil:', error);
-      Alert.alert('Error', 'No se pudo guardar el perfil. Intenta de nuevo.');
-    } finally {
-      setIsSavingProfile(false);
-    }
   };
 
   // -------------------------------------------------------------------------
@@ -1125,6 +1049,7 @@ function AdnScreenContent() {
                       meal_count: profile.meal_count,
                       // Macros diarios cacheados
                       cached_daily_macros: profile.cached_daily_macros,
+                      actual_daily_macros: profile.actual_daily_macros,
                     }
                   : {
                       // Placeholder data para visitantes
@@ -1144,6 +1069,7 @@ function AdnScreenContent() {
                       training_frequency: undefined,
                       meal_count: undefined,
                       cached_daily_macros: null,
+                      actual_daily_macros: null,
                     }
               }
               measurements={measurements}
@@ -1557,29 +1483,6 @@ function AdnScreenContent() {
           </TouchableOpacity>
         )}
 
-        {/* Botón discreto de cerrar sesión */}
-        {user && (
-          <TouchableOpacity
-            onPress={() => {
-              Alert.alert('Cerrar Sesión', '¿Estás seguro de que deseas cerrar sesión?', [
-                { text: 'Cancelar', style: 'cancel' },
-                {
-                  text: 'Cerrar Sesión',
-                  style: 'destructive',
-                  onPress: async () => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                    await supabase.auth.signOut();
-                  },
-                },
-              ]);
-            }}
-            className="flex-row items-center justify-center gap-2 py-4 mt-4 mb-2"
-          >
-            <LogOut size={16} color="#52525B" />
-            <Text className="text-zinc-600 text-sm">Cerrar Sesión</Text>
-          </TouchableOpacity>
-        )}
-
         {/* Espaciado inferior */}
         <View className="h-20" />
       </ScrollView>
@@ -1931,104 +1834,16 @@ function AdnScreenContent() {
         </View>
       </Modal>
 
-      {/* MODAL: Editar Perfil */}
-      <Modal
+      {/* MODAL: Cuenta / Perfil / Suscripción */}
+      <AccountModal
         visible={editProfileVisible}
-        animationType="slide"
-        transparent
-        onRequestClose={() => setEditProfileVisible(false)}
-      >
-        <View className="flex-1 bg-black/90 justify-end">
-          <View className="bg-zinc-900 rounded-t-3xl p-6 border-t border-zinc-800">
-            {/* Header */}
-            <View className="flex-row items-center justify-between mb-6">
-              <Text className="text-xl font-bold text-white">Editar Perfil</Text>
-              <TouchableOpacity onPress={() => setEditProfileVisible(false)}>
-                <X size={24} color="#71717a" />
-              </TouchableOpacity>
-            </View>
-
-            {/* Avatar Preview + Botones */}
-            <View className="items-center mb-6">
-              <View
-                className="w-28 h-28 rounded-full items-center justify-center mb-4"
-                style={{ borderWidth: 3, borderColor: '#F97316' }}
-              >
-                <View className="w-24 h-24 rounded-full bg-zinc-800 overflow-hidden">
-                  {editAvatarUri ? (
-                    <Image
-                      source={{ uri: editAvatarUri }}
-                      className="w-full h-full"
-                      resizeMode="cover"
-                    />
-                  ) : profile?.avatar_url ? (
-                    <Image
-                      source={{ uri: profile.avatar_url }}
-                      className="w-full h-full"
-                      resizeMode="cover"
-                    />
-                  ) : (
-                    <LinearGradient
-                      colors={['#DC2626', '#F97316']}
-                      className="w-full h-full items-center justify-center"
-                    >
-                      <Text className="text-white text-4xl font-black">
-                        {editName?.charAt(0) || profile?.display_name?.charAt(0) || 'A'}
-                      </Text>
-                    </LinearGradient>
-                  )}
-                </View>
-              </View>
-
-              {/* Botones de foto */}
-              <View className="flex-row gap-3">
-                <TouchableOpacity
-                  onPress={takePhoto}
-                  className="flex-row items-center gap-2 px-4 py-2 bg-zinc-800 rounded-full"
-                >
-                  <Camera size={16} color="#F97316" />
-                  <Text className="text-white font-medium text-sm">Cámara</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  onPress={pickImageFromGallery}
-                  className="flex-row items-center gap-2 px-4 py-2 bg-zinc-800 rounded-full"
-                >
-                  <ImageIcon size={16} color="#F97316" />
-                  <Text className="text-white font-medium text-sm">Galería</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-
-            {/* Input Nombre */}
-            <View className="mb-6">
-              <Text className="text-zinc-400 text-sm mb-2">Nombre</Text>
-              <TextInput
-                value={editName}
-                onChangeText={setEditName}
-                placeholder="Tu nombre"
-                placeholderTextColor="#52525b"
-                className="bg-zinc-800 text-white text-lg p-4 rounded-xl border border-zinc-700"
-                autoCapitalize="words"
-              />
-            </View>
-
-            {/* Botón Guardar */}
-            <TouchableOpacity
-              onPress={saveProfile}
-              disabled={isSavingProfile}
-              className={`py-4 rounded-xl ${isSavingProfile ? 'bg-zinc-700' : 'bg-fire-red'}`}
-            >
-              {isSavingProfile ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text className="text-white text-center font-bold text-lg uppercase tracking-widest">
-                  Guardar
-                </Text>
-              )}
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
+        onClose={() => setEditProfileVisible(false)}
+        profile={profile}
+        onProfileSaved={() => {
+          setEditProfileVisible(false);
+          fetchData();
+        }}
+      />
     </View>
   );
 }

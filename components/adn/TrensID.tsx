@@ -58,7 +58,7 @@ interface ProfileData {
   external_training_frequency?: number; // Frecuencia para modo externo
   external_training_schedule?: Record<string, string>; // {"Lunes": "Pecho", "Martes": "Espalda"}
   has_custom_plan?: boolean; // true = tiene plan personalizado
-  // Macros diarios cacheados
+  // Macros diarios cacheados (objetivo/target)
   cached_daily_macros?: {
     totalCalories: number;
     totalProtein: number;
@@ -70,6 +70,13 @@ interface ProfileData {
       carbs: number;
       fat: number;
     };
+  } | null;
+  // Macros reales computados desde ingredientes del plan
+  actual_daily_macros?: {
+    totalCalories: number;
+    totalProtein: number;
+    totalCarbs: number;
+    totalFat: number;
   } | null;
 }
 
@@ -340,58 +347,67 @@ export default function TrensID({ userId, profileData, measurements, onUpdate }:
                 </View>
               </View>
 
-              {/* Macros Diarios */}
-              {editData.cached_daily_macros && (
-                <View className="mt-4 pt-4 border-t border-zinc-800/50">
-                  <View className="flex-row items-center gap-1 mb-2">
-                    <Flame size={10} color="#F97316" />
-                    <Text className="text-[10px] text-fire-orange font-bold uppercase tracking-wider">
-                      {(editData.meal_count || 0) > 0 ? 'Macros Diarios' : 'Macros Objetivo'}
-                    </Text>
-                    {(editData.meal_count || 0) > 0 && (
-                      <Text className="text-zinc-600 text-[10px] font-mono ml-auto">
-                        {editData.meal_count} comidas
-                      </Text>
-                    )}
-                  </View>
-                  <View className="flex-row justify-between">
-                    {/* Calorías */}
-                    <View className="items-center">
-                      <Text className="text-white font-mono font-bold text-lg">
-                        {editData.cached_daily_macros.totalCalories}
-                      </Text>
-                      <Text className="text-zinc-500 text-[9px] uppercase">kcal</Text>
+              {/* Macros Diarios - Reales si disponibles, target como fallback */}
+              {(editData.actual_daily_macros || editData.cached_daily_macros) &&
+                (() => {
+                  const macros = editData.actual_daily_macros || editData.cached_daily_macros!;
+                  const isActual = !!editData.actual_daily_macros;
+                  return (
+                    <View className="mt-4 pt-4 border-t border-zinc-800/50">
+                      <View className="flex-row items-center gap-1 mb-2">
+                        <Flame size={10} color="#F97316" />
+                        <Text className="text-[10px] text-fire-orange font-bold uppercase tracking-wider">
+                          {isActual
+                            ? 'Macros Reales'
+                            : (editData.meal_count || 0) > 0
+                              ? 'Macros Diarios'
+                              : 'Macros Objetivo'}
+                        </Text>
+                        {(editData.meal_count || 0) > 0 && (
+                          <Text className="text-zinc-600 text-[10px] font-mono ml-auto">
+                            {editData.meal_count} comidas
+                          </Text>
+                        )}
+                      </View>
+                      <View className="flex-row justify-between">
+                        {/* Calorías */}
+                        <View className="items-center">
+                          <Text className="text-white font-mono font-bold text-lg">
+                            {macros.totalCalories}
+                          </Text>
+                          <Text className="text-zinc-500 text-[9px] uppercase">kcal</Text>
+                        </View>
+                        {/* Proteína */}
+                        <View className="items-center">
+                          <Text className="text-savage-red font-mono font-bold text-lg">
+                            {macros.totalProtein}g
+                          </Text>
+                          <Text className="text-zinc-500 text-[9px] uppercase">Proteína</Text>
+                        </View>
+                        {/* Carbos */}
+                        <View className="items-center">
+                          <Text className="text-yellow-500 font-mono font-bold text-lg">
+                            {macros.totalCarbs}g
+                          </Text>
+                          <Text className="text-zinc-500 text-[9px] uppercase">Carbos</Text>
+                        </View>
+                        {/* Grasas */}
+                        <View className="items-center">
+                          <Text className="text-blue-400 font-mono font-bold text-lg">
+                            {macros.totalFat}g
+                          </Text>
+                          <Text className="text-zinc-500 text-[9px] uppercase">Grasas</Text>
+                        </View>
+                      </View>
+                      {/* Hint para usuarios sin comidas */}
+                      {(editData.meal_count || 0) === 0 && (
+                        <Text className="text-zinc-600 text-[9px] text-center mt-2 italic">
+                          Ve a PLAN para configurar tus comidas
+                        </Text>
+                      )}
                     </View>
-                    {/* Proteína */}
-                    <View className="items-center">
-                      <Text className="text-savage-red font-mono font-bold text-lg">
-                        {editData.cached_daily_macros.totalProtein}g
-                      </Text>
-                      <Text className="text-zinc-500 text-[9px] uppercase">Proteína</Text>
-                    </View>
-                    {/* Carbos */}
-                    <View className="items-center">
-                      <Text className="text-yellow-500 font-mono font-bold text-lg">
-                        {editData.cached_daily_macros.totalCarbs}g
-                      </Text>
-                      <Text className="text-zinc-500 text-[9px] uppercase">Carbos</Text>
-                    </View>
-                    {/* Grasas */}
-                    <View className="items-center">
-                      <Text className="text-blue-400 font-mono font-bold text-lg">
-                        {editData.cached_daily_macros.totalFat}g
-                      </Text>
-                      <Text className="text-zinc-500 text-[9px] uppercase">Grasas</Text>
-                    </View>
-                  </View>
-                  {/* Hint para usuarios sin comidas */}
-                  {(editData.meal_count || 0) === 0 && (
-                    <Text className="text-zinc-600 text-[9px] text-center mt-2 italic">
-                      Ve a PLAN para configurar tus comidas
-                    </Text>
-                  )}
-                </View>
-              )}
+                  );
+                })()}
 
               {/* Hint para expandir */}
               <Animated.View style={chevronStyle} className="items-center mt-3">

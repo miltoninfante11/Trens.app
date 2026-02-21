@@ -22,6 +22,13 @@ interface Ingredient {
   name: string;
   quantity: string;
   portion?: string;
+  nutritionInfo?: {
+    calories: number;
+    protein: number;
+    carbs: number;
+    fat: number;
+    suggestedGrams?: number;
+  };
 }
 
 interface MealOption {
@@ -37,6 +44,13 @@ interface Meal {
   selectedOption: number;
   // Macros objetivo por comida (opcional)
   targetMacros?: {
+    calories: number;
+    protein: number;
+    carbs: number;
+    fat: number;
+  };
+  // Macros reales calculados desde ingredientes
+  actualMacros?: {
     calories: number;
     protein: number;
     carbs: number;
@@ -429,29 +443,29 @@ export const MealCard: React.FC<MealCardProps> = ({
               >
                 {mealName}
               </Text>
-              {/* Macros Display - Premium Style */}
-              {meal.targetMacros && (
+              {/* Macros Display - Reales si disponibles, fallback a target */}
+              {(meal.actualMacros || meal.targetMacros) && (
                 <View className="flex-row gap-3 mt-2">
                   <View className="flex-row items-center gap-1">
                     <View className="w-1.5 h-1.5 rounded-full bg-purple-500" />
                     <Text className="text-purple-400 text-[11px] font-mono font-bold">
-                      {meal.targetMacros.protein}P
+                      {(meal.actualMacros || meal.targetMacros)!.protein}P
                     </Text>
                   </View>
                   <View className="flex-row items-center gap-1">
                     <View className="w-1.5 h-1.5 rounded-full bg-amber-500" />
                     <Text className="text-amber-400 text-[11px] font-mono font-bold">
-                      {meal.targetMacros.carbs}C
+                      {(meal.actualMacros || meal.targetMacros)!.carbs}C
                     </Text>
                   </View>
                   <View className="flex-row items-center gap-1">
                     <View className="w-1.5 h-1.5 rounded-full bg-blue-500" />
                     <Text className="text-blue-400 text-[11px] font-mono font-bold">
-                      {meal.targetMacros.fat}G
+                      {(meal.actualMacros || meal.targetMacros)!.fat}G
                     </Text>
                   </View>
                   <Text className="text-zinc-600 text-[11px] font-mono">
-                    {meal.targetMacros.calories} kcal
+                    {(meal.actualMacros || meal.targetMacros)!.calories} kcal
                   </Text>
                 </View>
               )}

@@ -2840,10 +2840,14 @@ export async function planAddMeal(
       name: ing.name,
       quantity: ing.quantity || '~100g',
       portion: ing.portion || '',
-      calories: ing.nutritionInfo?.calories,
-      protein: ing.nutritionInfo?.protein,
-      carbs: ing.nutritionInfo?.carbs,
-      fat: ing.nutritionInfo?.fat,
+      nutritionInfo: ing.nutritionInfo
+        ? {
+            calories: ing.nutritionInfo.calories,
+            protein: ing.nutritionInfo.protein,
+            carbs: ing.nutritionInfo.carbs,
+            fat: ing.nutritionInfo.fat,
+          }
+        : undefined,
       order: idx,
     }));
 
@@ -3233,10 +3237,14 @@ export async function planUpdateIngredients(
         name: ing.name,
         quantity: ing.quantity || '~100g',
         portion: ing.portion || '',
-        calories: ing.nutritionInfo?.calories,
-        protein: ing.nutritionInfo?.protein,
-        carbs: ing.nutritionInfo?.carbs,
-        fat: ing.nutritionInfo?.fat,
+        nutritionInfo: ing.nutritionInfo
+          ? {
+              calories: ing.nutritionInfo.calories,
+              protein: ing.nutritionInfo.protein,
+              carbs: ing.nutritionInfo.carbs,
+              fat: ing.nutritionInfo.fat,
+            }
+          : undefined,
         order: idx,
       }));
     } catch (calcError) {
@@ -4534,10 +4542,14 @@ export async function planAddMealOption(
         name: ing.name,
         quantity: ing.quantity || '~100g',
         portion: ing.portion || '',
-        calories: ing.nutritionInfo?.calories,
-        protein: ing.nutritionInfo?.protein,
-        carbs: ing.nutritionInfo?.carbs,
-        fat: ing.nutritionInfo?.fat,
+        nutritionInfo: ing.nutritionInfo
+          ? {
+              calories: ing.nutritionInfo.calories,
+              protein: ing.nutritionInfo.protein,
+              carbs: ing.nutritionInfo.carbs,
+              fat: ing.nutritionInfo.fat,
+            }
+          : undefined,
         order: idx,
       }));
     } catch (e) {
@@ -5612,10 +5624,14 @@ export async function planBuilderExecute(
           name: ing.name,
           quantity: ing.quantity || '~100g',
           portion: ing.portion || '',
-          calories: ing.nutritionInfo?.calories,
-          protein: ing.nutritionInfo?.protein,
-          carbs: ing.nutritionInfo?.carbs,
-          fat: ing.nutritionInfo?.fat,
+          nutritionInfo: ing.nutritionInfo
+            ? {
+                calories: ing.nutritionInfo.calories,
+                protein: ing.nutritionInfo.protein,
+                carbs: ing.nutritionInfo.carbs,
+                fat: ing.nutritionInfo.fat,
+              }
+            : undefined,
           order: idx,
         }));
 
@@ -5625,10 +5641,10 @@ export async function planBuilderExecute(
           totalC = 0,
           totalF = 0;
         ingredientsJson.forEach((ing) => {
-          totalCals += ing.calories || 0;
-          totalP += ing.protein || 0;
-          totalC += ing.carbs || 0;
-          totalF += ing.fat || 0;
+          totalCals += ing.nutritionInfo?.calories || 0;
+          totalP += ing.nutritionInfo?.protein || 0;
+          totalC += ing.nutritionInfo?.carbs || 0;
+          totalF += ing.nutritionInfo?.fat || 0;
         });
 
         // Insertar comida en DB
@@ -9332,7 +9348,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       ingredients: {
         type: 'string',
         description:
-          'JSON string con array de ingredientes. Cada uno: {name: string, quantity?: string}. Ej: [{"name":"Pollo","quantity":"200g"},{"name":"Arroz","quantity":"150g"}]',
+          'JSON string con array de ingredientes. Cada uno: {name: string, quantity?: string, portion?: string}. quantity=gramos (ej: "200g"), portion=porciones (ej: "2 tazas"). Si el usuario da solo uno, la IA calcula el otro. Ej: [{"name":"Pollo","quantity":"200g"},{"name":"Arroz","portion":"1 taza"}]',
         required: true,
       },
     },
@@ -9397,7 +9413,8 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       },
       ingredients: {
         type: 'string',
-        description: 'JSON string con array de ingredientes actualizados',
+        description:
+          'JSON string con array de ingredientes actualizados. Cada uno: {name: string, quantity?: string, portion?: string}. Si el usuario da gramos O porciones, la IA calcula el faltante.',
         required: true,
       },
     },
@@ -9481,7 +9498,8 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       },
       ingredients: {
         type: 'string',
-        description: 'JSON array con ingredientes: [{"name": "pollo", "quantity": "150g"}]',
+        description:
+          'JSON array con ingredientes: [{"name": "pollo", "quantity": "150g", "portion": "1 pechuga"}]. Si el usuario da gramos O porciones, la IA calcula el faltante.',
         required: true,
       },
     },
@@ -9802,7 +9820,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       ingredients: {
         type: 'string',
         description:
-          'JSON string con array de ingredientes. Cada uno: {name: string, quantity?: string}. Ej: [{"name":"Pollo","quantity":"200g"},{"name":"Arroz","quantity":"150g"}]',
+          'JSON string con array de ingredientes. Cada uno: {name: string, quantity?: string, portion?: string}. quantity=gramos, portion=porciones. Si el usuario da solo uno, la IA calcula el otro. Ej: [{"name":"Pollo","quantity":"200g"},{"name":"Arroz","portion":"1 taza"}]',
         required: true,
       },
       name: {

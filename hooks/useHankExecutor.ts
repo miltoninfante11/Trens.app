@@ -122,7 +122,11 @@ import {
   surfGetSpots,
   SPORT_TOOL_DEFINITIONS,
 } from '../services/hank/sportTools';
-import { calculateMacrosWithAI, analyzeDailyNutrition } from '../services/hank/nutrition';
+import {
+  calculateMacrosWithAI,
+  analyzeDailyNutrition,
+  convertGramsPortions,
+} from '../services/hank/nutrition';
 import type { HankToolCall, HankToolResult, ToolDefinition } from '../types/hank';
 
 interface UseHankExecutorProps {
@@ -450,13 +454,22 @@ export const useHankExecutor = (
             break;
 
           // PLAN TOOLS
-          case 'PLAN_ADD_MEAL':
-            result = await planAddMeal(
-              userId,
-              p.time as string,
-              JSON.parse(p.ingredients as string)
+          case 'PLAN_ADD_MEAL': {
+            let ingredients = JSON.parse(p.ingredients as string);
+            // Convertir gramos ↔ porciones si falta alguno
+            const needsConversion = ingredients.some(
+              (ing: any) => (ing.quantity && !ing.portion) || (!ing.quantity && ing.portion)
             );
+            if (needsConversion) {
+              try {
+                ingredients = await convertGramsPortions(ingredients);
+              } catch (e) {
+                console.warn('Error conversión gramos/porciones:', e);
+              }
+            }
+            result = await planAddMeal(userId, p.time as string, ingredients);
             break;
+          }
 
           case 'PLAN_REMOVE_MEAL':
             result = await planRemoveMeal(userId, {
@@ -474,13 +487,26 @@ export const useHankExecutor = (
             });
             break;
 
-          case 'PLAN_UPDATE_INGREDIENTS':
+          case 'PLAN_UPDATE_INGREDIENTS': {
+            let updateIngredients = JSON.parse(p.ingredients as string);
+            // Convertir gramos ↔ porciones si falta alguno
+            const needsIngConversion = updateIngredients.some(
+              (ing: any) => (ing.quantity && !ing.portion) || (!ing.quantity && ing.portion)
+            );
+            if (needsIngConversion) {
+              try {
+                updateIngredients = await convertGramsPortions(updateIngredients);
+              } catch (e) {
+                console.warn('Error conversión gramos/porciones:', e);
+              }
+            }
             result = await planUpdateIngredients(
               userId,
               (p.mealIdentifier || p.mealId) as string,
-              JSON.parse(p.ingredients as string)
+              updateIngredients
             );
             break;
+          }
 
           case 'PLAN_CALCULATE_MACROS': {
             // Get meals first - ya tiene los macros calculados
@@ -656,13 +682,24 @@ export const useHankExecutor = (
 
           // MEAL OPTIONS (ALTERNATIVAS)
           case 'PLAN_ADD_MEAL_OPTION': {
-            const ingredients =
+            let optionIngredients =
               typeof p.ingredients === 'string' ? JSON.parse(p.ingredients) : p.ingredients;
+            // Convertir gramos ↔ porciones si falta alguno
+            const needsOptConversion = optionIngredients.some(
+              (ing: any) => (ing.quantity && !ing.portion) || (!ing.quantity && ing.portion)
+            );
+            if (needsOptConversion) {
+              try {
+                optionIngredients = await convertGramsPortions(optionIngredients);
+              } catch (e) {
+                console.warn('Error conversión gramos/porciones:', e);
+              }
+            }
             result = await planAddMealOption(
               userId,
               p.mealId as string,
               p.optionName as string,
-              ingredients
+              optionIngredients
             );
             break;
           }
@@ -755,20 +792,53 @@ Cuando termines, di **"ejecuta el plan"** y lo guardaré todo.`,
             };
             break;
 
-          case 'PLAN_BUILDER_ADD_MEAL':
+          case 'PLAN_BUILDER_ADD_MEAL': {
+            // Convertir gramos ↔ porciones para ingredientes del plan builder
+            let builderIngredients = p.ingredients;
+            if (typeof builderIngredients === 'string') {
+              try {
+                const parsed = JSON.parse(builderIngredients);
+                const needsBuilderConversion = parsed.some(
+                  (ing: any) => (ing.quantity && !ing.portion) || (!ing.quantity && ing.portion)
+                );
+                if (needsBuilderConversion) {
+                  const converted = await convertGramsPortions(parsed);
+                  builderIngredients = JSON.stringify(converted);
+                }
+              } catch (e) {
+                console.warn('Error conversión plan builder:', e);
+              }
+            }
             result = {
               success: true,
               message: `✅ Comida agregada al plan.`,
               data: {
                 action: 'PLAN_BUILDER_ADD_MEAL',
                 time: p.time as string,
-                ingredients: p.ingredients,
+                ingredients: builderIngredients,
                 name: p.name as string | undefined,
               },
             };
             break;
+          }
 
-          case 'PLAN_BUILDER_EDIT_MEAL':
+          case 'PLAN_BUILDER_EDIT_MEAL': {
+            // Convertir gramos ↔ porciones para ingredientes editados
+            let editIngredients = p.ingredients;
+            if (typeof editIngredients === 'string') {
+              try {
+                const parsed = JSON.parse(editIngredients);
+                const needsEditConversion = parsed.some(
+                  (ing: any) => (ing.quantity && !ing.portion) || (!ing.quantity && ing.portion)
+                );
+                if (needsEditConversion) {
+                  const converted = await convertGramsPortions(parsed);
+                  editIngredients = JSON.stringify(converted);
+                }
+              } catch (e) {
+                console.warn('Error conversión plan builder edit:', e);
+              }
+            }
             result = {
               success: true,
               message: `✅ Comida editada en el plan.`,
@@ -777,12 +847,13 @@ Cuando termines, di **"ejecuta el plan"** y lo guardaré todo.`,
                 mealIdentifier: p.mealIdentifier,
                 updates: {
                   time: p.time as string | undefined,
-                  ingredients: p.ingredients,
+                  ingredients: editIngredients,
                   name: p.name as string | undefined,
                 },
               },
             };
             break;
+          }
 
           case 'PLAN_BUILDER_REMOVE_MEAL':
             result = {

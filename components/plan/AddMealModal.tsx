@@ -2,6 +2,7 @@
 // ADD MEAL MODAL - Modal para agregar comidas
 // Análisis inteligente automático (siempre activo)
 // TimePicker visual como Stack
+// Campos manuales de gramos y porciones con conversión IA
 // Estilo Savage Mode con cierre fluido y vibración
 // ============================================================================
 
@@ -21,11 +22,22 @@ import {
 import Animated, { useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from '../../lib/haptics';
-import { X, Plus, Trash2, AlertTriangle, CheckCircle, Sparkles, Clock } from 'lucide-react-native';
+import {
+  X,
+  Plus,
+  Trash2,
+  AlertTriangle,
+  CheckCircle,
+  Sparkles,
+  Clock,
+  Scale,
+  Layers,
+} from 'lucide-react-native';
 import {
   analyzeIngredientsSmart,
   IngredientAnalysis,
 } from '../../services/hank/ingredientAnalyzer';
+import { convertGramsPortions } from '../../services/hank/nutrition';
 
 // ============================================================================
 // TYPES
@@ -68,6 +80,7 @@ export const AddMealModal: React.FC<AddMealModalProps> = ({
   ]);
   const [analysis, setAnalysis] = useState<IngredientAnalysis | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [isConverting, setIsConverting] = useState(false);
 
   // Animated value para el desplazamiento del panel
   const translateY = useSharedValue(0);
@@ -196,15 +209,46 @@ export const AddMealModal: React.FC<AddMealModalProps> = ({
     setSelectedPeriod(selectedPeriod === 'AM' ? 'PM' : 'AM');
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     const validIngredients = ingredients.filter((ing) => ing.name.trim());
     if (validIngredients.length === 0) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       return;
     }
+
+    // Verificar si hay ingredientes con un solo campo para convertir con IA
+    const needsConversion = validIngredients.some(
+      (ing) =>
+        (ing.quantity.trim() && !ing.portion.trim()) || (!ing.quantity.trim() && ing.portion.trim())
+    );
+
+    let finalIngredients = validIngredients;
+
+    if (needsConversion) {
+      setIsConverting(true);
+      try {
+        const converted = await convertGramsPortions(
+          validIngredients.map((ing) => ({
+            name: ing.name,
+            quantity: ing.quantity.trim() || undefined,
+            portion: ing.portion.trim() || undefined,
+          }))
+        );
+        finalIngredients = converted.map((c) => ({
+          name: c.name,
+          quantity: c.quantity,
+          portion: c.portion,
+        }));
+      } catch (error) {
+        console.error('Error convirtiendo:', error);
+      } finally {
+        setIsConverting(false);
+      }
+    }
+
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     // Siempre usar IA para cálculo automático
-    onSave(validIngredients, getTime24h(), true);
+    onSave(finalIngredients, getTime24h(), true);
     setIngredients([{ name: '', quantity: '', portion: '' }]);
     setSelectedHour(12);
     setSelectedMinute(0);
@@ -449,6 +493,14 @@ export const AddMealModal: React.FC<AddMealModalProps> = ({
 
               {/* Ingredients */}
               <Text className="text-zinc-400 text-xs font-bold mb-2 uppercase">Ingredientes</Text>
+
+              {/* Info: conversión automática */}
+              <View className="bg-purple-500/10 border border-purple-500/20 rounded-xl p-3 mb-3">
+                <Text className="text-purple-300 text-xs">
+                  💡 Ingresa gramos O porciones — la IA calcula el otro al guardar
+                </Text>
+              </View>
+
               {ingredients.map((ing, i) => (
                 <View key={i} className="bg-zinc-900/80 p-4 rounded-xl border border-zinc-800 mb-3">
                   <View className="flex-row justify-between items-center mb-2">
@@ -464,8 +516,46 @@ export const AddMealModal: React.FC<AddMealModalProps> = ({
                     onChangeText={(v) => updateIngredient(i, 'name', v)}
                     placeholder="Nombre (ej. Pollo a la plancha)"
                     placeholderTextColor="#666"
-                    className="bg-transparent border-b border-zinc-700 text-white py-2"
+                    className="bg-transparent border-b border-zinc-700 text-white py-2 mb-3"
                   />
+
+                  {/* Campos de Gramos y Porciones */}
+                  <View className="flex-row gap-3">
+                    {/* Gramos */}
+                    <View className="flex-1">
+                      <View className="flex-row items-center gap-1.5 mb-1">
+                        <Scale size={12} color="#3B82F6" />
+                        <Text className="text-zinc-500 text-[10px] font-bold uppercase">
+                          Gramos
+                        </Text>
+                      </View>
+                      <TextInput
+                        value={ing.quantity}
+                        onChangeText={(v) => updateIngredient(i, 'quantity', v)}
+                        placeholder="ej. 200g"
+                        placeholderTextColor="#555"
+                        keyboardType="default"
+                        className="bg-zinc-800/60 border border-zinc-700/50 rounded-lg text-white text-sm px-3 py-2 font-mono"
+                      />
+                    </View>
+
+                    {/* Porciones */}
+                    <View className="flex-1">
+                      <View className="flex-row items-center gap-1.5 mb-1">
+                        <Layers size={12} color="#A855F7" />
+                        <Text className="text-zinc-500 text-[10px] font-bold uppercase">
+                          Porciones
+                        </Text>
+                      </View>
+                      <TextInput
+                        value={ing.portion}
+                        onChangeText={(v) => updateIngredient(i, 'portion', v)}
+                        placeholder="ej. 2 tazas"
+                        placeholderTextColor="#555"
+                        className="bg-zinc-800/60 border border-zinc-700/50 rounded-lg text-white text-sm px-3 py-2 font-mono"
+                      />
+                    </View>
+                  </View>
                 </View>
               ))}
 
@@ -481,17 +571,29 @@ export const AddMealModal: React.FC<AddMealModalProps> = ({
 
               <Pressable
                 onPress={handleSave}
-                className="w-full bg-purple-500 py-4 rounded-xl active:bg-purple-600"
+                disabled={isConverting}
+                className={`w-full py-4 rounded-xl ${
+                  isConverting ? 'bg-zinc-600' : 'bg-purple-500 active:bg-purple-600'
+                }`}
                 style={{
                   marginBottom: Math.max(insets.bottom, 16) + 8,
                   shadowColor: '#A855F7',
                   shadowOffset: { width: 0, height: 4 },
-                  shadowOpacity: 0.3,
+                  shadowOpacity: isConverting ? 0 : 0.3,
                   shadowRadius: 8,
-                  elevation: 5,
+                  elevation: isConverting ? 0 : 5,
                 }}
               >
-                <Text className="text-white font-bold text-center text-lg">GUARDAR COMIDA</Text>
+                {isConverting ? (
+                  <View className="flex-row items-center justify-center gap-2">
+                    <ActivityIndicator size="small" color="#fff" />
+                    <Text className="text-white font-bold text-center text-base">
+                      Calculando...
+                    </Text>
+                  </View>
+                ) : (
+                  <Text className="text-white font-bold text-center text-lg">GUARDAR COMIDA</Text>
+                )}
               </Pressable>
             </ScrollView>
           </Animated.View>

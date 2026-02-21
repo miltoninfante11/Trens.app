@@ -1334,3 +1334,242 @@ Calcula totales y da recomendaciones. Responde SOLO JSON:
     };
   }
 }
+
+// ============================================================================
+// CONVERSIÓN GRAMOS ↔ PORCIONES CON IA
+// Si el usuario ingresa solo gramos, calcula porciones y viceversa
+// ============================================================================
+
+const GRAMS_PORTION_PROMPT = `Eres HANK, nutricionista deportivo experto. Tu tarea es convertir entre gramos y porciones para ingredientes de comidas.
+
+REGLAS:
+1. Si te dan GRAMOS, calcula cuántas porciones típicas equivale (ej: 300g de arroz = ~2 tazas)
+2. Si te dan PORCIONES, calcula cuántos gramos equivale (ej: 2 pechugas = ~300g)
+3. Usa porciones comunes: taza, cucharada, pieza, rebanada, porción, filete, puñado, etc.
+4. Sé preciso con las equivalencias estándar de nutrición deportiva
+5. Responde SOLO con JSON válido, sin markdown
+
+FORMATO DE RESPUESTA (JSON puro):
+{
+  "ingredients": [
+    {
+      "name": "nombre del ingrediente",
+      "grams": "150g",
+      "portion": "~1 pechuga"
+    }
+  ]
+}`;
+
+interface ConversionIngredient {
+  name: string;
+  quantity?: string; // gramos (ej: "200g")
+  portion?: string; // porciones (ej: "2 tazas")
+}
+
+interface ConversionResult {
+  name: string;
+  quantity: string;
+  portion: string;
+}
+
+/**
+ * Convierte gramos a porciones o porciones a gramos usando BD local + IA fallback.
+ * Si ambos campos están llenos, los devuelve tal cual.
+ * Si solo uno está lleno, calcula el otro.
+ */
+export async function convertGramsPortions(
+  ingredients: ConversionIngredient[]
+): Promise<ConversionResult[]> {
+  const results: ConversionResult[] = [];
+  const needsAI: { index: number; ingredient: ConversionIngredient }[] = [];
+
+  for (let i = 0; i < ingredients.length; i++) {
+    const ing = ingredients[i];
+    const hasGrams = !!(ing.quantity && ing.quantity.trim());
+    const hasPortion = !!(ing.portion && ing.portion.trim());
+
+    // Si tiene ambos, devolver tal cual
+    if (hasGrams && hasPortion) {
+      results.push({
+        name: ing.name,
+        quantity: ing.quantity!.trim(),
+        portion: ing.portion!.trim(),
+      });
+      continue;
+    }
+
+    // Si no tiene ninguno, marcar para IA con valor default
+    if (!hasGrams && !hasPortion) {
+      needsAI.push({ index: i, ingredient: ing });
+      results.push({ name: ing.name, quantity: '', portion: '' }); // placeholder
+      continue;
+    }
+
+    // Intentar conversión local
+    const nutritionData = findNutritionData(ing.name);
+
+    if (nutritionData) {
+      if (hasGrams && !hasPortion) {
+        // Tiene gramos → calcular porción
+        const gramsNum = parseGramsValue(ing.quantity!);
+        if (gramsNum > 0) {
+          const portionDesc = calculatePortionDescription(
+            gramsNum,
+            nutritionData.portionSize,
+            nutritionData.portionName
+          );
+          results.push({
+            name: ing.name,
+            quantity: ing.quantity!.trim(),
+            portion: portionDesc,
+          });
+          continue;
+        }
+      } else if (hasPortion && !hasGrams) {
+        // Tiene porción → calcular gramos
+        const portionNum = parsePortionValue(ing.portion!);
+        if (portionNum > 0) {
+          const grams = Math.round(portionNum * nutritionData.portionSize);
+          results.push({
+            name: ing.name,
+            quantity: `${grams}g`,
+            portion: ing.portion!.trim(),
+          });
+          continue;
+        }
+      }
+    }
+
+    // Si no se resolvió localmente, marcar para IA
+    needsAI.push({ index: i, ingredient: ing });
+    results.push({ name: ing.name, quantity: '', portion: '' }); // placeholder
+  }
+
+  // Si hay ingredientes que necesitan IA, hacer una sola llamada
+  if (needsAI.length > 0 && GEMINI_API_KEY) {
+    try {
+      const aiResults = await convertWithAI(needsAI.map((n) => n.ingredient));
+      for (let i = 0; i < needsAI.length; i++) {
+        const { index, ingredient } = needsAI[i];
+        const aiResult = aiResults[i];
+        if (aiResult) {
+          results[index] = {
+            name: ingredient.name,
+            quantity: aiResult.grams || ingredient.quantity || '~100g',
+            portion: aiResult.portion || ingredient.portion || '~1 porción',
+          };
+        } else {
+          // Fallback si IA no devolvió este ingrediente
+          results[index] = {
+            name: ingredient.name,
+            quantity: ingredient.quantity || '~100g',
+            portion: ingredient.portion || '~1 porción',
+          };
+        }
+      }
+    } catch (error) {
+      console.error('Error en conversión con IA:', error);
+      // Fallback para todos los que necesitaban IA
+      for (const { index, ingredient } of needsAI) {
+        results[index] = {
+          name: ingredient.name,
+          quantity: ingredient.quantity || '~100g',
+          portion: ingredient.portion || '~1 porción',
+        };
+      }
+    }
+  } else if (needsAI.length > 0) {
+    // Sin API key, usar valores default
+    for (const { index, ingredient } of needsAI) {
+      results[index] = {
+        name: ingredient.name,
+        quantity: ingredient.quantity || '~100g',
+        portion: ingredient.portion || '~1 porción',
+      };
+    }
+  }
+
+  return results;
+}
+
+/** Extrae el valor numérico de gramos de un string como "200g", "200 g", "200gr", "200 gramos" */
+function parseGramsValue(value: string): number {
+  const match = value.match(/(\d+(?:\.\d+)?)\s*(?:g|gr|gramos)?/i);
+  return match ? parseFloat(match[1]) : 0;
+}
+
+/** Extrae el valor numérico de porciones de un string como "2 tazas", "1.5 pechugas", "~2 piezas" */
+function parsePortionValue(value: string): number {
+  // Manejar fracciones como "½", "¼", "¾"
+  const fractionMap: Record<string, number> = {
+    '¼': 0.25,
+    '½': 0.5,
+    '¾': 0.75,
+    '1¼': 1.25,
+    '1½': 1.5,
+    '1¾': 1.75,
+    '2½': 2.5,
+  };
+
+  const cleaned = value.replace(/^~/, '').trim();
+
+  // Buscar fracciones unicode primero
+  for (const [frac, num] of Object.entries(fractionMap)) {
+    if (cleaned.startsWith(frac)) {
+      return num;
+    }
+  }
+
+  // Buscar número normal
+  const match = cleaned.match(/(\d+(?:\.\d+)?)/);
+  return match ? parseFloat(match[1]) : 0;
+}
+
+/** Llama a Gemini para convertir ingredientes que no están en la BD local */
+async function convertWithAI(
+  ingredients: ConversionIngredient[]
+): Promise<{ grams: string; portion: string }[]> {
+  let userMessage = 'Convierte entre gramos y porciones para estos ingredientes:\n\n';
+
+  ingredients.forEach((ing, i) => {
+    userMessage += `${i + 1}. ${ing.name}`;
+    if (ing.quantity) userMessage += ` - Gramos: ${ing.quantity}`;
+    if (ing.portion) userMessage += ` - Porción: ${ing.portion}`;
+    if (!ing.quantity && !ing.portion)
+      userMessage += ` - Sin datos (estima porción típica de atleta)`;
+    userMessage += '\n';
+  });
+
+  const response = await fetch(`${GEMINI_API_URL}?key=${GEMINI_API_KEY}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [
+        { role: 'user', parts: [{ text: GRAMS_PORTION_PROMPT }] },
+        { role: 'model', parts: [{ text: 'Entendido. Envíame los ingredientes.' }] },
+        { role: 'user', parts: [{ text: userMessage }] },
+      ],
+      generationConfig: {
+        temperature: 0.1,
+        maxOutputTokens: 1024,
+      },
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Gemini API error: ${response.status}`);
+  }
+
+  const data = await response.json();
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+
+  // Extraer JSON
+  const jsonMatch = text.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) throw new Error('No JSON en respuesta de IA');
+
+  const parsed = JSON.parse(jsonMatch[0]);
+  return (parsed.ingredients || []).map((ing: any) => ({
+    grams: ing.grams || ing.quantity || '',
+    portion: ing.portion || '',
+  }));
+}

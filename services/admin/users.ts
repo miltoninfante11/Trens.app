@@ -210,6 +210,32 @@ export async function deleteUser(userId: string): Promise<void> {
   if (!data.success) throw new Error(data.error);
 }
 
+/**
+ * Obtener tarjetas guardadas de un usuario
+ */
+export async function getUserCards(userId: string): Promise<any[]> {
+  const { data, error } = await supabase.functions.invoke('admin-users', {
+    body: { action: 'get-cards', userId },
+  });
+
+  if (error) throw new Error(error.message);
+  if (!data.success) throw new Error(data.error);
+
+  return data.cards || [];
+}
+
+/**
+ * Eliminar tarjeta de un usuario
+ */
+export async function deleteUserCard(userId: string, cardId: string): Promise<void> {
+  const { data, error } = await supabase.functions.invoke('admin-users', {
+    body: { action: 'delete-card', userId, cardId },
+  });
+
+  if (error) throw new Error(error.message);
+  if (!data.success) throw new Error(data.error);
+}
+
 export default {
   createUser,
   listUsers,
@@ -221,4 +247,6 @@ export default {
   getSubscription,
   getPayments,
   deleteUser,
+  getUserCards,
+  deleteUserCard,
 };

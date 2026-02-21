@@ -64,6 +64,13 @@ interface Ingredient {
   name: string;
   quantity: string;
   portion?: string;
+  nutritionInfo?: {
+    calories: number;
+    protein: number;
+    carbs: number;
+    fat: number;
+    suggestedGrams?: number;
+  };
 }
 
 interface MealOption {
@@ -79,6 +86,12 @@ interface Meal {
   options: MealOption[];
   selectedOption: number;
   targetMacros?: {
+    calories: number;
+    protein: number;
+    carbs: number;
+    fat: number;
+  };
+  actualMacros?: {
     calories: number;
     protein: number;
     carbs: number;
@@ -151,6 +164,43 @@ const getSmartMealName = (index: number, total: number): string => {
     );
   }
   return `COMIDA ${index + 1}`;
+};
+
+/**
+ * Calcula los macros REALES de una comida sumando la nutritionInfo de cada ingrediente
+ * de la opción seleccionada. Retorna undefined si no hay datos de nutrición.
+ */
+const computeActualMacros = (
+  options: MealOption[],
+  selectedOption: number
+): { calories: number; protein: number; carbs: number; fat: number } | undefined => {
+  const opt = options[selectedOption];
+  if (!opt) return undefined;
+
+  let cal = 0,
+    pro = 0,
+    car = 0,
+    fat = 0;
+  let hasNutrition = false;
+
+  for (const ing of opt.ingredients) {
+    if (ing.nutritionInfo) {
+      hasNutrition = true;
+      cal += ing.nutritionInfo.calories || 0;
+      pro += ing.nutritionInfo.protein || 0;
+      car += ing.nutritionInfo.carbs || 0;
+      fat += ing.nutritionInfo.fat || 0;
+    }
+  }
+
+  return hasNutrition
+    ? {
+        calories: Math.round(cal),
+        protein: Math.round(pro),
+        carbs: Math.round(car),
+        fat: Math.round(fat),
+      }
+    : undefined;
 };
 
 /**
@@ -585,12 +635,26 @@ function PlanScreen() {
             options.push({
               id: `main-${meal.id}`,
               name: 'Principal',
-              ingredients: jsonIngredients.map((ing: any, idx: number) => ({
-                id: ing.id || `ing-${idx}`,
-                name: ing.name,
-                quantity: ing.quantity || '~100g',
-                portion: ing.portion,
-              })),
+              ingredients: jsonIngredients.map((ing: any, idx: number) => {
+                // Normalizar nutritionInfo: soportar formato anidado y top-level
+                const nutrition = ing.nutritionInfo
+                  ? ing.nutritionInfo
+                  : ing.calories != null || ing.protein != null
+                    ? {
+                        calories: ing.calories || 0,
+                        protein: ing.protein || 0,
+                        carbs: ing.carbs || 0,
+                        fat: ing.fat || 0,
+                      }
+                    : undefined;
+                return {
+                  id: ing.id || `ing-${idx}`,
+                  name: ing.name,
+                  quantity: ing.quantity || '~100g',
+                  portion: ing.portion,
+                  ...(nutrition ? { nutritionInfo: nutrition } : {}),
+                };
+              }),
             });
           }
 
@@ -603,12 +667,26 @@ function PlanScreen() {
               options.push({
                 id: opt.id,
                 name: opt.name || 'Alternativa',
-                ingredients: (opt.ingredients || []).map((ing: any, idx: number) => ({
-                  id: ing.id || `opt-ing-${idx}`,
-                  name: ing.name,
-                  quantity: ing.quantity || '~100g',
-                  portion: ing.portion,
-                })),
+                ingredients: (opt.ingredients || []).map((ing: any, idx: number) => {
+                  // Normalizar nutritionInfo: soportar formato anidado y top-level
+                  const nutrition = ing.nutritionInfo
+                    ? ing.nutritionInfo
+                    : ing.calories != null || ing.protein != null
+                      ? {
+                          calories: ing.calories || 0,
+                          protein: ing.protein || 0,
+                          carbs: ing.carbs || 0,
+                          fat: ing.fat || 0,
+                        }
+                      : undefined;
+                  return {
+                    id: ing.id || `opt-ing-${idx}`,
+                    name: ing.name,
+                    quantity: ing.quantity || '~100g',
+                    portion: ing.portion,
+                    ...(nutrition ? { nutritionInfo: nutrition } : {}),
+                  };
+                }),
               });
             });
           }
@@ -619,12 +697,16 @@ function PlanScreen() {
           const validSelection =
             options.length > 0 ? Math.min(Math.max(0, savedSelection), options.length - 1) : 0;
 
+          // Calcular macros reales desde nutritionInfo de ingredientes
+          const actual = computeActualMacros(options, validSelection);
+
           return {
             id: meal.id,
             name: meal.name || 'Comida',
             time: meal.scheduled_time?.slice(0, 5) || '12:00',
             selectedOption: validSelection,
             targetMacros: perMealMacros || undefined,
+            actualMacros: actual,
             options,
           };
         });
@@ -1292,12 +1374,13 @@ function PlanScreen() {
         mealCount: newMealCount,
       });
 
-      // Actualizar cada comida en la base de datos (JSONB)
+      // Actualizar cada comida en la base de datos (JSONB) - preservar nutritionInfo
       for (const option of recalculated) {
-        const ingredientsJsonb = option.ingredients.map((ing) => ({
+        const ingredientsJsonb = option.ingredients.map((ing: any) => ({
           name: ing.name,
           quantity: ing.quantity,
           portion: ing.portion || '',
+          ...(ing.nutritionInfo ? { nutritionInfo: ing.nutritionInfo } : {}),
         }));
 
         await supabase
@@ -1338,11 +1421,12 @@ function PlanScreen() {
   ) => {
     isInternalUpdate.current = true;
     try {
-      // Actualizar ingredientes directamente en el campo JSONB
+      // Actualizar ingredientes directamente en el campo JSONB (preservar nutritionInfo)
       const ingredientsToSave = ingredients.map((ing) => ({
         name: ing.name,
         quantity: ing.quantity || '~100g',
         portion: ing.portion || '',
+        ...(ing.nutritionInfo ? { nutritionInfo: ing.nutritionInfo } : {}),
       }));
 
       const { error } = await supabase
@@ -1351,6 +1435,17 @@ function PlanScreen() {
         .eq('id', mealId);
 
       if (error) throw error;
+
+      // Invalidar cache de macros para forzar recálculo si cambiaron ingredientes
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (user) {
+        await supabase
+          .from('user_profiles')
+          .update({ cached_macros_updated_at: null })
+          .eq('user_id', user.id);
+      }
 
       // Refresh data
       fetchData();
@@ -1361,7 +1456,7 @@ function PlanScreen() {
     }
   };
 
-  // Calcular macros con IA usando targetMacros
+  // Calcular macros con IA usando targetMacros (preserva nutritionInfo)
   const handleCalculateMacros = async (
     ingredients: Ingredient[],
     targetMacros?: { calories: number; protein: number; carbs: number; fat: number }
@@ -1375,6 +1470,7 @@ function PlanScreen() {
           name: ing.name,
           quantity: ing.quantity,
           portion: ing.portion,
+          nutritionInfo: ing.nutritionInfo,
         }));
       }
 
@@ -1385,6 +1481,7 @@ function PlanScreen() {
         name: ing.name,
         quantity: ing.quantity,
         portion: ing.portion,
+        nutritionInfo: ing.nutritionInfo,
       }));
     } catch (error) {
       console.error('Error calculating macros:', error);
@@ -1422,7 +1519,18 @@ function PlanScreen() {
       }
 
       // Calcular macros con IA si está activado
-      let finalIngredients = ingredients;
+      let finalIngredients: {
+        name: string;
+        quantity: string;
+        portion: string;
+        nutritionInfo?: {
+          calories: number;
+          protein: number;
+          carbs: number;
+          fat: number;
+          suggestedGrams?: number;
+        };
+      }[] = ingredients;
       if (useHankAI) {
         // Mostrar indicador de ajuste de macros
         setIsAdjustingMacros(true);
@@ -1470,6 +1578,7 @@ function PlanScreen() {
               name: ing.name,
               quantity: ing.quantity,
               portion: ing.portion || '',
+              nutritionInfo: ing.nutritionInfo,
             }));
           } else {
             const calculated = await calculateMacrosWithAI(ingredientsWithIds);
@@ -1477,6 +1586,7 @@ function PlanScreen() {
               name: ing.name,
               quantity: ing.quantity,
               portion: ing.portion || '',
+              nutritionInfo: ing.nutritionInfo,
             }));
           }
         } catch (aiError) {
@@ -1498,6 +1608,7 @@ function PlanScreen() {
           name: ing.name,
           quantity: ing.quantity || '~100 gr',
           portion: ing.portion || '',
+          ...(ing.nutritionInfo ? { nutritionInfo: ing.nutritionInfo } : {}),
         })),
         position: newPosition,
         is_completed: false,
@@ -1654,7 +1765,7 @@ function PlanScreen() {
     setShowAddOption(true);
   };
 
-  // Guardar nueva opción/platillo (alternativa)
+  // Guardar nueva opción/platillo (alternativa) - CON cálculo de macros
   const handleSaveOption = async (
     mealId: string,
     optionName: string,
@@ -1674,11 +1785,12 @@ function PlanScreen() {
       const meal = meals.find((m) => m.id === mealId);
       const newOptionIndex = meal ? meal.options.length : 0;
 
-      // Preparar ingredientes como JSONB
+      // Preparar ingredientes como JSONB (preservando nutritionInfo si existe)
       const ingredientsJsonb = ingredients.map((ing) => ({
         name: ing.name,
         quantity: ing.quantity || '~100g',
         portion: ing.portion || '',
+        ...(ing.nutritionInfo ? { nutritionInfo: ing.nutritionInfo } : {}),
       }));
 
       // Crear la opción en meal_options con ingredients JSONB
@@ -1875,6 +1987,36 @@ function PlanScreen() {
   };
 
   const timeline = buildTimeline();
+
+  // ============================================================================
+  // MACROS REALES: Sumar actualMacros de todas las comidas
+  // ============================================================================
+  const computedDailyMacros = useMemo(() => {
+    let cal = 0,
+      pro = 0,
+      car = 0,
+      fat = 0;
+    let hasAny = false;
+
+    for (const meal of meals) {
+      if (meal.actualMacros) {
+        hasAny = true;
+        cal += meal.actualMacros.calories;
+        pro += meal.actualMacros.protein;
+        car += meal.actualMacros.carbs;
+        fat += meal.actualMacros.fat;
+      }
+    }
+
+    return hasAny
+      ? {
+          calories: Math.round(cal),
+          protein: Math.round(pro),
+          carbs: Math.round(car),
+          fat: Math.round(fat),
+        }
+      : null;
+  }, [meals]);
 
   // ============================================================================
   // AUTO-SCROLL: Calcular y scrollear al elemento que corresponde a la hora actual
@@ -2122,36 +2264,45 @@ function PlanScreen() {
           </View>
         </View>
 
-        {/* Daily Stats Badges */}
+        {/* Daily Stats Badges - Macros REALES si disponibles, target como fallback */}
         <View className="flex-row flex-wrap gap-3 mt-3">
           <View className="flex-row items-center gap-1">
             <View className="w-1.5 h-1.5 rounded-full bg-savage-red" />
             <Text className="text-zinc-500 text-[10px] font-mono">{meals.length} COMIDAS</Text>
           </View>
-          {mealMacros && (
+          {(computedDailyMacros || mealMacros) && (
             <>
               <View className="flex-row items-center gap-1">
                 <View className="w-1.5 h-1.5 rounded-full bg-orange-500" />
                 <Text className="text-zinc-500 text-[10px] font-mono">
-                  {mealMacros.calories * meals.length} KCAL
+                  {computedDailyMacros
+                    ? computedDailyMacros.calories
+                    : mealMacros!.calories * meals.length}{' '}
+                  KCAL
                 </Text>
               </View>
               <View className="flex-row items-center gap-1">
                 <View className="w-1.5 h-1.5 rounded-full bg-purple-500" />
                 <Text className="text-zinc-500 text-[10px] font-mono">
-                  {mealMacros.protein * meals.length}P
+                  {computedDailyMacros
+                    ? computedDailyMacros.protein
+                    : mealMacros!.protein * meals.length}
+                  P
                 </Text>
               </View>
               <View className="flex-row items-center gap-1">
                 <View className="w-1.5 h-1.5 rounded-full bg-amber-500" />
                 <Text className="text-zinc-500 text-[10px] font-mono">
-                  {mealMacros.carbs * meals.length}C
+                  {computedDailyMacros
+                    ? computedDailyMacros.carbs
+                    : mealMacros!.carbs * meals.length}
+                  C
                 </Text>
               </View>
               <View className="flex-row items-center gap-1">
                 <View className="w-1.5 h-1.5 rounded-full bg-blue-500" />
                 <Text className="text-zinc-500 text-[10px] font-mono">
-                  {mealMacros.fat * meals.length}G
+                  {computedDailyMacros ? computedDailyMacros.fat : mealMacros!.fat * meals.length}G
                 </Text>
               </View>
             </>
