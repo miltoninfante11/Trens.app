@@ -30,7 +30,6 @@ import {
   MoreVertical,
   Volume2,
   Trophy,
-  Shield,
   ImageIcon,
   Pencil,
 } from 'lucide-react-native';
@@ -174,10 +173,6 @@ function AdnScreenContent() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
 
-  // Admin access state
-  const [isAdmin, setIsAdmin] = useState(false);
-  const CEO_EMAIL = 'micorp.latam@gmail.com';
-
   // Video viewer state
   const [selectedVideo, setSelectedVideo] = useState<Video | null>(null);
   const [videoViewerVisible, setVideoViewerVisible] = useState(false);
@@ -200,29 +195,6 @@ function AdnScreenContent() {
   const [selectedRecord, setSelectedRecord] = useState<PersonalRecord | null>(null);
   const [selectedRecordVideo, setSelectedRecordVideo] = useState<Video | null>(null);
   const [isRecordVideoManuallyPaused, setIsRecordVideoManuallyPaused] = useState(false);
-
-  // Check admin access
-  useEffect(() => {
-    const checkAdmin = async () => {
-      if (!user) {
-        setIsAdmin(false);
-        return;
-      }
-      // Check CEO email first
-      if (user.email === CEO_EMAIL) {
-        setIsAdmin(true);
-        return;
-      }
-      // Check admin_users table
-      const { data } = await supabase
-        .from('admin_users')
-        .select('id')
-        .eq('user_id', user.id)
-        .maybeSingle();
-      setIsAdmin(!!data);
-    };
-    checkAdmin();
-  }, [user]);
 
   // Sincronizar contexto con HANK
   useFocusEffect(
@@ -1468,20 +1440,6 @@ function AdnScreenContent() {
             )}
           </View>
         </View>
-
-        {/* Botón Admin Panel - Solo visible para admins */}
-        {isAdmin && (
-          <TouchableOpacity
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-              router.push('/(admin)/rutinas');
-            }}
-            className="flex-row items-center justify-center gap-2 py-3 mt-6 mx-4 bg-blue-600/20 rounded-lg border border-blue-600/40"
-          >
-            <Shield size={18} color="#3B82F6" />
-            <Text className="text-blue-400 font-bold">ADMIN PANEL</Text>
-          </TouchableOpacity>
-        )}
 
         {/* Espaciado inferior */}
         <View className="h-20" />

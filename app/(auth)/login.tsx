@@ -271,7 +271,7 @@ export default function LoginScreen() {
     setError(null);
 
     try {
-      const { error: authError } = await supabase.auth.signInWithPassword({
+      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
         email: email.trim().toLowerCase(),
         password,
       });
@@ -279,6 +279,21 @@ export default function LoginScreen() {
       if (authError) throw authError;
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
+      // Verificar si es admin/ceo para redirigir al panel admin
+      if (authData.user) {
+        const { data: roleData } = await supabase
+          .from('user_roles')
+          .select('role')
+          .eq('user_id', authData.user.id)
+          .single();
+
+        if (roleData?.role === 'admin' || roleData?.role === 'ceo') {
+          router.replace('/(admin)/usuarios');
+          return;
+        }
+      }
+
       router.replace('/(tabs)/feed');
     } catch (err: any) {
       setError(err.message || 'Error al iniciar sesión');

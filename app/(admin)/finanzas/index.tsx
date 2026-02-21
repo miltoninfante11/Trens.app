@@ -37,6 +37,7 @@ import adminPayments, {
   DateRange,
 } from '../../../services/admin/payments';
 import * as Haptics from '../../../lib/haptics';
+import { supabase } from '../../../lib/supabase';
 
 // ============================================================================
 // COLORS
@@ -779,13 +780,16 @@ export default function AdminFinanzasScreen() {
         </View>
       </View>
 
-      {/* Exit Admin Button */}
+      {/* Cerrar Sesión Button */}
       <TouchableOpacity
         className="mx-4 mb-8 bg-red-600/20 p-4 rounded-xl border border-red-600/50 flex-row items-center justify-center"
-        onPress={() => router.replace('/(tabs)/adn')}
+        onPress={() => {
+          supabase.auth.signOut();
+          router.replace('/(auth)/login');
+        }}
       >
         <LogOut size={20} color={COLORS.red} />
-        <Text className="text-red-500 font-bold ml-2">SALIR DE MODO ADMIN</Text>
+        <Text className="text-red-500 font-bold ml-2">CERRAR SESIÓN</Text>
       </TouchableOpacity>
 
       <View style={{ height: 100 }} />
