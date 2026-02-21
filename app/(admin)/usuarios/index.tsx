@@ -9,7 +9,6 @@ import {
   Image,
   Modal,
   ActivityIndicator,
-  Switch,
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
@@ -33,6 +32,7 @@ import {
   Eye,
   EyeOff,
   Sparkles,
+  Calendar,
 } from 'lucide-react-native';
 import adminUsers, { AdminUser, AdminStats, CreateUserData } from '../../../services/admin/users';
 import * as Haptics from '../../../lib/haptics';
@@ -326,6 +326,9 @@ function CreateUserModal({
   const [role, setRole] = useState<'free' | 'pro' | 'admin'>('free');
   const [grantPro, setGrantPro] = useState(false);
   const [proMonths, setProMonths] = useState('1');
+  const [proStartDate, setProStartDate] = useState('');
+  const [proEndDate, setProEndDate] = useState('');
+  const [showCustomDates, setShowCustomDates] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -339,6 +342,9 @@ function CreateUserModal({
     setRole('free');
     setGrantPro(false);
     setProMonths('1');
+    setProStartDate('');
+    setProEndDate('');
+    setShowCustomDates(false);
     setError(null);
   };
 
@@ -380,10 +386,26 @@ function CreateUserModal({
       // Calcular fecha de expiración PRO
       let proExpiresAt: string | undefined;
       if (grantPro || role === 'pro') {
-        const months = parseInt(proMonths) || 1;
-        const expireDate = new Date();
-        expireDate.setMonth(expireDate.getMonth() + months);
-        proExpiresAt = expireDate.toISOString();
+        if (showCustomDates && proEndDate) {
+          const parts = proEndDate.split('/');
+          if (parts.length === 3) {
+            const d = new Date(`${parts[2]}-${parts[1]}-${parts[0]}T23:59:59`);
+            if (!isNaN(d.getTime())) proExpiresAt = d.toISOString();
+          }
+        }
+        if (!proExpiresAt) {
+          const months = parseInt(proMonths) || 1;
+          const startDate = showCustomDates && proStartDate ? (() => {
+            const parts = proStartDate.split('/');
+            if (parts.length === 3) {
+              const d = new Date(`${parts[2]}-${parts[1]}-${parts[0]}T00:00:00`);
+              if (!isNaN(d.getTime())) return d;
+            }
+            return new Date();
+          })() : new Date();
+          startDate.setMonth(startDate.getMonth() + months);
+          proExpiresAt = startDate.toISOString();
+        }
       }
 
       const createData: CreateUserData = {
@@ -575,22 +597,25 @@ function CreateUserModal({
                     </View>
                   </View>
 
-                  <Text className="text-zinc-400 text-xs font-mono mb-2">Duración</Text>
-                  <View className="flex-row gap-2">
+                  <Text className="text-zinc-400 text-xs font-mono mb-2">DURACIÓN PREDEFINIDA</Text>
+                  <View className="flex-row gap-2 mb-4">
                     {['1', '3', '6', '12'].map((months) => (
                       <TouchableOpacity
                         key={months}
                         className={`flex-1 p-3 rounded-xl items-center ${
-                          proMonths === months
+                          !showCustomDates && proMonths === months
                             ? 'bg-purple-600/30 border border-purple-500'
                             : 'bg-zinc-800 border border-zinc-700'
                         }`}
-                        onPress={() => setProMonths(months)}
+                        onPress={() => {
+                          setProMonths(months);
+                          setShowCustomDates(false);
+                        }}
                         disabled={loading}
                       >
                         <Text
                           className={`font-bold ${
-                            proMonths === months ? 'text-purple-400' : 'text-zinc-400'
+                            !showCustomDates && proMonths === months ? 'text-purple-400' : 'text-zinc-400'
                           }`}
                         >
                           {months}
@@ -601,28 +626,71 @@ function CreateUserModal({
                       </TouchableOpacity>
                     ))}
                   </View>
-                </View>
-              )}
 
-              {/* Quick PRO Toggle (for free users) */}
-              {role === 'free' && (
-                <View className="mb-4 flex-row items-center justify-between bg-zinc-800 rounded-xl p-4">
-                  <View className="flex-row items-center flex-1">
-                    <Crown size={18} color={COLORS.purple} />
-                    <View className="ml-3 flex-1">
-                      <Text className="text-white font-bold">Otorgar PRO gratis</Text>
-                      <Text className="text-zinc-500 text-xs">
-                        Sin cobro, para pruebas o cortesía
-                      </Text>
-                    </View>
+                  {/* Divider */}
+                  <View className="flex-row items-center gap-3 mb-4">
+                    <View className="flex-1 h-px bg-zinc-700" />
+                    <Text className="text-zinc-500 text-xs font-mono">O FECHAS EXACTAS</Text>
+                    <View className="flex-1 h-px bg-zinc-700" />
                   </View>
-                  <Switch
-                    value={grantPro}
-                    onValueChange={setGrantPro}
-                    trackColor={{ false: COLORS.zinc700, true: COLORS.purple }}
-                    thumbColor={COLORS.white}
-                    disabled={loading}
-                  />
+
+                  {/* Start Date */}
+                  <Text className="text-zinc-400 text-xs font-mono mb-2">FECHA DE INICIO</Text>
+                  <TouchableOpacity
+                    className={`flex-row items-center bg-zinc-800 rounded-xl px-4 py-3 mb-3 border ${
+                      showCustomDates ? 'border-purple-500' : 'border-zinc-700'
+                    }`}
+                    onPress={() => setShowCustomDates(true)}
+                  >
+                    <Calendar size={18} color={showCustomDates ? COLORS.purple : COLORS.zinc400} />
+                    <TextInput
+                      className="flex-1 text-white font-mono text-base ml-3"
+                      value={proStartDate}
+                      onChangeText={(text) => {
+                        const digits = text.replace(/\D/g, '');
+                        let f = '';
+                        if (digits.length > 0) f = digits.substring(0, 2);
+                        if (digits.length > 2) f += '/' + digits.substring(2, 4);
+                        if (digits.length > 4) f += '/' + digits.substring(4, 8);
+                        setProStartDate(f);
+                        setShowCustomDates(true);
+                      }}
+                      onFocus={() => setShowCustomDates(true)}
+                      placeholder="DD/MM/AAAA (hoy por defecto)"
+                      placeholderTextColor={COLORS.zinc500}
+                      keyboardType="number-pad"
+                      maxLength={10}
+                    />
+                  </TouchableOpacity>
+
+                  {/* End Date */}
+                  <Text className="text-zinc-400 text-xs font-mono mb-2">FECHA DE FIN</Text>
+                  <TouchableOpacity
+                    className={`flex-row items-center bg-zinc-800 rounded-xl px-4 py-3 mb-3 border ${
+                      showCustomDates ? 'border-purple-500' : 'border-zinc-700'
+                    }`}
+                    onPress={() => setShowCustomDates(true)}
+                  >
+                    <Calendar size={18} color={showCustomDates ? COLORS.purple : COLORS.zinc400} />
+                    <TextInput
+                      className="flex-1 text-white font-mono text-base ml-3"
+                      value={proEndDate}
+                      onChangeText={(text) => {
+                        const digits = text.replace(/\D/g, '');
+                        let f = '';
+                        if (digits.length > 0) f = digits.substring(0, 2);
+                        if (digits.length > 2) f += '/' + digits.substring(2, 4);
+                        if (digits.length > 4) f += '/' + digits.substring(4, 8);
+                        setProEndDate(f);
+                        setShowCustomDates(true);
+                      }}
+                      onFocus={() => setShowCustomDates(true)}
+                      placeholder="DD/MM/AAAA"
+                      placeholderTextColor={COLORS.zinc500}
+                      keyboardType="number-pad"
+                      maxLength={10}
+                    />
+                  </TouchableOpacity>
                 </View>
               )}
 
@@ -691,7 +759,8 @@ export default function AdminUsuariosScreen() {
       filtered = filtered.filter(
         (u) =>
           u.role === 'pro' &&
-          (!u.subscription || (u.subscription.status !== 'active' && u.subscription.status !== 'past_due'))
+          (!u.subscription ||
+            (u.subscription.status !== 'active' && u.subscription.status !== 'past_due'))
       );
     }
     return sortByExpiration(filtered);
@@ -705,7 +774,8 @@ export default function AdminUsuariosScreen() {
     const manual = users.filter(
       (u) =>
         u.role === 'pro' &&
-        (!u.subscription || (u.subscription.status !== 'active' && u.subscription.status !== 'past_due'))
+        (!u.subscription ||
+          (u.subscription.status !== 'active' && u.subscription.status !== 'past_due'))
     ).length;
     return { all: users.length, card: withCard, manual };
   }, [users]);
@@ -872,11 +942,21 @@ export default function AdminUsuariosScreen() {
       {/* Filter Tabs: Todos / Con Tarjeta / PRO Manual */}
       <View className="px-4 pt-3 pb-1">
         <View className="flex-row gap-2">
-          {([
+          {[
             { key: 'all' as ProFilter, label: 'Todos', count: filterCounts.all, color: 'zinc' },
-            { key: 'card' as ProFilter, label: 'Con Tarjeta', count: filterCounts.card, color: 'green' },
-            { key: 'manual' as ProFilter, label: 'PRO Manual', count: filterCounts.manual, color: 'purple' },
-          ]).map((tab) => {
+            {
+              key: 'card' as ProFilter,
+              label: 'Con Tarjeta',
+              count: filterCounts.card,
+              color: 'green',
+            },
+            {
+              key: 'manual' as ProFilter,
+              label: 'PRO Manual',
+              count: filterCounts.manual,
+              color: 'purple',
+            },
+          ].map((tab) => {
             const active = proFilter === tab.key;
             return (
               <TouchableOpacity

@@ -272,6 +272,7 @@ function GrantProModal({
 }) {
   const [selectedOption, setSelectedOption] = useState<string>('1m');
   const [customDate, setCustomDate] = useState('');
+  const [customStartDate, setCustomStartDate] = useState('');
   const [showCustom, setShowCustom] = useState(false);
 
   const monthOptions = [
@@ -282,19 +283,35 @@ function GrantProModal({
     { key: '1y', label: '1 Año', months: 12 },
   ];
 
+  const parseDate = (str: string): Date | null => {
+    const parts = str.split('/');
+    if (parts.length === 3) {
+      const d = new Date(`${parts[2]}-${parts[1]}-${parts[0]}T00:00:00`);
+      if (!isNaN(d.getTime())) return d;
+    }
+    return null;
+  };
+
+  const getStartDate = (): Date => {
+    if (customStartDate) {
+      const d = parseDate(customStartDate);
+      if (d) return d;
+    }
+    return new Date();
+  };
+
   const getExpiresAt = (): string => {
     if (showCustom && customDate) {
-      // Parse DD/MM/YYYY
-      const parts = customDate.split('/');
-      if (parts.length === 3) {
-        const date = new Date(`${parts[2]}-${parts[1]}-${parts[0]}T23:59:59`);
-        if (!isNaN(date.getTime())) return date.toISOString();
+      const date = parseDate(customDate);
+      if (date) {
+        date.setHours(23, 59, 59);
+        return date.toISOString();
       }
       return '';
     }
     const opt = monthOptions.find((o) => o.key === selectedOption);
     if (!opt) return '';
-    const d = new Date();
+    const d = getStartDate();
     d.setMonth(d.getMonth() + opt.months);
     return d.toISOString();
   };
@@ -309,14 +326,13 @@ function GrantProModal({
     });
   };
 
-  const handleCustomDateChange = (text: string) => {
-    // Auto-format DD/MM/YYYY
+  const handleDateFormat = (text: string): string => {
     const digits = text.replace(/\D/g, '');
     let formatted = '';
     if (digits.length > 0) formatted = digits.substring(0, 2);
     if (digits.length > 2) formatted += '/' + digits.substring(2, 4);
     if (digits.length > 4) formatted += '/' + digits.substring(4, 8);
-    setCustomDate(formatted);
+    return formatted;
   };
 
   return (
@@ -352,6 +368,25 @@ function GrantProModal({
                 </Text>
               </View>
             )}
+
+            {/* Start Date */}
+            <Text className="text-zinc-400 text-xs font-mono mb-2">FECHA DE INICIO</Text>
+            <TouchableOpacity
+              className={`flex-row items-center bg-zinc-800 rounded-xl px-4 py-3 mb-4 border ${
+                customStartDate ? 'border-purple-500' : 'border-zinc-700'
+              }`}
+            >
+              <Calendar size={18} color={customStartDate ? COLORS.purple : COLORS.zinc400} />
+              <TextInput
+                className="flex-1 text-white font-mono text-base ml-3"
+                value={customStartDate}
+                onChangeText={(t) => setCustomStartDate(handleDateFormat(t))}
+                placeholder="DD/MM/AAAA (hoy por defecto)"
+                placeholderTextColor={COLORS.zinc500}
+                keyboardType="number-pad"
+                maxLength={10}
+              />
+            </TouchableOpacity>
 
             <Text className="text-zinc-400 text-xs font-mono mb-3">DURACIÓN PREDEFINIDA</Text>
 
@@ -397,7 +432,10 @@ function GrantProModal({
               <TextInput
                 className="flex-1 text-white font-mono text-base ml-3"
                 value={customDate}
-                onChangeText={handleCustomDateChange}
+                onChangeText={(t) => {
+                  setCustomDate(handleDateFormat(t));
+                  setShowCustom(true);
+                }}
                 onFocus={() => setShowCustom(true)}
                 placeholder="DD/MM/AAAA"
                 placeholderTextColor={COLORS.zinc500}
@@ -408,6 +446,18 @@ function GrantProModal({
 
             {/* Preview */}
             <View className="bg-zinc-800/50 rounded-lg p-3 mb-5">
+              {customStartDate && parseDate(customStartDate) && (
+                <>
+                  <Text className="text-zinc-500 text-xs font-mono mb-1">INICIA EL</Text>
+                  <Text className="text-purple-400 font-bold text-base mb-2">
+                    {getStartDate().toLocaleDateString('es-PE', {
+                      day: '2-digit',
+                      month: 'long',
+                      year: 'numeric',
+                    })}
+                  </Text>
+                </>
+              )}
               <Text className="text-zinc-500 text-xs font-mono mb-1">VENCE EL</Text>
               <Text className="text-white font-bold text-lg">{formatPreview()}</Text>
             </View>
