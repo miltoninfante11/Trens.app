@@ -15,7 +15,6 @@ import {
   Lock,
   Camera,
   Image as ImageIcon,
-  Upload,
 } from 'lucide-react-native';
 import { PWAGuard } from '../../../components/auth/PWAGuard';
 import * as Haptics from '../../../lib/haptics';
@@ -47,6 +46,7 @@ if (!isWeb) {
   Audio = audioModule.Audio;
 }
 import { supabase } from '../../../lib/supabase';
+import { compressVideo, compressImage } from '../../../lib/webCamera';
 import { useUserRoleContext } from '../../../context/UserRoleContext';
 import { useProContext } from '../../../context/ProContext';
 import { useProRecording } from '../../../context/ProRecordingContext';
@@ -104,6 +104,16 @@ function ProScreenContent() {
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
   const cameraRef = useRef<any>(null);
+
+  // Web Camera Refs (PWA inline)
+  const webVideoRef = useRef<HTMLVideoElement | null>(null);
+  const webCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const webStreamRef = useRef<MediaStream | null>(null);
+  const webRecorderRef = useRef<MediaRecorder | null>(null);
+  const webChunksRef = useRef<Blob[]>([]);
+  const [webCameraReady, setWebCameraReady] = useState(false);
+  const [webCameraError, setWebCameraError] = useState<string | null>(null);
+  const [webFacing, setWebFacing] = useState<'user' | 'environment'>('environment');
 
   // Media Data (video o foto)
   const [capturedMedia, setCapturedMedia] = useState<MediaData | null>(null);
@@ -231,6 +241,252 @@ function ProScreenContent() {
       }
     };
   }, []);
+
+  // -------------------------------------------------------------------------
+  // WEB CAMERA INLINE - Iniciar cámara al montar (PWA)
+  // -------------------------------------------------------------------------
+
+  const startWebCamera = useCallback(async () => {
+    if (!isWeb || typeof navigator === 'undefined' || typeof document === 'undefined') return;
+
+    console.log('📷 PRO Web: Starting inline camera, facing:', webFacing);
+    setWebCameraError(null);
+    setWebCameraReady(false);
+
+    try {
+      // Limpiar stream anterior
+      if (webStreamRef.current) {
+        webStreamRef.current.getTracks().forEach((track) => track.stop());
+        webStreamRef.current = null;
+      }
+
+      const constraints: MediaStreamConstraints = {
+        video: {
+          facingMode: webFacing,
+          width: { ideal: 1080 },
+          height: { ideal: 1920 },
+        },
+        audio: true,
+      };
+
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      webStreamRef.current = stream;
+
+      if (webVideoRef.current) {
+        webVideoRef.current.srcObject = stream;
+        try {
+          await webVideoRef.current.play();
+        } catch (playError) {
+          console.log('📷 Auto-play blocked:', playError);
+        }
+      }
+
+      setWebCameraReady(true);
+    } catch (err: any) {
+      console.error('❌ Web camera error:', err);
+      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+        setWebCameraError(
+          'Permiso de cámara denegado. Permite el acceso en la configuración del navegador.'
+        );
+      } else if (err.name === 'NotFoundError') {
+        setWebCameraError('No se encontró ninguna cámara en este dispositivo.');
+      } else {
+        setWebCameraError(`Error al acceder a la cámara: ${err.message || err.name}`);
+      }
+    }
+  }, [webFacing]);
+
+  const cleanupWebCamera = useCallback(() => {
+    if (webStreamRef.current) {
+      webStreamRef.current.getTracks().forEach((track) => track.stop());
+      webStreamRef.current = null;
+    }
+    if (webVideoRef.current) {
+      webVideoRef.current.srcObject = null;
+    }
+    setWebCameraReady(false);
+  }, []);
+
+  // Auto-start web camera on mount
+  useEffect(() => {
+    if (isWeb) {
+      const timer = setTimeout(() => startWebCamera(), 300);
+      return () => {
+        clearTimeout(timer);
+        cleanupWebCamera();
+      };
+    }
+  }, []);
+
+  // Restart web camera when facing changes
+  useEffect(() => {
+    if (isWeb && webCameraReady) {
+      startWebCamera();
+    }
+  }, [webFacing]);
+
+  // Re-assign stream if video element remounts
+  useEffect(() => {
+    if (isWeb && webStreamRef.current && webVideoRef.current && !webVideoRef.current.srcObject) {
+      webVideoRef.current.srcObject = webStreamRef.current;
+      webVideoRef.current.play().catch(() => {});
+    }
+  });
+
+  // -------------------------------------------------------------------------
+  // WEB RECORDING HANDLERS
+  // -------------------------------------------------------------------------
+
+  const webStartRecording = () => {
+    if (!webStreamRef.current || isRecording) return;
+
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+    webChunksRef.current = [];
+    setIsRecording(true);
+    setRecordingTime(0);
+    recordingTimeRef.current = 0;
+
+    // Capturar Spotify metadata
+    if (spotifyConnected && spotifyPremium) {
+      spotify
+        .getPlaybackState()
+        .then((playbackState) => {
+          if (playbackState?.isPlaying && playbackState.track) {
+            setSpotifyMetadata({
+              enabled: true,
+              trackUri: playbackState.track.uri,
+              positionMs: playbackState.track.positionMs || 0,
+              trackName: playbackState.track.name,
+              artist: playbackState.track.artist,
+              albumArt: playbackState.track.albumArt,
+              durationMs: playbackState.track.durationMs || 240000,
+            });
+          }
+        })
+        .catch(() => {});
+    }
+
+    try {
+      const mimeTypes = [
+        'video/webm;codecs=vp9',
+        'video/webm;codecs=vp8',
+        'video/webm',
+        'video/mp4',
+      ];
+      const selectedMimeType =
+        mimeTypes.find((t) => MediaRecorder.isTypeSupported(t)) || 'video/webm';
+
+      const recorder = new MediaRecorder(webStreamRef.current, {
+        mimeType: selectedMimeType,
+      });
+
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) webChunksRef.current.push(e.data);
+      };
+
+      recorder.onstop = () => {
+        const blob = new Blob(webChunksRef.current, { type: selectedMimeType });
+        const uri = URL.createObjectURL(blob);
+        const finalDuration = Math.max(1, recordingTimeRef.current);
+
+        setCapturedMedia({
+          uri,
+          type: 'video',
+          duration: finalDuration,
+        });
+        setEditorVisible(true);
+        setIsRecording(false);
+      };
+
+      webRecorderRef.current = recorder;
+      recorder.start(100);
+
+      timerRef.current = setInterval(() => {
+        recordingTimeRef.current += 1;
+        setRecordingTime((prev) => {
+          const next = prev + 1;
+          if (next >= 60) {
+            webStopRecording();
+          }
+          return next;
+        });
+      }, 1000);
+    } catch (err) {
+      console.error('Error starting web recording:', err);
+      setIsRecording(false);
+    }
+  };
+
+  const webStopRecording = () => {
+    if (webRecorderRef.current && webRecorderRef.current.state === 'recording') {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      webRecorderRef.current.stop();
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+    }
+  };
+
+  const webTakePhoto = () => {
+    if (!webVideoRef.current || !webCanvasRef.current) return;
+
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+
+    const video = webVideoRef.current;
+    const canvas = webCanvasRef.current;
+
+    // Crop 9:16 vertical
+    const targetRatio = 9 / 16;
+    let cropWidth: number;
+    let cropHeight: number;
+
+    if (video.videoWidth / video.videoHeight > targetRatio) {
+      cropHeight = video.videoHeight;
+      cropWidth = Math.round(cropHeight * targetRatio);
+    } else {
+      cropWidth = video.videoWidth;
+      cropHeight = Math.round(cropWidth / targetRatio);
+    }
+
+    canvas.width = cropWidth;
+    canvas.height = cropHeight;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const offsetX = (video.videoWidth - cropWidth) / 2;
+    const offsetY = (video.videoHeight - cropHeight) / 2;
+
+    if (webFacing === 'user') {
+      ctx.translate(cropWidth, 0);
+      ctx.scale(-1, 1);
+    }
+
+    ctx.drawImage(video, offsetX, offsetY, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight);
+
+    canvas.toBlob(
+      (blob) => {
+        if (blob) {
+          const uri = URL.createObjectURL(blob);
+          setCapturedMedia({
+            uri,
+            type: 'photo',
+            width: cropWidth,
+            height: cropHeight,
+          });
+          setEditorVisible(true);
+        }
+      },
+      'image/jpeg',
+      0.9
+    );
+  };
+
+  const webFlipCamera = () => {
+    setWebFacing((prev) => (prev === 'environment' ? 'user' : 'environment'));
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  };
 
   // -------------------------------------------------------------------------
   // CAMERA HANDLERS
@@ -391,12 +647,14 @@ function ProScreenContent() {
   };
 
   // Refs para sync con contexto
-  const startRecordingRef = useRef(startRecording);
-  const stopRecordingRef = useRef(stopRecording);
+  const startRecordingRef = useRef<() => void | Promise<void>>(startRecording);
+  const stopRecordingRef = useRef<() => void | Promise<void>>(stopRecording);
+  const takePhotoRef = useRef<() => void | Promise<void>>(isWeb ? webTakePhoto : takePhoto);
 
   useEffect(() => {
-    startRecordingRef.current = startRecording;
-    stopRecordingRef.current = stopRecording;
+    startRecordingRef.current = isWeb ? webStartRecording : startRecording;
+    stopRecordingRef.current = isWeb ? webStopRecording : stopRecording;
+    takePhotoRef.current = isWeb ? webTakePhoto : takePhoto;
   });
 
   // Registrar handlers en contexto global
@@ -404,6 +662,7 @@ function ProScreenContent() {
     registerHandlers({
       start: () => startRecordingRef.current(),
       stop: () => stopRecordingRef.current(),
+      photo: () => takePhotoRef.current(),
     });
   }, [registerHandlers]);
 
@@ -474,12 +733,40 @@ function ProScreenContent() {
 
       // Subir a Cloudflare Stream (video) o Storage (foto)
       if (data.mediaType === 'video') {
-        const uploadResult = await cloudflareStream.uploadVideo(capturedMedia.uri, {
-          name: `TRENS_${user.id}_${Date.now()}`,
-          exerciseName: proContext.type === 'tactical' ? proContext.exerciseName : undefined,
-          userId: user.id,
-          isPublic: data.isPublic,
-        });
+        let uploadResult;
+
+        // En web, usar blob + compresión
+        if (
+          isWeb &&
+          (capturedMedia.uri.startsWith('blob:') || capturedMedia.uri.startsWith('data:'))
+        ) {
+          console.log('🎬 Web: Fetching video blob...');
+          const response = await fetch(capturedMedia.uri);
+          let blob = await response.blob();
+          console.log(`🎬 Original blob: ${Math.round(blob.size / 1024)}KB`);
+
+          // Comprimir si es grande (> 10MB)
+          if (blob.size > 10 * 1024 * 1024) {
+            console.log('🎬 Compressing video...');
+            blob = await compressVideo(blob, 1080, 60);
+            console.log(`🎬 Compressed: ${Math.round(blob.size / 1024)}KB`);
+          }
+
+          uploadResult = await cloudflareStream.uploadVideoFromBlob(blob, {
+            name: `TRENS_${user.id}_${Date.now()}`,
+            exerciseName: proContext.type === 'tactical' ? proContext.exerciseName : undefined,
+            userId: user.id,
+            isPublic: data.isPublic,
+          });
+        } else {
+          // Nativo: usar URI directo
+          uploadResult = await cloudflareStream.uploadVideo(capturedMedia.uri, {
+            name: `TRENS_${user.id}_${Date.now()}`,
+            exerciseName: proContext.type === 'tactical' ? proContext.exerciseName : undefined,
+            userId: user.id,
+            isPublic: data.isPublic,
+          });
+        }
 
         if (!uploadResult.success || !uploadResult.videoId) {
           throw new Error(uploadResult.error || 'Error subiendo video');
@@ -502,6 +789,11 @@ function ProScreenContent() {
           console.log('📸 Web: Fetching from blob/data URL');
           const response = await fetch(capturedMedia.uri);
           blob = await response.blob();
+
+          // Comprimir imagen en web
+          console.log(`📸 Original: ${Math.round(blob.size / 1024)}KB`);
+          blob = await compressImage(blob, 1920, 0.85);
+          console.log(`📸 Compressed: ${Math.round(blob.size / 1024)}KB`);
         } else {
           // En nativo, usar fetch normal
           console.log('📸 Native: Fetching from file URI');
@@ -643,44 +935,185 @@ function ProScreenContent() {
   };
 
   // -------------------------------------------------------------------------
-  // RENDER - PWA VERSION (Solo galería, sin cámara)
+  // RENDER - PWA VERSION (Cámara fullscreen inline, idéntica a nativo)
   // -------------------------------------------------------------------------
 
   if (isWeb) {
+    // Pantalla de error de cámara
+    if (webCameraError) {
+      return (
+        <GestureHandlerRootView style={{ flex: 1 }}>
+          <View className="flex-1 bg-black items-center justify-center px-6">
+            <View
+              style={{
+                shadowColor: '#F97316',
+                shadowOffset: { width: 0, height: 0 },
+                shadowOpacity: 0.8,
+                shadowRadius: 20,
+              }}
+            >
+              <Lock color="#F97316" size={64} />
+            </View>
+            <Text
+              className="text-fire-orange text-xl font-bold mb-2 text-center mt-4"
+              style={{
+                textShadowColor: '#F97316',
+                textShadowOffset: { width: 0, height: 0 },
+                textShadowRadius: 10,
+              }}
+            >
+              🔥 Acceso a Cámara Requerido
+            </Text>
+            <Text className="text-zinc-400 text-center mb-8">{webCameraError}</Text>
+            <TouchableOpacity
+              onPress={() => {
+                setWebCameraError(null);
+                startWebCamera();
+              }}
+              className="px-8 py-4 rounded-full"
+              style={{
+                backgroundColor: '#0a0000',
+                borderWidth: 2,
+                borderColor: '#F97316',
+                shadowColor: '#DC2626',
+                shadowOffset: { width: 0, height: 0 },
+                shadowOpacity: 1,
+                shadowRadius: 15,
+              }}
+            >
+              <Text className="text-fire-orange font-bold">PERMITIR ACCESO 🔥</Text>
+            </TouchableOpacity>
+          </View>
+        </GestureHandlerRootView>
+      );
+    }
+
     return (
       <GestureHandlerRootView style={{ flex: 1 }}>
         <View className="flex-1 bg-black">
-          {/* Background gradient */}
-          <LinearGradient colors={['#0a0000', '#000000', '#0a0000']} className="absolute inset-0" />
+          {/* CAMERA PREVIEW - Fullscreen via getUserMedia */}
+          <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}>
+            {/* @ts-ignore - HTML video element */}
+            <video
+              ref={(el: any) => {
+                webVideoRef.current = el;
+                if (el && webStreamRef.current) {
+                  if (!el.srcObject) {
+                    el.srcObject = webStreamRef.current;
+                  }
+                  el.play().catch(() => {});
+                }
+              }}
+              autoPlay
+              playsInline
+              muted
+              onLoadedMetadata={(e: any) => {
+                const vid = e.target as HTMLVideoElement;
+                vid.play().catch(() => {});
+                setWebCameraReady(true);
+              }}
+              style={{
+                width: '100%',
+                height: '100%',
+                objectFit: 'cover',
+                transform: webFacing === 'user' ? 'scaleX(-1)' : 'none',
+                backgroundColor: '#000',
+              }}
+            />
 
-          {/* Header */}
-          <View className="pt-14 px-6 pb-4">
+            {/* Loading overlay */}
+            {!webCameraReady && (
+              <View
+                className="absolute inset-0 justify-center items-center"
+                style={{ backgroundColor: 'rgba(0,0,0,0.8)' }}
+              >
+                <ActivityIndicator size="large" color="#F97316" />
+                <Text className="text-zinc-400 mt-4">Iniciando cámara...</Text>
+              </View>
+            )}
+          </View>
+
+          {/* Hidden canvas for photo capture */}
+          {/* @ts-ignore */}
+          <canvas
+            ref={(el: any) => {
+              webCanvasRef.current = el;
+            }}
+            style={{ display: 'none' }}
+          />
+
+          {/* HUD SUPERIOR */}
+          <LinearGradient
+            colors={['rgba(10,0,0,0.85)', 'transparent']}
+            className="absolute top-0 left-0 right-0 h-28"
+          />
+          <View className="absolute top-14 left-0 right-0 px-4 flex-row justify-between items-center z-10">
+            {/* Etiqueta de Contexto */}
             <View
-              className="flex-row items-center px-4 py-2 rounded-full self-start"
+              className="flex-row items-center px-3 py-1.5 rounded-full"
               style={{
                 backgroundColor: 'rgba(10, 0, 0, 0.8)',
                 borderWidth: 1,
                 borderColor: '#F97316',
               }}
             >
-              <View
-                className="w-3 h-3 bg-fire-orange rounded-full mr-2"
-                style={{
-                  shadowColor: '#F97316',
-                  shadowOffset: { width: 0, height: 0 },
-                  shadowOpacity: 1,
-                  shadowRadius: 8,
-                }}
-              />
+              <Animated.View style={pulseAnimatedStyle}>
+                <View
+                  className="w-3 h-3 bg-fire-orange rounded-full mr-2"
+                  style={{
+                    shadowColor: '#F97316',
+                    shadowOffset: { width: 0, height: 0 },
+                    shadowOpacity: 1,
+                    shadowRadius: 8,
+                  }}
+                />
+              </Animated.View>
               <Text className="text-fire-orange font-bold text-sm tracking-wide">
                 {getContextLabel()}
               </Text>
             </View>
+
+            {/* Herramientas Rápidas */}
+            <View className="flex-row items-center gap-4">
+              <TouchableOpacity
+                onPress={webFlipCamera}
+                className="p-2 rounded-full"
+                style={{
+                  backgroundColor: 'rgba(10, 0, 0, 0.8)',
+                  borderWidth: 1,
+                  borderColor: '#F97316',
+                }}
+              >
+                <RotateCcw color="#F97316" size={24} />
+              </TouchableOpacity>
+            </View>
           </View>
 
-          {/* Spotify Indicator (if playing) */}
+          {/* CONTADOR TIEMPO (Solo grabando) */}
+          {isRecording && (
+            <View className="absolute top-32 left-0 right-0 items-center z-10">
+              <View
+                className="px-5 py-2 rounded-full"
+                style={{
+                  backgroundColor: 'rgba(10, 0, 0, 0.85)',
+                  borderWidth: 2,
+                  borderColor: '#DC2626',
+                  shadowColor: '#DC2626',
+                  shadowOffset: { width: 0, height: 0 },
+                  shadowOpacity: 1,
+                  shadowRadius: 15,
+                }}
+              >
+                <Text className="text-fire-orange font-mono font-bold text-lg">
+                  🔥 {formatTime(recordingTime)}
+                </Text>
+              </View>
+            </View>
+          )}
+
+          {/* SPOTIFY INDICATOR */}
           {spotifyMetadata && (
-            <View className="px-6 mb-4">
+            <View className={`absolute ${isRecording ? 'top-44' : 'top-28'} left-4 right-4 z-10`}>
               <View
                 className="rounded-xl p-3 flex-row items-center"
                 style={{
@@ -703,98 +1136,39 @@ function ProScreenContent() {
                 <View
                   className="px-2 py-1 rounded"
                   style={{
-                    backgroundColor: 'rgba(30, 215, 96, 0.1)',
+                    backgroundColor: isRecording
+                      ? 'rgba(30, 215, 96, 0.2)'
+                      : 'rgba(30, 215, 96, 0.1)',
                     borderWidth: 1,
                     borderColor: '#1DB954',
                   }}
                 >
-                  <Text className="text-green-500 text-xs font-bold">🎵 DETECTADO</Text>
+                  <Text className="text-green-500 text-xs font-bold">
+                    {isRecording ? 'SYNC' : '🎵 DETECTADO'}
+                  </Text>
                 </View>
               </View>
             </View>
           )}
 
-          {/* Main Content - Upload Area */}
-          <View className="flex-1 px-6 justify-center items-center">
-            <View
-              className="w-full aspect-[9/16] max-h-[60vh] rounded-3xl items-center justify-center"
+          {/* BOTTOM CONTROLS - Solo galería, grabación controlada desde tab bar */}
+          <LinearGradient
+            colors={['transparent', 'rgba(10,0,0,0.9)']}
+            className="absolute bottom-0 left-0 right-0 h-32"
+          />
+
+          <View className="absolute bottom-8 left-6">
+            <TouchableOpacity
+              onPress={() => pickFromGallery()}
+              className="w-14 h-14 rounded-2xl items-center justify-center"
               style={{
-                backgroundColor: 'rgba(10, 0, 0, 0.5)',
-                borderWidth: 2,
-                borderColor: '#27272A',
-                borderStyle: 'dashed',
+                backgroundColor: 'rgba(10, 0, 0, 0.8)',
+                borderWidth: 1,
+                borderColor: '#71717A',
               }}
             >
-              <View
-                style={{
-                  shadowColor: '#F97316',
-                  shadowOffset: { width: 0, height: 0 },
-                  shadowOpacity: 0.5,
-                  shadowRadius: 30,
-                }}
-              >
-                <Upload color="#F97316" size={64} strokeWidth={1.5} />
-              </View>
-
-              <Text
-                className="text-fire-orange text-xl font-bold mt-6 text-center"
-                style={{
-                  textShadowColor: '#F97316',
-                  textShadowOffset: { width: 0, height: 0 },
-                  textShadowRadius: 10,
-                }}
-              >
-                SUBE TU CONTENIDO
-              </Text>
-
-              <Text className="text-zinc-500 text-center mt-2 px-8">
-                Selecciona un video o foto de tu galería
-              </Text>
-
-              {/* Action Buttons */}
-              <View className="flex-row gap-4 mt-8">
-                {/* Video Button */}
-                <TouchableOpacity
-                  onPress={() => pickFromGallery('video')}
-                  className="px-6 py-4 rounded-2xl flex-row items-center"
-                  style={{
-                    backgroundColor: 'rgba(10, 0, 0, 0.8)',
-                    borderWidth: 2,
-                    borderColor: '#F97316',
-                    shadowColor: '#F97316',
-                    shadowOffset: { width: 0, height: 0 },
-                    shadowOpacity: 0.5,
-                    shadowRadius: 15,
-                  }}
-                >
-                  <Camera color="#F97316" size={24} />
-                  <Text className="text-fire-orange font-bold ml-2">VIDEO</Text>
-                </TouchableOpacity>
-
-                {/* Photo Button */}
-                <TouchableOpacity
-                  onPress={() => pickFromGallery('photo')}
-                  className="px-6 py-4 rounded-2xl flex-row items-center"
-                  style={{
-                    backgroundColor: 'rgba(10, 0, 0, 0.8)',
-                    borderWidth: 2,
-                    borderColor: '#F97316',
-                    shadowColor: '#F97316',
-                    shadowOffset: { width: 0, height: 0 },
-                    shadowOpacity: 0.5,
-                    shadowRadius: 15,
-                  }}
-                >
-                  <ImageIcon color="#F97316" size={24} />
-                  <Text className="text-fire-orange font-bold ml-2">FOTO</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-
-            {/* Info Text */}
-            <Text className="text-zinc-600 text-xs text-center mt-6 px-4">
-              💡 Para grabar directamente, usa la app nativa en tu móvil
-            </Text>
+              <ImageIcon color="#A1A1AA" size={24} />
+            </TouchableOpacity>
           </View>
 
           {/* PRO MEDIA EDITOR */}
@@ -1037,71 +1411,24 @@ function ProScreenContent() {
           </View>
         )}
 
-        {/* BOTTOM CONTROLS */}
+        {/* BOTTOM CONTROLS - Solo galería, grabación controlada desde tab bar */}
         <LinearGradient
           colors={['transparent', 'rgba(10,0,0,0.9)']}
-          className="absolute bottom-0 left-0 right-0 h-48"
+          className="absolute bottom-0 left-0 right-0 h-32"
         />
 
-        <View className="absolute bottom-8 left-0 right-0 px-6">
-          {/* Control Buttons Row */}
-          <View className="flex-row items-center justify-center gap-8">
-            {/* Gallery Button */}
-            <TouchableOpacity
-              onPress={() => pickFromGallery()}
-              className="w-14 h-14 rounded-2xl items-center justify-center"
-              style={{
-                backgroundColor: 'rgba(10, 0, 0, 0.8)',
-                borderWidth: 1,
-                borderColor: '#71717A',
-              }}
-            >
-              <ImageIcon color="#A1A1AA" size={24} />
-            </TouchableOpacity>
-
-            {/* Main Shutter Button */}
-            <Animated.View style={shutterAnimatedStyle}>
-              <TouchableOpacity
-                onPress={isRecording ? stopRecording : startRecording}
-                onLongPress={takePhoto}
-                delayLongPress={500}
-                className="w-20 h-20 rounded-full items-center justify-center"
-                style={{
-                  backgroundColor: isRecording ? '#DC2626' : 'rgba(10, 0, 0, 0.8)',
-                  borderWidth: 4,
-                  borderColor: isRecording ? '#FCA5A5' : '#F97316',
-                  shadowColor: isRecording ? '#DC2626' : '#F97316',
-                  shadowOffset: { width: 0, height: 0 },
-                  shadowOpacity: 1,
-                  shadowRadius: 20,
-                }}
-              >
-                {isRecording ? (
-                  <View className="w-8 h-8 bg-white rounded-md" />
-                ) : (
-                  <Camera color="#F97316" size={32} />
-                )}
-              </TouchableOpacity>
-            </Animated.View>
-
-            {/* Photo Button */}
-            <TouchableOpacity
-              onPress={takePhoto}
-              className="w-14 h-14 rounded-2xl items-center justify-center"
-              style={{
-                backgroundColor: 'rgba(10, 0, 0, 0.8)',
-                borderWidth: 1,
-                borderColor: '#F97316',
-              }}
-            >
-              <Camera color="#F97316" size={24} />
-            </TouchableOpacity>
-          </View>
-
-          {/* Hint Text */}
-          <Text className="text-zinc-500 text-xs text-center mt-4">
-            Tap para video • Mantén para foto • Izquierda para galería
-          </Text>
+        <View className="absolute bottom-8 left-6">
+          <TouchableOpacity
+            onPress={() => pickFromGallery()}
+            className="w-14 h-14 rounded-2xl items-center justify-center"
+            style={{
+              backgroundColor: 'rgba(10, 0, 0, 0.8)',
+              borderWidth: 1,
+              borderColor: '#71717A',
+            }}
+          >
+            <ImageIcon color="#A1A1AA" size={24} />
+          </TouchableOpacity>
         </View>
 
         {/* PRO MEDIA EDITOR */}

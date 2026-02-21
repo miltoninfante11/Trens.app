@@ -186,6 +186,83 @@ class CloudflareStreamService {
   }
 
   // --------------------------------------------------------------------------
+  // UPLOAD DESDE BLOB (Para web/PWA)
+  // --------------------------------------------------------------------------
+  async uploadVideoFromBlob(
+    blob: Blob,
+    metadata?: {
+      name?: string;
+      exerciseName?: string;
+      userId?: string;
+      isPublic?: boolean;
+    }
+  ): Promise<UploadResult> {
+    try {
+      if (!isStreamConfigured()) {
+        return {
+          success: false,
+          error: 'Cloudflare Stream no está configurado. Verifica las variables de entorno.',
+        };
+      }
+
+      const formData = new FormData();
+
+      // En web, usar File directamente
+      const file = new File([blob], `${Date.now()}.webm`, {
+        type: blob.type || 'video/webm',
+      });
+      formData.append('file', file);
+
+      if (metadata) {
+        formData.append(
+          'meta',
+          JSON.stringify({
+            name: metadata.name || `TRENS_${Date.now()}`,
+            exerciseName: metadata.exerciseName,
+            userId: metadata.userId,
+            isPublic: metadata.isPublic,
+            uploadedAt: new Date().toISOString(),
+          })
+        );
+      }
+
+      const response = await fetch(API_BASE, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${API_TOKEN}`,
+        },
+        body: formData,
+      });
+
+      const data = await response.json();
+
+      if (!data.success) {
+        console.error('Error Cloudflare Stream (web):', data.errors);
+        return {
+          success: false,
+          error: data.errors?.[0]?.message || 'Error subiendo video',
+        };
+      }
+
+      const video: StreamVideo = data.result;
+
+      return {
+        success: true,
+        videoId: video.uid,
+        hlsUrl: video.playback.hls,
+        dashUrl: video.playback.dash,
+        thumbnailUrl: video.thumbnail,
+      };
+    } catch (error) {
+      console.error('Error en uploadVideoFromBlob:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Error desconocido',
+      };
+    }
+  }
+
+  // --------------------------------------------------------------------------
   // UPLOAD CON TUS (Para videos grandes, resumible)
   // --------------------------------------------------------------------------
   async createTusUpload(

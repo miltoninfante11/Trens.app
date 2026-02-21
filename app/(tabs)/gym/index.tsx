@@ -37,6 +37,7 @@ import {
   ChevronDown,
   Play,
   Pause,
+  Search,
   Eye,
   EyeOff,
   Share2,
@@ -874,6 +875,7 @@ function GymScreen() {
   // Series Config Modal State
   const [seriesConfigModalVisible, setSeriesConfigModalVisible] = useState(false);
   const [seriesConfigFromCatalog, setSeriesConfigFromCatalog] = useState(false); // true si se abrió desde catálogo
+  const [catalogSearch, setCatalogSearch] = useState('');
   const seriesConfigFromCatalogRef = useRef(false); // Ref para acceder en panResponder
   const [selectedTemplate, setSelectedTemplate] = useState<AssetTemplate | null>(null);
   const [seriesConfig, setSeriesConfig] = useState<SeriesConfig[]>([]);
@@ -5452,10 +5454,16 @@ function GymScreen() {
   const renderCatalogModal = () => {
     // Obtener ejercicios según tab activo
     const suggestedExercises = getSuggestedExercises();
-    const filteredTemplates =
+    const filteredTemplatesBase =
       catalogTab === 'SUGERIDOS'
         ? suggestedExercises
         : templates.filter((t) => t.category === catalogTab);
+
+    const filteredTemplates = catalogSearch.trim()
+      ? filteredTemplatesBase.filter((t) =>
+          t.name.toLowerCase().includes(catalogSearch.toLowerCase())
+        )
+      : filteredTemplatesBase;
 
     // Nombre del grupo muscular del día actual
     const currentMuscleGroup =
@@ -5475,6 +5483,7 @@ function GymScreen() {
         onRequestClose={() => {
           setModalVisible(false);
           setCatalogTab('SUGERIDOS');
+          setCatalogSearch('');
         }}
       >
         <View className="flex-1 bg-transparent justify-end">
@@ -5556,6 +5565,24 @@ function GymScreen() {
                       n{' '}
                     </View>
                   </View>
+                </View>
+
+                {/* BUSCADOR */}
+                <View className="flex-row items-center bg-zinc-800/80 rounded-lg px-3 py-2 mb-3">
+                  <Search size={16} color="#71717a" />
+                  <TextInput
+                    className="flex-1 text-white text-sm ml-2"
+                    placeholder="Buscar ejercicio..."
+                    placeholderTextColor="#71717a"
+                    value={catalogSearch}
+                    onChangeText={setCatalogSearch}
+                    autoCorrect={false}
+                  />
+                  {catalogSearch !== '' && (
+                    <TouchableOpacity onPress={() => setCatalogSearch('')}>
+                      <X size={14} color="#71717a" />
+                    </TouchableOpacity>
+                  )}
                 </View>
 
                 {/* TABS - Scroll horizontal con mejor diseño */}
@@ -5901,66 +5928,6 @@ function GymScreen() {
                       </View>
                     </View>
                   </View>
-                  <TouchableOpacity
-                    onPress={async () => {
-                      if (exercises.length > 0) {
-                        // Actualizar el día de entrenamiento actual en la BD
-                        if (user && selectedDayIndex !== trainingProgram.currentDayIndex) {
-                          const today = new Date();
-                          today.setHours(0, 0, 0, 0);
-                          const todayISO = today.toISOString();
-
-                          await supabase
-                            .from('profiles')
-                            .update({
-                              training_last_access: todayISO,
-                              training_current_day: selectedDayIndex,
-                            })
-                            .eq('id', user.id);
-
-                          setTrainingProgram((prev) => ({
-                            ...prev,
-                            lastAccessDate: todayISO,
-                            currentDayIndex: selectedDayIndex,
-                          }));
-                          console.log('🏋️ Día de entrenamiento actualizado a:', selectedDayIndex);
-                        }
-                        // Cerrar modal con animación y recargar desde BD
-                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                        translateYStructure.value = withTiming(
-                          800,
-                          { duration: 250, easing: Easing.out(Easing.ease) },
-                          () => runOnJS(closeStructureWithAnimation)()
-                        );
-                      }
-                    }}
-                    disabled={exercises.length === 0}
-                    className="flex-row items-center gap-2 px-5 py-3 rounded-xl"
-                    style={
-                      exercises.length > 0
-                        ? {
-                            backgroundColor: '#DC2626',
-                            shadowColor: '#DC2626',
-                            shadowOffset: { width: 0, height: 4 },
-                            shadowOpacity: 0.5,
-                            shadowRadius: 12,
-                          }
-                        : {
-                            backgroundColor: '#27272a',
-                          }
-                    }
-                  >
-                    <Play
-                      size={16}
-                      color={exercises.length > 0 ? '#fff' : '#71717a'}
-                      fill={exercises.length > 0 ? '#fff' : '#71717a'}
-                    />
-                    <Text
-                      className={`font-bold text-sm ${exercises.length > 0 ? 'text-white' : 'text-zinc-500'}`}
-                    >
-                      ENTRENAR
-                    </Text>
-                  </TouchableOpacity>
                 </View>
 
                 {/* DAYS SELECTOR - Horizontal Pills (MODO GYM o PERSONALIZADO) */}

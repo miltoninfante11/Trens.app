@@ -25,6 +25,16 @@ interface WebCameraModalProps {
   exerciseName?: string;
   hasCustomMedia?: boolean;
   onRestoreDefault?: () => void;
+  /** Aspect ratio for preview/capture. Default 1 (square). Use 9/16 for vertical PRO. */
+  aspectRatio?: number;
+  /** Max recording duration in seconds. Default 10. */
+  maxRecordingDuration?: number;
+  /** Accent color for UI elements. Default '#DC2626' (red). */
+  accentColor?: string;
+  /** Title prefix for the header. */
+  headerTitle?: string;
+  /** Initial camera mode. Default 'photo'. */
+  initialMode?: 'photo' | 'video';
 }
 
 type CameraMode = 'photo' | 'video';
@@ -38,6 +48,11 @@ export function WebCameraModal({
   exerciseName,
   hasCustomMedia = false,
   onRestoreDefault,
+  aspectRatio = 1,
+  maxRecordingDuration = 10,
+  accentColor = '#DC2626',
+  headerTitle,
+  initialMode = 'photo',
 }: WebCameraModalProps) {
   const videoElementRef = useRef<HTMLVideoElement | null>(null);
   const canvasElementRef = useRef<HTMLCanvasElement | null>(null);
@@ -46,7 +61,7 @@ export function WebCameraModal({
   const chunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
 
-  const [mode, setMode] = useState<CameraMode>('photo');
+  const [mode, setMode] = useState<CameraMode>(initialMode);
   const [facing, setFacing] = useState<FacingMode>('environment');
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
@@ -144,6 +159,11 @@ export function WebCameraModal({
     }
   }, [facing, mode]);
 
+  // Sincronizar modo cuando cambia el prop
+  useEffect(() => {
+    setMode(initialMode);
+  }, [initialMode]);
+
   // Iniciar/detener cámara cuando el modal se abre/cierra
   useEffect(() => {
     if (visible && Platform.OS === 'web') {
@@ -191,25 +211,44 @@ export function WebCameraModal({
     const video = videoElementRef.current;
     const canvas = canvasElementRef.current;
 
-    // Usar dimensiones cuadradas
-    const size = Math.min(video.videoWidth, video.videoHeight);
-    canvas.width = size;
-    canvas.height = size;
+    // Calcular dimensiones basadas en aspect ratio
+    let cropWidth: number;
+    let cropHeight: number;
+
+    if (aspectRatio === 1) {
+      // Cuadrado (GYM)
+      const size = Math.min(video.videoWidth, video.videoHeight);
+      cropWidth = size;
+      cropHeight = size;
+    } else {
+      // Vertical u otro ratio (PRO usa 9/16)
+      const targetRatio = aspectRatio;
+      if (video.videoWidth / video.videoHeight > targetRatio) {
+        cropHeight = video.videoHeight;
+        cropWidth = Math.round(cropHeight * targetRatio);
+      } else {
+        cropWidth = video.videoWidth;
+        cropHeight = Math.round(cropWidth / targetRatio);
+      }
+    }
+
+    canvas.width = cropWidth;
+    canvas.height = cropHeight;
 
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
     // Calcular offset para centrar el crop
-    const offsetX = (video.videoWidth - size) / 2;
-    const offsetY = (video.videoHeight - size) / 2;
+    const offsetX = (video.videoWidth - cropWidth) / 2;
+    const offsetY = (video.videoHeight - cropHeight) / 2;
 
     // Si es cámara frontal, voltear horizontalmente
     if (facing === 'user') {
-      ctx.translate(size, 0);
+      ctx.translate(cropWidth, 0);
       ctx.scale(-1, 1);
     }
 
-    ctx.drawImage(video, offsetX, offsetY, size, size, 0, 0, size, size);
+    ctx.drawImage(video, offsetX, offsetY, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight);
 
     canvas.toBlob(
       (blob) => {
@@ -284,7 +323,7 @@ export function WebCameraModal({
 
       timerRef.current = setInterval(() => {
         setRecordingTime((prev) => {
-          if (prev >= 10) {
+          if (prev >= maxRecordingDuration) {
             stopRecording();
             return prev;
           }
@@ -413,7 +452,11 @@ export function WebCameraModal({
                   <X color="#FFFFFF" size={28} />
                 </TouchableOpacity>
                 <Text className="text-white font-bold text-lg">
-                  {mode === 'photo' ? '📸 FOTO' : '🎬 VIDEO'}
+                  {headerTitle
+                    ? `${headerTitle} ${mode === 'photo' ? 'FOTO' : 'VIDEO'}`
+                    : mode === 'photo'
+                      ? '📸 FOTO'
+                      : '🎬 VIDEO'}
                 </Text>
                 <TouchableOpacity onPress={flipCamera}>
                   <RotateCcw color="#FFFFFF" size={24} />
@@ -461,8 +504,8 @@ export function WebCameraModal({
               <View
                 className="w-full overflow-hidden rounded-lg"
                 style={{
-                  aspectRatio: 1,
-                  maxHeight: '60%',
+                  aspectRatio: aspectRatio,
+                  maxHeight: aspectRatio < 1 ? '70%' : '60%',
                   backgroundColor: '#18181b',
                 }}
               >
@@ -507,10 +550,12 @@ export function WebCameraModal({
                 {isRecording && (
                   <View
                     className="absolute top-4 left-4 flex-row items-center px-3 py-1 rounded-full"
-                    style={{ backgroundColor: '#DC2626' }}
+                    style={{ backgroundColor: accentColor }}
                   >
                     <View className="w-3 h-3 rounded-full bg-white mr-2" />
-                    <Text className="text-white font-bold font-mono">{recordingTime}s / 10s</Text>
+                    <Text className="text-white font-bold font-mono">
+                      {recordingTime}s / {maxRecordingDuration}s
+                    </Text>
                   </View>
                 )}
 

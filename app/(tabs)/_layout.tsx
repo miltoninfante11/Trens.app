@@ -1,4 +1,4 @@
-import { Tabs, usePathname } from 'expo-router';
+import { Tabs, usePathname, useRouter } from 'expo-router';
 import { View, Text, Platform } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -13,6 +13,9 @@ import {
   Sailboat,
   Waves,
   Music,
+  Camera,
+  CameraOff,
+  ChevronUp,
   LucideIcon,
 } from 'lucide-react-native';
 import Animated, {
@@ -22,9 +25,13 @@ import Animated, {
   withTiming,
   withSequence,
   withDelay,
+  withSpring,
   Easing,
+  runOnJS,
 } from 'react-native-reanimated';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { useEffect, useRef } from 'react';
+import { PanResponder } from 'react-native';
 import { useAuth, useProRecording } from '../_layout';
 import { useSport } from '../../context/SportContext';
 import FloatingLoginButton from '../../components/auth/FloatingLoginButton';
@@ -261,10 +268,39 @@ function ConnectionLine({
 }
 
 // Componente para el icono PRO con indicadores dinámicos
-function ProTabIcon({ focused }: { focused: boolean }) {
-  const { isRecording, recordingTime, hasSpotify, exerciseName } = useProRecording();
+function ProTabIcon({ focused, onTabPress }: { focused: boolean; onTabPress: () => void }) {
+  const { isRecording, recordingTime, hasSpotify, exerciseName, takePhoto } = useProRecording();
+
+  // Refs para PanResponder (mismo patrón que Spotify)
+  const focusedRef = useRef(focused);
+  const isRecordingRef = useRef(isRecording);
+  const takePhotoRef = useRef(takePhoto);
+  const onTabPressRef = useRef(onTabPress);
+  const startPos = useRef({ x: 0, y: 0 });
+  const isDragging = useRef(false);
+  useEffect(() => {
+    focusedRef.current = focused;
+  }, [focused]);
+  useEffect(() => {
+    isRecordingRef.current = isRecording;
+  }, [isRecording]);
+  useEffect(() => {
+    takePhotoRef.current = takePhoto;
+  }, [takePhoto]);
+  useEffect(() => {
+    onTabPressRef.current = onTabPress;
+  }, [onTabPress]);
 
   const pulseScale = useSharedValue(1);
+  const hintOpacity = useSharedValue(0);
+  const fabTranslateY = useSharedValue(0);
+  const fabScale = useSharedValue(1);
+  const waveY1 = useSharedValue(0);
+  const waveY2 = useSharedValue(0);
+  const waveY3 = useSharedValue(0);
+  const waveOpacity1 = useSharedValue(0);
+  const waveOpacity2 = useSharedValue(0);
+  const waveOpacity3 = useSharedValue(0);
 
   useEffect(() => {
     if (isRecording) {
@@ -281,8 +317,96 @@ function ProTabIcon({ focused }: { focused: boolean }) {
     }
   }, [isRecording]);
 
-  const animatedStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: pulseScale.value }],
+  // Animación de ondas: translateY hacia arriba (no scale)
+  useEffect(() => {
+    if (focused && !isRecording) {
+      hintOpacity.value = withDelay(800, withTiming(1, { duration: 400 }));
+
+      // Onda 1: sube y se desvanece
+      waveY1.value = withRepeat(
+        withSequence(
+          withTiming(-30, { duration: 1200, easing: Easing.out(Easing.ease) }),
+          withTiming(0, { duration: 0 })
+        ),
+        -1
+      );
+      waveOpacity1.value = withRepeat(
+        withSequence(withTiming(0.8, { duration: 100 }), withTiming(0, { duration: 1100 })),
+        -1
+      );
+
+      // Onda 2: 400ms desfase
+      waveY2.value = withDelay(
+        400,
+        withRepeat(
+          withSequence(
+            withTiming(-30, { duration: 1200, easing: Easing.out(Easing.ease) }),
+            withTiming(0, { duration: 0 })
+          ),
+          -1
+        )
+      );
+      waveOpacity2.value = withDelay(
+        400,
+        withRepeat(
+          withSequence(withTiming(0.5, { duration: 100 }), withTiming(0, { duration: 1100 })),
+          -1
+        )
+      );
+
+      // Onda 3: 800ms desfase
+      waveY3.value = withDelay(
+        800,
+        withRepeat(
+          withSequence(
+            withTiming(-30, { duration: 1200, easing: Easing.out(Easing.ease) }),
+            withTiming(0, { duration: 0 })
+          ),
+          -1
+        )
+      );
+      waveOpacity3.value = withDelay(
+        800,
+        withRepeat(
+          withSequence(withTiming(0.4, { duration: 100 }), withTiming(0, { duration: 1100 })),
+          -1
+        )
+      );
+    } else {
+      hintOpacity.value = withTiming(0, { duration: 200 });
+      waveOpacity1.value = withTiming(0, { duration: 200 });
+      waveOpacity2.value = withTiming(0, { duration: 200 });
+      waveOpacity3.value = withTiming(0, { duration: 200 });
+      waveY1.value = withTiming(0, { duration: 200 });
+      waveY2.value = withTiming(0, { duration: 200 });
+      waveY3.value = withTiming(0, { duration: 200 });
+    }
+  }, [focused, isRecording]);
+
+  // Animated styles
+  const buttonStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: pulseScale.value * fabScale.value }, { translateY: fabTranslateY.value }],
+  }));
+
+  const hintAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: hintOpacity.value,
+  }));
+
+  // 3 semicírculos que suben — solo arco superior visible
+  const ARC_W = 50;
+  const ARC_H = 14; // mitad del arco visible
+
+  const wave1Style = useAnimatedStyle(() => ({
+    opacity: waveOpacity1.value,
+    transform: [{ translateY: waveY1.value }],
+  }));
+  const wave2Style = useAnimatedStyle(() => ({
+    opacity: waveOpacity2.value,
+    transform: [{ translateY: waveY2.value }],
+  }));
+  const wave3Style = useAnimatedStyle(() => ({
+    opacity: waveOpacity3.value,
+    transform: [{ translateY: waveY3.value }],
   }));
 
   const formatTime = (seconds: number): string => {
@@ -291,10 +415,171 @@ function ProTabIcon({ focused }: { focused: boolean }) {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
+  // PanResponder — captura TODO (ya no hay Pressable padre que compita)
+  // Tap = navegar/grabar/parar. Drag hacia arriba = foto (solo en PRO).
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+
+      onPanResponderGrant: (evt) => {
+        isDragging.current = false;
+        startPos.current = {
+          x: evt.nativeEvent.pageX,
+          y: evt.nativeEvent.pageY,
+        };
+      },
+
+      onPanResponderMove: (_evt, gestureState) => {
+        // Solo arrastra si estamos en PRO y no grabando
+        if (!focusedRef.current || isRecordingRef.current) return;
+        if (Math.abs(gestureState.dy) > 5) {
+          isDragging.current = true;
+          fabScale.value = withTiming(0.95, { duration: 100 });
+        }
+        // Solo hacia arriba, con resistencia elástica al 50%
+        if (gestureState.dy < 0) {
+          fabTranslateY.value = Math.max(-80, gestureState.dy * 0.5);
+        }
+      },
+
+      onPanResponderRelease: (_evt, gestureState) => {
+        fabScale.value = withSpring(1);
+        fabTranslateY.value = withSpring(0, { damping: 15, stiffness: 300 });
+
+        if (isDragging.current && gestureState.dy < -40) {
+          // Drag hacia arriba suficiente → foto
+          takePhotoRef.current();
+        } else if (!isDragging.current) {
+          // Tap corto → navegar o grabar/parar
+          onTabPressRef.current();
+        }
+        isDragging.current = false;
+      },
+
+      onPanResponderTerminate: () => {
+        fabScale.value = withSpring(1);
+        fabTranslateY.value = withSpring(0, { damping: 15, stiffness: 300 });
+        isDragging.current = false;
+      },
+    })
+  ).current;
+
   return (
-    <View style={{ alignItems: 'center' }}>
-      {/* Botón principal */}
-      <Animated.View style={animatedStyle}>
+    <View style={{ alignItems: 'center', overflow: 'visible' }}>
+      {/* Recording time indicator */}
+      {isRecording && (
+        <View style={{ position: 'absolute', bottom: 78, alignItems: 'center', zIndex: 100 }}>
+          <View
+            style={{
+              backgroundColor: 'rgba(10, 0, 0, 0.95)',
+              borderWidth: 2,
+              borderColor: '#DC2626',
+              borderRadius: 16,
+              paddingHorizontal: 12,
+              paddingVertical: 4,
+              shadowColor: '#DC2626',
+              shadowOffset: { width: 0, height: 0 },
+              shadowOpacity: 1,
+              shadowRadius: 10,
+            }}
+          >
+            <Text
+              style={{
+                color: '#F97316',
+                fontSize: 11,
+                fontWeight: '800',
+                fontFamily: Platform.OS === 'web' ? 'monospace' : undefined,
+                letterSpacing: 1,
+              }}
+            >
+              🔥 {formatTime(recordingTime)}
+            </Text>
+          </View>
+        </View>
+      )}
+
+      {/* Texto FOTO — encima de las ondas */}
+      {focused && !isRecording && (
+        <Animated.View
+          style={[
+            hintAnimatedStyle,
+            {
+              position: 'absolute',
+              bottom: 92,
+              alignItems: 'center',
+              zIndex: 110,
+            },
+          ]}
+        >
+          <ChevronUp color="#DC2626" size={14} strokeWidth={3} />
+          <Text
+            style={{
+              color: '#DC2626',
+              fontSize: 9,
+              fontWeight: '800',
+              letterSpacing: 1,
+              marginTop: -3,
+            }}
+          >
+            FOTO
+          </Text>
+        </Animated.View>
+      )}
+
+      {/* Ondas — semicírculos que suben desde el botón */}
+      {focused && !isRecording && (
+        <View style={{ position: 'absolute', bottom: 66, alignItems: 'center', zIndex: 99 }}>
+          <Animated.View style={[wave1Style, { position: 'absolute', bottom: 0 }]}>
+            <View
+              style={{
+                width: ARC_W,
+                height: ARC_H,
+                borderTopLeftRadius: ARC_W / 2,
+                borderTopRightRadius: ARC_W / 2,
+                borderWidth: 2,
+                borderBottomWidth: 0,
+                borderColor: '#DC2626',
+              }}
+            />
+          </Animated.View>
+          <Animated.View style={[wave2Style, { position: 'absolute', bottom: 0 }]}>
+            <View
+              style={{
+                width: ARC_W * 0.8,
+                height: ARC_H * 0.85,
+                borderTopLeftRadius: ARC_W / 2,
+                borderTopRightRadius: ARC_W / 2,
+                borderWidth: 1.5,
+                borderBottomWidth: 0,
+                borderColor: '#DC2626',
+              }}
+            />
+          </Animated.View>
+          <Animated.View style={[wave3Style, { position: 'absolute', bottom: 0 }]}>
+            <View
+              style={{
+                width: ARC_W * 0.6,
+                height: ARC_H * 0.7,
+                borderTopLeftRadius: ARC_W / 2,
+                borderTopRightRadius: ARC_W / 2,
+                borderWidth: 1,
+                borderBottomWidth: 0,
+                borderColor: '#DC2626',
+              }}
+            />
+          </Animated.View>
+        </View>
+      )}
+
+      {/* Botón principal — panHandlers aplicados al Animated.View (como Spotify) */}
+      <Animated.View
+        style={[
+          buttonStyle,
+          Platform.OS === 'web' ? { touchAction: 'none', userSelect: 'none', cursor: 'grab' } as any : {},
+        ]}
+        {...panResponder.panHandlers}
+      >
         <View
           style={{
             padding: 16,
@@ -319,15 +604,9 @@ function ProTabIcon({ focused }: { focused: boolean }) {
           }}
         >
           {isRecording ? (
-            // Icono de STOP cuando está grabando
-            <View
-              style={{
-                width: 28,
-                height: 28,
-                backgroundColor: '#fff',
-                borderRadius: 4,
-              }}
-            />
+            <View style={{ width: 28, height: 28, backgroundColor: '#fff', borderRadius: 4 }} />
+          ) : focused ? (
+            <Camera color="#FFFFFF" size={28} strokeWidth={2.5} />
           ) : (
             <Crosshair color="#FFFFFF" size={28} strokeWidth={2.5} />
           )}
@@ -341,6 +620,7 @@ export default function TabsLayout() {
   const { isProActive, previousModule } = useProNavigation();
   const { user, loading } = useAuth();
   const pathname = usePathname();
+  const router = useRouter();
   const insets = useSafeAreaInsets();
   const { isRecording, startRecording, stopRecording } = useProRecording();
 
@@ -460,21 +740,31 @@ export default function TabsLayout() {
           name="pro/index"
           options={{
             title: '',
-            tabBarIcon: ({ focused }) => <ProTabIcon focused={focused} />,
-          }}
-          listeners={{
-            tabPress: (e) => {
-              // Si ya estamos en PRO, controlar grabación
-              if (isProActive) {
-                e.preventDefault(); // No navegar de nuevo
-                if (isRecording) {
-                  stopRecording();
-                } else {
-                  startRecording();
-                }
-              }
-              // Si no estamos en PRO, navegar normalmente (comportamiento por defecto)
-            },
+            tabBarIcon: ({ focused }) => (
+              <ProTabIcon
+                focused={focused}
+                onTabPress={() => {
+                  if (isProActive) {
+                    if (isRecording) {
+                      stopRecording();
+                    } else {
+                      startRecording();
+                    }
+                  } else {
+                    router.push('/pro');
+                  }
+                }}
+              />
+            ),
+            // Reemplazar PlatformPressable con View simple para que PanResponder funcione
+            tabBarButton: (props) => (
+              <View
+                style={[props.style as any, { overflow: 'visible' }]}
+                accessibilityRole="button"
+              >
+                {props.children}
+              </View>
+            ),
           }}
         />
 

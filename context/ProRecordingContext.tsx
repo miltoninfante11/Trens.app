@@ -12,9 +12,10 @@ interface ProRecordingContextValue {
   // Métodos que serán implementados por PRO screen
   startRecording: () => void;
   stopRecording: () => void;
+  takePhoto: () => void;
 
   // Para que PRO screen registre sus handlers
-  registerHandlers: (handlers: { start: () => void; stop: () => void }) => void;
+  registerHandlers: (handlers: { start: () => void; stop: () => void; photo: () => void }) => void;
 
   // Para actualizar estado desde PRO screen
   setRecordingState: (isRecording: boolean, time: number) => void;
@@ -36,11 +37,16 @@ export function ProRecordingProvider({ children }: { children: ReactNode }) {
   const [hasSpotify, setHasSpotify] = useState(false);
   const [exerciseName, setExerciseName] = useState<string | null>(null);
 
-  const handlersRef = useRef<{ start: () => void; stop: () => void } | null>(null);
+  const handlersRef = useRef<{ start: () => void; stop: () => void; photo: () => void } | null>(
+    null
+  );
 
-  const registerHandlers = useCallback((handlers: { start: () => void; stop: () => void }) => {
-    handlersRef.current = handlers;
-  }, []);
+  const registerHandlers = useCallback(
+    (handlers: { start: () => void; stop: () => void; photo: () => void }) => {
+      handlersRef.current = handlers;
+    },
+    []
+  );
 
   const startRecording = useCallback(() => {
     if (handlersRef.current) {
@@ -51,6 +57,12 @@ export function ProRecordingProvider({ children }: { children: ReactNode }) {
   const stopRecording = useCallback(() => {
     if (handlersRef.current) {
       handlersRef.current.stop();
+    }
+  }, []);
+
+  const takePhoto = useCallback(() => {
+    if (handlersRef.current) {
+      handlersRef.current.photo();
     }
   }, []);
 
@@ -76,6 +88,7 @@ export function ProRecordingProvider({ children }: { children: ReactNode }) {
         exerciseName,
         startRecording,
         stopRecording,
+        takePhoto,
         registerHandlers,
         setRecordingState,
         setSpotifyState,
