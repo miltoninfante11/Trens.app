@@ -683,6 +683,7 @@ export default function LandingPage() {
         password,
         options: {
           data: {
+            full_name: name,
             display_name: name,
             phone: fullPhoneNumber,
           },
@@ -725,14 +726,17 @@ export default function LandingPage() {
         throw new Error(result.error || 'Error al procesar suscripción');
       }
 
-      // 4. Create user profile
-      await supabase.from('user_profiles').upsert(
-        {
-          user_id: authData.user.id,
-          display_name: name,
-        },
-        { onConflict: 'user_id' }
-      );
+      // 4. Create/update user profile + sync profiles table
+      await Promise.all([
+        supabase.from('user_profiles').upsert(
+          {
+            user_id: authData.user.id,
+            display_name: name,
+          },
+          { onConflict: 'user_id' }
+        ),
+        supabase.from('profiles').update({ full_name: name }).eq('id', authData.user.id),
+      ]);
 
       // 5. Success!
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);

@@ -50,7 +50,7 @@ import { useSaveGuard } from '../../context/SaveGuardContext';
 import { useSport } from '../../context/SportContext';
 import { calculateFabPositions } from '../../constants/floatingTools';
 import { HankTargetHighlight } from './HankTargetHighlight';
-import { HankOnboarding } from './HankOnboarding';
+import { HankOnboarding, type OnboardingData } from './HankOnboarding';
 import { setHankChatOpen } from '../../lib/hankChatState';
 import type {
   HankToolResult,
@@ -1370,7 +1370,7 @@ export const HankOverlay: React.FC = () => {
    * Handler cuando el usuario completa el onboarding
    */
   const handleOnboardingComplete = useCallback(
-    (data: { weight?: string; height?: string; goal?: string }) => {
+    (data: OnboardingData) => {
       console.warn('✅ HANK: Onboarding completado', data);
       setShowOnboarding(false);
       // Mostrar mensaje de bienvenida personalizado
@@ -1389,10 +1389,23 @@ export const HankOverlay: React.FC = () => {
   /**
    * Handler cuando el usuario cierra el onboarding sin completar
    */
-  const handleOnboardingDismiss = useCallback(() => {
+  const handleOnboardingDismiss = useCallback(async () => {
     console.warn('⏭️ HANK: Onboarding saltado');
     setShowOnboarding(false);
-  }, []);
+    // Marcar en DB para que no vuelva a aparecer
+    if (userId) {
+      try {
+        await supabase
+          .from('user_profiles')
+          .upsert(
+            { user_id: userId, hank_first_time_shown: true },
+            { onConflict: 'user_id' }
+          );
+      } catch (error) {
+        console.error('Error marking onboarding dismissed:', error);
+      }
+    }
+  }, [userId]);
 
   // -------------------------------------------------------------------------
   // CHAT UI MEMORY - Sistema de 24 horas con Supabase

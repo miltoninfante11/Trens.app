@@ -507,7 +507,11 @@ BEGIN
   VALUES (
     NEW.id,
     NEW.email,
-    COALESCE(NEW.raw_user_meta_data->>'full_name', NEW.raw_user_meta_data->>'name'),
+    COALESCE(
+      NEW.raw_user_meta_data->>'full_name',
+      NEW.raw_user_meta_data->>'display_name',
+      NEW.raw_user_meta_data->>'name'
+    ),
     NEW.raw_user_meta_data->>'avatar_url'
   );
   
@@ -515,7 +519,14 @@ BEGIN
   VALUES (NEW.id, 'free');
   
   INSERT INTO public.user_profiles (user_id, display_name)
-  VALUES (NEW.id, COALESCE(NEW.raw_user_meta_data->>'full_name', 'ATLETA'));
+  VALUES (
+    NEW.id,
+    COALESCE(
+      NEW.raw_user_meta_data->>'full_name',
+      NEW.raw_user_meta_data->>'display_name',
+      'ATLETA'
+    )
+  );
   
   RETURN NEW;
 END;

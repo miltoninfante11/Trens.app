@@ -41,6 +41,8 @@ import {
   Sparkles,
   Trophy,
   Calendar,
+  User,
+  Heart,
 } from 'lucide-react-native';
 import * as Haptics from '../../lib/haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -69,6 +71,8 @@ interface HankOnboardingProps {
 
 type OnboardingStep =
   | 'welcome'
+  | 'sex'
+  | 'age'
   | 'weight'
   | 'height'
   | 'goal'
@@ -86,6 +90,8 @@ const HANK_MESSAGES: Record<OnboardingStep, string[]> = {
     'Voy a ayudarte a construir el cuerpo que quieres.',
     'Pero primero necesito conocerte. ¿Listo para empezar?',
   ],
+  sex: ['¿Cuál es tu sexo biológico?', 'Esto afecta directamente tu metabolismo y macros.'],
+  age: ['¿Cuántos años tienes?', 'La edad es clave para calcular tu gasto calórico.'],
   weight: ['¿Cuánto pesas actualmente?', 'Sé honesto. Sin datos reales, no hay resultados reales.'],
   height: ['Ahora tu altura.', 'Esto me ayuda a calcular tu metabolismo y macros ideales.'],
   goal: ['¿Cuál es tu objetivo?', 'Cada gramo de comida y cada rep van dirigidos a esto.'],
@@ -114,6 +120,11 @@ const EXPERIENCE_LEVELS = [
 ];
 
 const TRAINING_FREQUENCIES = [3, 4, 5, 6];
+
+const SEX_OPTIONS = [
+  { id: 'M', label: 'MASCULINO', desc: 'Hombre', color: '#3B82F6' },
+  { id: 'F', label: 'FEMENINO', desc: 'Mujer', color: '#EC4899' },
+];
 
 // ============================================================================
 // ANIMATED HANK AVATAR
@@ -273,6 +284,104 @@ const WelcomeStep: React.FC<{ onNext: () => void }> = ({ onNext }) => {
           </TouchableOpacity>
         </Animated.View>
       )}
+    </View>
+  );
+};
+
+// Sex Selection Step
+const SexStep: React.FC<{
+  value: OnboardingData['sex'];
+  onChange: (v: OnboardingData['sex']) => void;
+}> = ({ value, onChange }) => {
+  return (
+    <View className="items-center w-full px-4">
+      <User size={48} color="#DC2626" className="mb-4" />
+      <Text className="text-zinc-500 text-sm font-bold tracking-widest mb-6">SEXO BIOLÓGICO</Text>
+
+      <View className="w-full gap-3">
+        {SEX_OPTIONS.map((option) => {
+          const isSelected = value === option.id;
+
+          return (
+            <TouchableOpacity
+              key={option.id}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                onChange(option.id as OnboardingData['sex']);
+              }}
+              className={`p-4 rounded-xl border-2 ${
+                isSelected ? 'border-red-600 bg-red-600/10' : 'border-zinc-800 bg-zinc-900/50'
+              }`}
+              style={
+                isSelected
+                  ? {
+                      shadowColor: option.color,
+                      shadowOffset: { width: 0, height: 0 },
+                      shadowOpacity: 0.4,
+                      shadowRadius: 12,
+                    }
+                  : {}
+              }
+            >
+              <View className="flex-row items-center justify-between">
+                <View>
+                  <Text
+                    className={`font-bold text-lg ${isSelected ? 'text-white' : 'text-zinc-400'}`}
+                  >
+                    {option.label}
+                  </Text>
+                  <Text className="text-zinc-500 text-sm mt-1">{option.desc}</Text>
+                </View>
+                {isSelected && <Check size={24} color="#DC2626" />}
+              </View>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+    </View>
+  );
+};
+
+// Age Input Step
+const AgeStep: React.FC<{
+  value: number | undefined;
+  onChange: (v: number) => void;
+}> = ({ value, onChange }) => {
+  const [inputValue, setInputValue] = useState(value ? String(value) : '');
+
+  const handleChange = (text: string) => {
+    const cleaned = text.replace(/[^0-9]/g, '');
+    setInputValue(cleaned);
+    const num = parseInt(cleaned, 10);
+    if (!isNaN(num) && num > 0 && num <= 120) {
+      onChange(num);
+    }
+  };
+
+  return (
+    <View className="items-center">
+      <Heart size={48} color="#DC2626" className="mb-4" />
+      <Text className="text-zinc-500 text-sm font-bold tracking-widest mb-4">TU EDAD</Text>
+
+      <View className="flex-row items-center">
+        <TextInput
+          value={inputValue}
+          onChangeText={handleChange}
+          keyboardType="number-pad"
+          placeholder="25"
+          placeholderTextColor="#52525B"
+          className="bg-zinc-900 border-2 border-red-600/50 rounded-xl px-6 py-4 text-white text-4xl font-bold text-center w-28"
+          maxLength={3}
+        />
+        <Text className="text-zinc-400 text-2xl font-bold ml-4">AÑOS</Text>
+      </View>
+
+      <Text className="text-zinc-600 text-sm mt-4">
+        {value && value < 20 && 'Joven guerrero 🔥'}
+        {value && value >= 20 && value < 30 && 'En tu prime 💪'}
+        {value && value >= 30 && value < 40 && 'Experiencia + fuerza 🏆'}
+        {value && value >= 40 && 'La edad es solo un número 👊'}
+      </Text>
     </View>
   );
 };
@@ -575,10 +684,14 @@ export const HankOnboarding: React.FC<HankOnboardingProps> = ({
     goal: undefined,
     trainingExperience: undefined,
     trainingDaysPerWeek: 4,
+    age: undefined,
+    sex: undefined,
   });
 
   const steps: OnboardingStep[] = [
     'welcome',
+    'sex',
+    'age',
     'weight',
     'height',
     'goal',
@@ -593,6 +706,10 @@ export const HankOnboarding: React.FC<HankOnboardingProps> = ({
     switch (step) {
       case 'welcome':
         return true;
+      case 'sex':
+        return !!data.sex;
+      case 'age':
+        return !!data.age && data.age > 0 && data.age <= 120;
       case 'weight':
         return !!data.weight && parseFloat(data.weight) > 0;
       case 'height':
@@ -618,21 +735,29 @@ export const HankOnboarding: React.FC<HankOnboardingProps> = ({
       setStep(steps[nextIndex]);
     }
 
-    // Save data to Supabase when reaching complete step
+    // Save all data to Supabase when reaching complete step (last input step is 'frequency')
     if (step === 'frequency') {
       try {
-        await supabase
-          .from('user_profiles')
-          .update({
-            weight: data.weight ? `${data.weight} KG` : null,
-            height: data.height ? `${data.height} M` : null,
-            goal: data.goal,
-            training_experience: data.trainingExperience,
-            training_days_per_week: data.trainingDaysPerWeek,
+        // Parse numeric values - store as pure numbers without units
+        const weightNum = data.weight ? parseFloat(data.weight) : null;
+        const heightNum = data.height ? parseFloat(data.height) : null;
+
+        await supabase.from('user_profiles').upsert(
+          {
+            user_id: userId,
+            weight: weightNum ? `${weightNum}` : null,
+            height: heightNum ? `${heightNum}` : null,
+            goal: data.goal || null,
+            training_experience: data.trainingExperience || null,
+            training_days_per_week: data.trainingDaysPerWeek || null,
+            age: data.age || null,
+            sex: data.sex || null,
             hank_first_time_shown: true,
             onboarding_completed: true,
-          })
-          .eq('user_id', userId);
+            cached_daily_macros: null, // Invalidate so macros recalculate with new data
+          },
+          { onConflict: 'user_id' }
+        );
 
         console.warn('✅ Onboarding data saved');
       } catch (error) {
@@ -650,23 +775,23 @@ export const HankOnboarding: React.FC<HankOnboardingProps> = ({
   }, [currentIndex, steps]);
 
   const handleComplete = useCallback(async () => {
-    // Mark first time as shown
-    try {
-      await supabase
-        .from('user_profiles')
-        .update({ hank_first_time_shown: true })
-        .eq('user_id', userId);
-    } catch (error) {
-      console.error('Error updating first time flag:', error);
-    }
-
+    // Data already saved in handleNext when step was 'frequency'
+    // Just call the parent callback
     onComplete(data);
-  }, [data, onComplete, userId]);
+  }, [data, onComplete]);
 
   const renderStep = () => {
     switch (step) {
       case 'welcome':
         return <WelcomeStep onNext={handleNext} />;
+      case 'sex':
+        return (
+          <SexStep value={data.sex} onChange={(v) => setData((prev) => ({ ...prev, sex: v }))} />
+        );
+      case 'age':
+        return (
+          <AgeStep value={data.age} onChange={(v) => setData((prev) => ({ ...prev, age: v }))} />
+        );
       case 'weight':
         return (
           <WeightStep

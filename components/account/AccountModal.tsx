@@ -224,15 +224,23 @@ export default function AccountModal({
         }
       }
 
+      const updatedName = editName.trim() || profile?.display_name;
+
       const { error } = await supabase
         .from('user_profiles')
         .update({
-          display_name: editName.trim() || profile?.display_name,
+          display_name: updatedName,
           avatar_url: avatarUrl,
         })
         .eq('user_id', user.id);
 
       if (error) throw error;
+
+      // Sync full_name in profiles table
+      await supabase
+        .from('profiles')
+        .update({ full_name: updatedName })
+        .eq('id', user.id);
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       Alert.alert('Perfil actualizado', 'Tu perfil se ha guardado correctamente.');
