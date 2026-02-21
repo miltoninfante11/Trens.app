@@ -7,7 +7,7 @@ import { isPWA } from '../lib/pwaDetection';
 import LandingPage from './(web)/landing';
 
 export default function Index() {
-  const { loading, isPro, isAuthenticated } = useUserRoleContext();
+  const { loading, isPro, isAdmin, isAuthenticated } = useUserRoleContext();
   const [isStandalone, setIsStandalone] = useState<boolean | null>(null);
   const [checkingPWA, setCheckingPWA] = useState(true);
 
@@ -53,6 +53,7 @@ export default function Index() {
     if (!isStandalone) {
       // Si está autenticado, permitir acceso (clientes en efectivo)
       if (isAuthenticated) {
+        if (isAdmin) return <Redirect href={'/(admin)/usuarios' as Href} />;
         const defaultRoute = isPro ? '/(tabs)/adn' : '/(tabs)/feed';
         return <Redirect href={defaultRoute as Href} />;
       }
@@ -66,6 +67,7 @@ export default function Index() {
     }
 
     // En PWA autenticado: ir a la app
+    if (isAdmin) return <Redirect href={'/(admin)/usuarios' as Href} />;
     const defaultRoute = isPro ? '/(tabs)/adn' : '/(tabs)/feed';
     return <Redirect href={defaultRoute as Href} />;
   }
@@ -79,6 +81,7 @@ export default function Index() {
   // - PRO: Abre ADN por defecto (su perfil atlético)
   // - FREE/Invitado: Abre FEED por defecto (contenido público)
   // ============================================================================
+  if (isAdmin) return <Redirect href={'/(admin)/usuarios' as Href} />;
   const defaultRoute = isPro ? '/(tabs)/adn' : '/(tabs)/feed';
 
   return <Redirect href={defaultRoute as Href} />;

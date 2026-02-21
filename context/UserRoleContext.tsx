@@ -14,7 +14,7 @@ import { spotifyLogger, authLogger } from '../lib/logger';
 // ============================================================================
 // TIPOS
 // ============================================================================
-export type UserRole = 'pro' | 'free';
+export type UserRole = 'pro' | 'free' | 'admin' | 'ceo';
 
 export interface UserRoleContextValue {
   // Estado de autenticación
@@ -26,6 +26,7 @@ export interface UserRoleContextValue {
   role: UserRole;
   isPro: boolean;
   isFree: boolean;
+  isAdmin: boolean;
 
   // Spotify
   spotifyConnected: boolean;
@@ -238,8 +239,9 @@ export function UserRoleProvider({ children }: { children: ReactNode }) {
   // -------------------------------------------------------------------------
   // PERMISOS (Según MASTER)
   // -------------------------------------------------------------------------
-  const isPro = role === 'pro';
-  const isFree = role === 'free';
+  const isAdmin = role === 'admin' || role === 'ceo';
+  const isPro = role === 'pro' || isAdmin;
+  const isFree = !isPro;
 
   const permissions = {
     // PRO exclusivo
@@ -267,6 +269,7 @@ export function UserRoleProvider({ children }: { children: ReactNode }) {
     role,
     isPro,
     isFree,
+    isAdmin,
     spotifyConnected,
     spotifyPremium,
     spotifyFeedSync,
