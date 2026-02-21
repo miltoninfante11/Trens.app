@@ -28,7 +28,8 @@ type Action =
   | 'get-subscription' // Obtener detalles de suscripción
   | 'get-payments' // Historial de pagos
   | 'get-cards' // Tarjetas guardadas del usuario
-  | 'delete-card'; // Eliminar tarjeta de un usuario
+  | 'delete-card' // Eliminar tarjeta de un usuario
+  | 'impersonate'; // Iniciar sesión como otro usuario (solo CEO)
 
 interface CreateUserData {
   email: string;
@@ -876,6 +877,54 @@ serve(async (req) => {
         return new Response(JSON.stringify({ success: true }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
+      }
+
+      // ================================================================
+      // IMPERSONATE - Iniciar sesión como otro usuario (solo CEO)
+      // ================================================================
+      case 'impersonate': {
+        if (userRole !== 'ceo') {
+          return new Response(
+            JSON.stringify({ success: false, error: 'Solo el CEO puede impersonar usuarios' }),
+            { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
+
+        if (!userId) throw new Error('userId es requerido');
+
+        // Obtener email del usuario target
+        const { data: targetProfile, error: targetError } = await supabase
+          .from('profiles')
+          .select('email')
+          .eq('id', userId)
+          .single();
+
+        if (targetError || !targetProfile?.email) {
+          throw new Error('No se encontró el email del usuario');
+        }
+
+        console.log(`🎭 CEO impersonating user: ${targetProfile.email}`);
+
+        // Generar magic link para el usuario target
+        const { data: linkData, error: linkError } = await supabase.auth.admin.generateLink({
+          type: 'magiclink',
+          email: targetProfile.email,
+        });
+
+        if (linkError || !linkData?.properties?.action_link) {
+          throw new Error('Error generando link: ' + (linkError?.message || 'sin action_link'));
+        }
+
+        console.log(`✅ Magic link generated for ${targetProfile.email}`);
+
+        return new Response(
+          JSON.stringify({
+            success: true,
+            url: linkData.properties.action_link,
+            email: targetProfile.email,
+          }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
       }
 
       default:

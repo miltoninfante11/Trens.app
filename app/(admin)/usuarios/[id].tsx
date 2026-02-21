@@ -30,11 +30,13 @@ import {
   Copy,
   Settings,
   Activity,
+  LogIn,
 } from 'lucide-react-native';
 import adminUsers, { AdminUser, OpenpayPayment } from '../../../services/admin/users';
 import { getUserCards } from '../../../services/admin/users';
 import * as Haptics from '../../../lib/haptics';
 import * as Clipboard from 'expo-clipboard';
+import { Linking } from 'react-native';
 
 // ============================================================================
 // COLORS
@@ -502,6 +504,40 @@ export default function UsuarioDetailScreen() {
   };
 
   // -------------------------------------------------------------------------
+  // IMPERSONATE - Entrar como usuario
+  // -------------------------------------------------------------------------
+  const handleImpersonate = async () => {
+    if (!id) return;
+    Alert.alert(
+      '🎭 Entrar como usuario',
+      'Se generará un enlace mágico para iniciar sesión como este usuario.\n\nSe abrirá en una nueva pestaña. Tu sesión actual no se verá afectada.',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'ENTRAR',
+          onPress: async () => {
+            setActionLoading(true);
+            try {
+              const { url, email } = await adminUsers.impersonateUser(id);
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
+              if (Platform.OS === 'web') {
+                window.open(url, '_blank');
+              } else {
+                await Linking.openURL(url);
+              }
+            } catch (err: any) {
+              Alert.alert('Error', err.message);
+            } finally {
+              setActionLoading(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  // -------------------------------------------------------------------------
   // FORMATTERS
   // -------------------------------------------------------------------------
   const formatDate = (dateStr: string) => {
@@ -666,6 +702,14 @@ export default function UsuarioDetailScreen() {
         {/* Actions */}
         <View className="mt-6">
           <Text className="text-zinc-500 text-xs font-mono mb-2 ml-1">ACCIONES</Text>
+
+          <ActionButton
+            icon={LogIn}
+            label="Entrar como este usuario"
+            color={COLORS.green}
+            onPress={handleImpersonate}
+            loading={actionLoading}
+          />
 
           <ActionButton
             icon={Shield}
