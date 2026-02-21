@@ -106,12 +106,18 @@ async function getOrCreateCustomerId(
       };
     } else {
       // Fallback: obtener datos de auth.users
-      const { data: { user: authUser } } = await supabase.auth.admin.getUserById(userId);
+      const {
+        data: { user: authUser },
+      } = await supabase.auth.admin.getUserById(userId);
       if (!authUser) {
         throw new Error('No se encontró perfil del usuario');
       }
       customerData = {
-        name: authUser.user_metadata?.full_name || authUser.user_metadata?.display_name || authUser.email?.split('@')[0] || 'Usuario',
+        name:
+          authUser.user_metadata?.full_name ||
+          authUser.user_metadata?.display_name ||
+          authUser.email?.split('@')[0] ||
+          'Usuario',
         email: authUser.email || '',
       };
       console.log('ℹ️ Using auth.users fallback for customer data:', customerData.email);

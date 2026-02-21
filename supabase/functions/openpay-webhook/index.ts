@@ -217,7 +217,10 @@ serve(async (req) => {
                   .single();
 
                 if (!sub && !subErr) {
-                  console.warn('⚠️ ORPHAN EVENT: No subscription found for customer_id:', customer_id);
+                  console.warn(
+                    '⚠️ ORPHAN EVENT: No subscription found for customer_id:',
+                    customer_id
+                  );
                 }
 
                 if (sub?.user_id) {
@@ -271,7 +274,8 @@ serve(async (req) => {
               // Filtrar la tarjeta que falló Y solo usar tarjetas del mismo customer
               const failedCardId = sub.openpay_card_id;
               const alternativeCards = (allCards || []).filter(
-                (c: any) => c.openpay_card_id !== failedCardId && c.openpay_customer_id === customer_id
+                (c: any) =>
+                  c.openpay_card_id !== failedCardId && c.openpay_customer_id === customer_id
               );
 
               if (alternativeCards.length === 0) {
