@@ -395,14 +395,17 @@ function CreateUserModal({
         }
         if (!proExpiresAt) {
           const months = parseInt(proMonths) || 1;
-          const startDate = showCustomDates && proStartDate ? (() => {
-            const parts = proStartDate.split('/');
-            if (parts.length === 3) {
-              const d = new Date(`${parts[2]}-${parts[1]}-${parts[0]}T00:00:00`);
-              if (!isNaN(d.getTime())) return d;
-            }
-            return new Date();
-          })() : new Date();
+          const startDate =
+            showCustomDates && proStartDate
+              ? (() => {
+                  const parts = proStartDate.split('/');
+                  if (parts.length === 3) {
+                    const d = new Date(`${parts[2]}-${parts[1]}-${parts[0]}T00:00:00`);
+                    if (!isNaN(d.getTime())) return d;
+                  }
+                  return new Date();
+                })()
+              : new Date();
           startDate.setMonth(startDate.getMonth() + months);
           proExpiresAt = startDate.toISOString();
         }
@@ -615,7 +618,9 @@ function CreateUserModal({
                       >
                         <Text
                           className={`font-bold ${
-                            !showCustomDates && proMonths === months ? 'text-purple-400' : 'text-zinc-400'
+                            !showCustomDates && proMonths === months
+                              ? 'text-purple-400'
+                              : 'text-zinc-400'
                           }`}
                         >
                           {months}

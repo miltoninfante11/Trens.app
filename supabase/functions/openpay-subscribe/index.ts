@@ -86,25 +86,60 @@ serve(async (req) => {
 
     console.log('📥 Creating subscription for:', customer.email, { saveCard });
 
-    // ================================================================
-    // 1. CREAR CLIENTE EN OPENPAY
-    // ================================================================
-    const customerResult = await openpayFetch('/customers', {
-      method: 'POST',
-      body: JSON.stringify({
-        name: customer.name,
-        email: customer.email,
-        phone_number: customer.phone,
-        requires_account: false,
-      }),
-    });
+    // Supabase client (needed early to check existing customer)
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    if (!customerResult.ok) {
-      throw new Error(customerResult.data?.description || 'Error al crear cliente');
+    // ================================================================
+    // 1. OBTENER O CREAR CLIENTE EN OPENPAY
+    // ================================================================
+    let customerId: string | null = null;
+
+    // Buscar customer existente en subscriptions
+    const { data: existingSub } = await supabase
+      .from('subscriptions')
+      .select('openpay_customer_id')
+      .eq('user_id', userId)
+      .single();
+    if (existingSub?.openpay_customer_id) {
+      customerId = existingSub.openpay_customer_id;
+      console.log('♻️ Reusing customer from subscriptions:', customerId);
     }
 
-    const customerId = customerResult.data.id;
-    console.log('✅ Customer created:', customerId);
+    // Buscar en customer_cards como fallback
+    if (!customerId) {
+      const { data: existingCard } = await supabase
+        .from('customer_cards')
+        .select('openpay_customer_id')
+        .eq('user_id', userId)
+        .limit(1)
+        .single();
+      if (existingCard?.openpay_customer_id) {
+        customerId = existingCard.openpay_customer_id;
+        console.log('♻️ Reusing customer from customer_cards:', customerId);
+      }
+    }
+
+    // Crear nuevo customer solo si no existe
+    if (!customerId) {
+      const customerResult = await openpayFetch('/customers', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: customer.name,
+          email: customer.email,
+          phone_number: customer.phone,
+          requires_account: false,
+        }),
+      });
+
+      if (!customerResult.ok) {
+        throw new Error(customerResult.data?.description || 'Error al crear cliente');
+      }
+
+      customerId = customerResult.data.id;
+      console.log('✅ Customer created:', customerId);
+    }
 
     // ================================================================
     // 2. GUARDAR TARJETA EN EL CUSTOMER (para futuros cobros)
@@ -160,9 +195,6 @@ serve(async (req) => {
     // ================================================================
     // 4. GUARDAR EN SUPABASE
     // ================================================================
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     // 4a. Insertar/actualizar suscripción
     const cardLast4 =

@@ -99,14 +99,23 @@ async function getOrCreateCustomerId(
       .eq('id', userId)
       .single();
 
-    if (!profile) {
-      throw new Error('No se encontró perfil del usuario');
+    if (profile) {
+      customerData = {
+        name: profile.full_name || profile.email.split('@')[0],
+        email: profile.email,
+      };
+    } else {
+      // Fallback: obtener datos de auth.users
+      const { data: { user: authUser } } = await supabase.auth.admin.getUserById(userId);
+      if (!authUser) {
+        throw new Error('No se encontró perfil del usuario');
+      }
+      customerData = {
+        name: authUser.user_metadata?.full_name || authUser.user_metadata?.display_name || authUser.email?.split('@')[0] || 'Usuario',
+        email: authUser.email || '',
+      };
+      console.log('ℹ️ Using auth.users fallback for customer data:', customerData.email);
     }
-
-    customerData = {
-      name: profile.full_name || profile.email.split('@')[0],
-      email: profile.email,
-    };
   }
 
   // 4. Crear customer en OpenPay

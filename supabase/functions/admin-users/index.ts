@@ -684,10 +684,32 @@ serve(async (req) => {
           .eq('user_id', userId)
           .single();
 
-        if (subscription?.openpay_subscription_id) {
+        if (subscription?.openpay_customer_id) {
+          // Cancelar suscripción activa
+          if (subscription.openpay_subscription_id) {
+            try {
+              const cancelRes = await fetch(
+                `${OPENPAY_API_URL}/${OPENPAY_MERCHANT_ID}/customers/${subscription.openpay_customer_id}/subscriptions/${subscription.openpay_subscription_id}`,
+                {
+                  method: 'DELETE',
+                  headers: {
+                    Authorization: `Basic ${btoa(OPENPAY_PRIVATE_KEY + ':')}`,
+                  },
+                }
+              );
+              // 404 = already cancelled, that's fine
+              if (!cancelRes.ok && cancelRes.status !== 404) {
+                console.error('Error cancelling subscription:', await cancelRes.text());
+              }
+            } catch (e) {
+              console.error('Error cancelling subscription:', e);
+            }
+          }
+
+          // Eliminar customer de OpenPay para evitar cobros fantasma
           try {
-            await fetch(
-              `${OPENPAY_API_URL}/${OPENPAY_MERCHANT_ID}/customers/${subscription.openpay_customer_id}/subscriptions/${subscription.openpay_subscription_id}`,
+            const delRes = await fetch(
+              `${OPENPAY_API_URL}/${OPENPAY_MERCHANT_ID}/customers/${subscription.openpay_customer_id}`,
               {
                 method: 'DELETE',
                 headers: {
@@ -695,8 +717,13 @@ serve(async (req) => {
                 },
               }
             );
+            if (delRes.ok || delRes.status === 404) {
+              console.log('✅ OpenPay customer deleted:', subscription.openpay_customer_id);
+            } else {
+              console.warn('⚠️ Could not delete OpenPay customer:', await delRes.text());
+            }
           } catch (e) {
-            console.error('Error cancelling subscription:', e);
+            console.error('Error deleting OpenPay customer:', e);
           }
         }
 

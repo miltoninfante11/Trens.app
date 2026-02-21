@@ -210,11 +210,15 @@ serve(async (req) => {
                 }
 
                 // Reactivar rol PRO del usuario
-                const { data: sub } = await supabase
+                const { data: sub, error: subErr } = await supabase
                   .from('subscriptions')
                   .select('user_id')
                   .eq('openpay_customer_id', customer_id)
                   .single();
+
+                if (!sub && !subErr) {
+                  console.warn('⚠️ ORPHAN EVENT: No subscription found for customer_id:', customer_id);
+                }
 
                 if (sub?.user_id) {
                   await supabase
@@ -264,10 +268,10 @@ serve(async (req) => {
                 .eq('allows_charges', true)
                 .order('is_default', { ascending: false });
 
-              // Filtrar la tarjeta que falló
+              // Filtrar la tarjeta que falló Y solo usar tarjetas del mismo customer
               const failedCardId = sub.openpay_card_id;
               const alternativeCards = (allCards || []).filter(
-                (c: any) => c.openpay_card_id !== failedCardId
+                (c: any) => c.openpay_card_id !== failedCardId && c.openpay_customer_id === customer_id
               );
 
               if (alternativeCards.length === 0) {
