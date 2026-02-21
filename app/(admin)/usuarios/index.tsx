@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -18,7 +18,6 @@ import {
   Search,
   User,
   Mail,
-  Calendar,
   Crown,
   ChevronRight,
   Filter,
@@ -99,6 +98,48 @@ function StatCard({
 }
 
 // ============================================================================
+// HELPERS
+// ============================================================================
+function getDaysRemaining(user: AdminUser): number | null {
+  // For card subscriptions: use current_period_end
+  if (user.subscription?.status === 'active' && user.subscription?.current_period_end) {
+    const end = new Date(user.subscription.current_period_end);
+    const now = new Date();
+    return Math.ceil((end.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+  }
+  // For manual PRO: use pro_expires_at
+  if (user.role === 'pro' && user.pro_expires_at) {
+    const end = new Date(user.pro_expires_at);
+    const now = new Date();
+    return Math.ceil((end.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+  }
+  return null;
+}
+
+function getDaysRemainingText(days: number | null): string | null {
+  if (days === null) return null;
+  if (days < 0) return 'Vencido';
+  if (days === 0) return 'Vence hoy';
+  if (days === 1) return 'Queda 1 día';
+  return `Quedan ${days} días`;
+}
+
+type ProFilter = 'all' | 'card' | 'manual';
+
+function sortByExpiration(users: AdminUser[]): AdminUser[] {
+  return [...users].sort((a, b) => {
+    const daysA = getDaysRemaining(a);
+    const daysB = getDaysRemaining(b);
+    // Users with expiration dates first, sorted by soonest
+    if (daysA !== null && daysB !== null) return daysA - daysB;
+    if (daysA !== null) return -1;
+    if (daysB !== null) return 1;
+    // Then by creation date (newest first)
+    return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+  });
+}
+
+// ============================================================================
 // USER CARD COMPONENT
 // ============================================================================
 function UserCard({ user }: { user: AdminUser }) {
@@ -125,6 +166,8 @@ function UserCard({ user }: { user: AdminUser }) {
   };
 
   const roleStyle = getRoleBadgeStyle(user.role);
+  const daysLeft = getDaysRemaining(user);
+  const daysText = getDaysRemainingText(daysLeft);
 
   return (
     <Link href={`/(admin)/usuarios/${user.id}`} asChild>
@@ -160,13 +203,6 @@ function UserCard({ user }: { user: AdminUser }) {
           </View>
 
           <View className="flex-row items-center mt-1 gap-3">
-            <View className="flex-row items-center">
-              <Calendar size={12} color={COLORS.zinc500} />
-              <Text className="text-zinc-500 text-xs font-mono ml-1">
-                {formatDate(user.created_at)}
-              </Text>
-            </View>
-
             {user.subscription?.status === 'active' && (
               <View className="flex-row items-center">
                 <CreditCard size={12} color={COLORS.green} />
@@ -181,6 +217,20 @@ function UserCard({ user }: { user: AdminUser }) {
                 <CreditCard size={12} color={COLORS.yellow} />
                 <Text className="text-yellow-400 text-xs font-mono ml-1">PAGO PENDIENTE</Text>
               </View>
+            )}
+
+            {daysText && (
+              <Text
+                className={`text-xs font-mono font-bold ${
+                  daysLeft !== null && daysLeft <= 3
+                    ? 'text-red-400'
+                    : daysLeft !== null && daysLeft <= 7
+                      ? 'text-yellow-400'
+                      : 'text-cyan-400'
+                }`}
+              >
+                {daysText}
+              </Text>
             )}
           </View>
         </View>
@@ -626,8 +676,39 @@ export default function AdminUsuariosScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [roleFilter, setRoleFilter] = useState<string | null>(null);
+  const [proFilter, setProFilter] = useState<ProFilter>('all');
   const [filterModalVisible, setFilterModalVisible] = useState(false);
   const [createModalVisible, setCreateModalVisible] = useState(false);
+
+  // Computed: filtered + sorted users
+  const filteredUsers = useMemo(() => {
+    let filtered = users;
+    if (proFilter === 'card') {
+      filtered = filtered.filter(
+        (u) => u.subscription?.status === 'active' || u.subscription?.status === 'past_due'
+      );
+    } else if (proFilter === 'manual') {
+      filtered = filtered.filter(
+        (u) =>
+          u.role === 'pro' &&
+          (!u.subscription || (u.subscription.status !== 'active' && u.subscription.status !== 'past_due'))
+      );
+    }
+    return sortByExpiration(filtered);
+  }, [users, proFilter]);
+
+  // Counts for filter tabs
+  const filterCounts = useMemo(() => {
+    const withCard = users.filter(
+      (u) => u.subscription?.status === 'active' || u.subscription?.status === 'past_due'
+    ).length;
+    const manual = users.filter(
+      (u) =>
+        u.role === 'pro' &&
+        (!u.subscription || (u.subscription.status !== 'active' && u.subscription.status !== 'past_due'))
+    ).length;
+    return { all: users.length, card: withCard, manual };
+  }, [users]);
 
   // -------------------------------------------------------------------------
   // FETCH USERS
@@ -788,10 +869,68 @@ export default function AdminUsuariosScreen() {
         </View>
       </View>
 
+      {/* Filter Tabs: Todos / Con Tarjeta / PRO Manual */}
+      <View className="px-4 pt-3 pb-1">
+        <View className="flex-row gap-2">
+          {([
+            { key: 'all' as ProFilter, label: 'Todos', count: filterCounts.all, color: 'zinc' },
+            { key: 'card' as ProFilter, label: 'Con Tarjeta', count: filterCounts.card, color: 'green' },
+            { key: 'manual' as ProFilter, label: 'PRO Manual', count: filterCounts.manual, color: 'purple' },
+          ]).map((tab) => {
+            const active = proFilter === tab.key;
+            return (
+              <TouchableOpacity
+                key={tab.key}
+                className={`flex-1 py-2 rounded-lg items-center border ${
+                  active
+                    ? tab.color === 'green'
+                      ? 'bg-green-600/20 border-green-600/50'
+                      : tab.color === 'purple'
+                        ? 'bg-purple-600/20 border-purple-600/50'
+                        : 'bg-zinc-700/50 border-zinc-600'
+                    : 'bg-zinc-900 border-zinc-800'
+                }`}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  setProFilter(tab.key);
+                }}
+              >
+                <Text
+                  className={`text-xs font-bold font-mono ${
+                    active
+                      ? tab.color === 'green'
+                        ? 'text-green-400'
+                        : tab.color === 'purple'
+                          ? 'text-purple-400'
+                          : 'text-white'
+                      : 'text-zinc-500'
+                  }`}
+                >
+                  {tab.label}
+                </Text>
+                <Text
+                  className={`text-xs font-mono ${
+                    active
+                      ? tab.color === 'green'
+                        ? 'text-green-500'
+                        : tab.color === 'purple'
+                          ? 'text-purple-500'
+                          : 'text-zinc-400'
+                      : 'text-zinc-600'
+                  }`}
+                >
+                  {tab.count}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      </View>
+
       {/* Results count */}
       <View className="px-4 py-2 flex-row items-center justify-between">
         <Text className="text-zinc-500 text-sm font-mono">
-          {users.length} usuario{users.length !== 1 ? 's' : ''}
+          {filteredUsers.length} usuario{filteredUsers.length !== 1 ? 's' : ''}
           {roleFilter && ` • ${roleFilter.toUpperCase()}`}
         </Text>
         {roleFilter && (
@@ -812,13 +951,13 @@ export default function AdminUsuariosScreen() {
           />
         }
       >
-        {users.length === 0 ? (
+        {filteredUsers.length === 0 ? (
           <View className="items-center justify-center py-20">
             <Users size={48} color={COLORS.zinc700} />
             <Text className="text-zinc-500 mt-4">No se encontraron usuarios</Text>
           </View>
         ) : (
-          users.map((user) => <UserCard key={user.id} user={user} />)
+          filteredUsers.map((user) => <UserCard key={user.id} user={user} />)
         )}
 
         <View style={{ height: 100 }} />
