@@ -108,10 +108,15 @@ export default function TrensID({ userId, profileData, measurements, onUpdate }:
 
   const expandProgress = useSharedValue(0);
 
+  // GUARD: Solo sincronizar props → state cuando NO se está editando.
+  // Sin esta guardia, cada re-render del padre crea un nuevo objeto profileData
+  // (referencia diferente) que dispara este effect y sobreescribe ediciones en curso.
   useEffect(() => {
-    setEditData(profileData);
-    setEditMeasurements(measurements);
-  }, [profileData, measurements]);
+    if (!isExpanded) {
+      setEditData(profileData);
+      setEditMeasurements(measurements);
+    }
+  }, [profileData, measurements, isExpanded]);
 
   useEffect(() => {
     expandProgress.value = withTiming(isExpanded ? 1 : 0, {
@@ -225,6 +230,9 @@ export default function TrensID({ userId, profileData, measurements, onUpdate }:
           training_experience: editData.training_experience || 'INTERMEDIO',
           metabolic_rate: editData.metabolic_rate || 'NORMAL',
           training_days_per_week: editData.training_days_per_week || 4,
+          // Invalidar macros cacheados para que se recalculen con los nuevos datos
+          cached_daily_macros: null,
+          cached_macros_updated_at: null,
         })
         .eq('user_id', userId);
 
