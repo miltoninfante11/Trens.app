@@ -374,7 +374,11 @@ serve(async (req) => {
               console.log('💳 Charge succeeded:', chargeId, description);
 
               // Detectar si es un cargo de suscripción por la descripción
-              if (customer_id && description && description.toLowerCase().includes('subscription')) {
+              if (
+                customer_id &&
+                description &&
+                description.toLowerCase().includes('subscription')
+              ) {
                 console.log('🔄 Detected subscription charge, reactivating PRO...');
 
                 // Buscar suscripción del customer
@@ -414,7 +418,11 @@ serve(async (req) => {
               console.log('❌ Charge failed:', chargeId, error_message);
 
               // Detectar si es un cargo de suscripción por la descripción
-              if (customer_id && description && description.toLowerCase().includes('subscription')) {
+              if (
+                customer_id &&
+                description &&
+                description.toLowerCase().includes('subscription')
+              ) {
                 console.log('🔄 Detected subscription charge failure, marking past_due...');
 
                 await supabase

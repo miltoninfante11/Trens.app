@@ -262,14 +262,62 @@ function GrantProModal({
   onClose,
   onGrant,
   loading,
+  currentExpiresAt,
 }: {
   visible: boolean;
   onClose: () => void;
-  onGrant: (days: number) => void;
+  onGrant: (expiresAt: string) => void;
   loading: boolean;
+  currentExpiresAt?: string;
 }) {
-  const [days, setDays] = useState('30');
-  const presets = [7, 15, 30, 90, 365];
+  const [selectedOption, setSelectedOption] = useState<string>('1m');
+  const [customDate, setCustomDate] = useState('');
+  const [showCustom, setShowCustom] = useState(false);
+
+  const monthOptions = [
+    { key: '1m', label: '1 Mes', months: 1 },
+    { key: '2m', label: '2 Meses', months: 2 },
+    { key: '3m', label: '3 Meses', months: 3 },
+    { key: '6m', label: '6 Meses', months: 6 },
+    { key: '1y', label: '1 Año', months: 12 },
+  ];
+
+  const getExpiresAt = (): string => {
+    if (showCustom && customDate) {
+      // Parse DD/MM/YYYY
+      const parts = customDate.split('/');
+      if (parts.length === 3) {
+        const date = new Date(`${parts[2]}-${parts[1]}-${parts[0]}T23:59:59`);
+        if (!isNaN(date.getTime())) return date.toISOString();
+      }
+      return '';
+    }
+    const opt = monthOptions.find((o) => o.key === selectedOption);
+    if (!opt) return '';
+    const d = new Date();
+    d.setMonth(d.getMonth() + opt.months);
+    return d.toISOString();
+  };
+
+  const formatPreview = (): string => {
+    const iso = getExpiresAt();
+    if (!iso) return 'Fecha inválida';
+    return new Date(iso).toLocaleDateString('es-PE', {
+      day: '2-digit',
+      month: 'long',
+      year: 'numeric',
+    });
+  };
+
+  const handleCustomDateChange = (text: string) => {
+    // Auto-format DD/MM/YYYY
+    const digits = text.replace(/\D/g, '');
+    let formatted = '';
+    if (digits.length > 0) formatted = digits.substring(0, 2);
+    if (digits.length > 2) formatted += '/' + digits.substring(2, 4);
+    if (digits.length > 4) formatted += '/' + digits.substring(4, 8);
+    setCustomDate(formatted);
+  };
 
   return (
     <Modal visible={visible} transparent animationType="fade">
@@ -278,57 +326,113 @@ function GrantProModal({
         activeOpacity={1}
         onPress={onClose}
       >
-        <View className="bg-zinc-900 rounded-2xl p-6 w-full max-w-sm">
-          <View className="flex-row items-center justify-between mb-6">
-            <Text className="text-white text-xl font-bold">Otorgar PRO</Text>
-            <TouchableOpacity onPress={onClose}>
-              <X size={24} color={COLORS.zinc400} />
+        <TouchableOpacity activeOpacity={1} className="w-full max-w-sm">
+          <View className="bg-zinc-900 rounded-2xl p-6">
+            <View className="flex-row items-center justify-between mb-4">
+              <View className="flex-row items-center gap-2">
+                <Gift size={22} color={COLORS.purple} />
+                <Text className="text-white text-xl font-bold">
+                  {currentExpiresAt ? 'Editar PRO' : 'Otorgar PRO'}
+                </Text>
+              </View>
+              <TouchableOpacity onPress={onClose}>
+                <X size={24} color={COLORS.zinc400} />
+              </TouchableOpacity>
+            </View>
+
+            {currentExpiresAt && (
+              <View className="bg-purple-600/10 border border-purple-600/30 rounded-lg p-3 mb-4">
+                <Text className="text-purple-400 text-xs font-mono">
+                  PRO ACTUAL HASTA:{' '}
+                  {new Date(currentExpiresAt).toLocaleDateString('es-PE', {
+                    day: '2-digit',
+                    month: 'long',
+                    year: 'numeric',
+                  })}
+                </Text>
+              </View>
+            )}
+
+            <Text className="text-zinc-400 text-xs font-mono mb-3">DURACIÓN PREDEFINIDA</Text>
+
+            <View className="flex-row flex-wrap gap-2 mb-4">
+              {monthOptions.map((opt) => (
+                <TouchableOpacity
+                  key={opt.key}
+                  className={`px-4 py-3 rounded-lg border ${
+                    !showCustom && selectedOption === opt.key
+                      ? 'bg-purple-600 border-purple-500'
+                      : 'bg-zinc-800 border-zinc-700'
+                  }`}
+                  onPress={() => {
+                    setSelectedOption(opt.key);
+                    setShowCustom(false);
+                  }}
+                >
+                  <Text
+                    className={`font-bold text-sm ${
+                      !showCustom && selectedOption === opt.key ? 'text-white' : 'text-zinc-300'
+                    }`}
+                  >
+                    {opt.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            {/* Divider */}
+            <View className="flex-row items-center gap-3 mb-4">
+              <View className="flex-1 h-px bg-zinc-700" />
+              <Text className="text-zinc-500 text-xs font-mono">O FECHA EXACTA</Text>
+              <View className="flex-1 h-px bg-zinc-700" />
+            </View>
+
+            <TouchableOpacity
+              className={`flex-row items-center bg-zinc-800 rounded-xl px-4 py-3 mb-4 border ${
+                showCustom ? 'border-purple-500' : 'border-zinc-700'
+              }`}
+              onPress={() => setShowCustom(true)}
+            >
+              <Calendar size={18} color={showCustom ? COLORS.purple : COLORS.zinc400} />
+              <TextInput
+                className="flex-1 text-white font-mono text-base ml-3"
+                value={customDate}
+                onChangeText={handleCustomDateChange}
+                onFocus={() => setShowCustom(true)}
+                placeholder="DD/MM/AAAA"
+                placeholderTextColor={COLORS.zinc500}
+                keyboardType="number-pad"
+                maxLength={10}
+              />
+            </TouchableOpacity>
+
+            {/* Preview */}
+            <View className="bg-zinc-800/50 rounded-lg p-3 mb-5">
+              <Text className="text-zinc-500 text-xs font-mono mb-1">VENCE EL</Text>
+              <Text className="text-white font-bold text-lg">{formatPreview()}</Text>
+            </View>
+
+            <TouchableOpacity
+              className="bg-purple-600 py-4 rounded-xl flex-row items-center justify-center"
+              onPress={() => {
+                const expiresAt = getExpiresAt();
+                if (expiresAt) onGrant(expiresAt);
+              }}
+              disabled={loading || !getExpiresAt()}
+            >
+              {loading ? (
+                <ActivityIndicator size="small" color="white" />
+              ) : (
+                <>
+                  <Gift size={20} color="white" />
+                  <Text className="text-white font-bold ml-2">
+                    {currentExpiresAt ? 'Actualizar PRO' : 'Otorgar PRO'}
+                  </Text>
+                </>
+              )}
             </TouchableOpacity>
           </View>
-
-          <Text className="text-zinc-400 mb-4">Duración (días):</Text>
-
-          <View className="flex-row flex-wrap gap-2 mb-4">
-            {presets.map((d) => (
-              <TouchableOpacity
-                key={d}
-                className={`px-4 py-2 rounded-lg ${
-                  parseInt(days) === d ? 'bg-purple-600' : 'bg-zinc-800'
-                }`}
-                onPress={() => setDays(d.toString())}
-              >
-                <Text className="text-white font-mono">{d}d</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-
-          <View className="flex-row items-center bg-zinc-800 rounded-xl px-4 mb-6">
-            <TextInput
-              className="flex-1 text-white py-4 font-mono text-center text-xl"
-              value={days}
-              onChangeText={setDays}
-              keyboardType="number-pad"
-              placeholder="30"
-              placeholderTextColor={COLORS.zinc500}
-            />
-            <Text className="text-zinc-400">días</Text>
-          </View>
-
-          <TouchableOpacity
-            className="bg-purple-600 py-4 rounded-xl flex-row items-center justify-center"
-            onPress={() => onGrant(parseInt(days) || 30)}
-            disabled={loading}
-          >
-            {loading ? (
-              <ActivityIndicator size="small" color="white" />
-            ) : (
-              <>
-                <Gift size={20} color="white" />
-                <Text className="text-white font-bold ml-2">Otorgar PRO</Text>
-              </>
-            )}
-          </TouchableOpacity>
-        </View>
+        </TouchableOpacity>
       </TouchableOpacity>
     </Modal>
   );
@@ -401,16 +505,20 @@ export default function UsuarioDetailScreen() {
     }
   };
 
-  const handleGrantPro = async (days: number) => {
+  const handleGrantPro = async (expiresAt: string) => {
     if (!id || !user) return;
     setActionLoading(true);
     try {
-      const expiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
       await adminUsers.grantPro(id, expiresAt);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setUser({ ...user, role: 'pro', pro_expires_at: expiresAt });
       setGrantProModalVisible(false);
-      Alert.alert('Éxito', `PRO otorgado por ${days} días`);
+      const dateStr = new Date(expiresAt).toLocaleDateString('es-PE', {
+        day: '2-digit',
+        month: 'long',
+        year: 'numeric',
+      });
+      Alert.alert('Éxito', `PRO hasta ${dateStr}`);
     } catch (err: any) {
       Alert.alert('Error', err.message);
     } finally {
@@ -727,11 +835,23 @@ export default function UsuarioDetailScreen() {
           {user.role !== 'pro' && (
             <ActionButton
               icon={Gift}
-              label="Otorgar PRO (gratis)"
+              label="Otorgar PRO Manual"
               color={COLORS.purple}
               onPress={() => setGrantProModalVisible(true)}
             />
           )}
+
+          {user.role === 'pro' &&
+            (!user.subscription?.status ||
+              user.subscription?.status === 'cancelled' ||
+              user.subscription?.status === 'past_due') && (
+              <ActionButton
+                icon={Calendar}
+                label="Editar Duración PRO"
+                color={COLORS.purple}
+                onPress={() => setGrantProModalVisible(true)}
+              />
+            )}
 
           {user.role === 'pro' && !user.subscription?.status && (
             <ActionButton
@@ -867,6 +987,7 @@ export default function UsuarioDetailScreen() {
         onClose={() => setGrantProModalVisible(false)}
         onGrant={handleGrantPro}
         loading={actionLoading}
+        currentExpiresAt={user.role === 'pro' ? user.pro_expires_at : undefined}
       />
     </View>
   );
