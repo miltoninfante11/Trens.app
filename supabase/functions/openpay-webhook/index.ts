@@ -208,6 +208,21 @@ serve(async (req) => {
                 } else {
                   console.log('✅ Subscription renewed:', customer_id);
                 }
+
+                // Reactivar rol PRO del usuario
+                const { data: sub } = await supabase
+                  .from('subscriptions')
+                  .select('user_id')
+                  .eq('openpay_customer_id', customer_id)
+                  .single();
+
+                if (sub?.user_id) {
+                  await supabase
+                    .from('user_roles')
+                    .update({ role: 'pro', updated_at: new Date().toISOString() })
+                    .eq('user_id', sub.user_id);
+                  console.log('✅ User role reactivated to PRO:', sub.user_id);
+                }
               }
               break;
             }
@@ -352,22 +367,64 @@ serve(async (req) => {
             }
 
             // ================================================================
-            // CARGO ÚNICO EXITOSO
+            // CARGO ÚNICO EXITOSO (también puede ser reintento de suscripción)
             // ================================================================
             case 'charge.succeeded': {
-              console.log('💳 Charge succeeded:', event.transaction.id);
+              const { id: chargeId, customer_id, description } = event.transaction;
+              console.log('💳 Charge succeeded:', chargeId, description);
+
+              // Detectar si es un cargo de suscripción por la descripción
+              if (customer_id && description && description.toLowerCase().includes('subscription')) {
+                console.log('🔄 Detected subscription charge, reactivating PRO...');
+
+                // Buscar suscripción del customer
+                const { data: sub } = await supabase
+                  .from('subscriptions')
+                  .select('user_id, status')
+                  .eq('openpay_customer_id', customer_id)
+                  .single();
+
+                if (sub) {
+                  // Reactivar suscripción
+                  await supabase
+                    .from('subscriptions')
+                    .update({
+                      status: 'active',
+                      updated_at: new Date().toISOString(),
+                    })
+                    .eq('openpay_customer_id', customer_id);
+
+                  // Reactivar rol PRO
+                  await supabase
+                    .from('user_roles')
+                    .update({ role: 'pro', updated_at: new Date().toISOString() })
+                    .eq('user_id', sub.user_id);
+
+                  console.log('✅ Subscription reactivated via charge.succeeded:', sub.user_id);
+                }
+              }
               break;
             }
 
             // ================================================================
-            // CARGO FALLIDO
+            // CARGO FALLIDO (también puede ser reintento de suscripción)
             // ================================================================
             case 'charge.failed': {
-              console.log(
-                '❌ Charge failed:',
-                event.transaction.id,
-                event.transaction.error_message
-              );
+              const { id: chargeId, customer_id, description, error_message } = event.transaction;
+              console.log('❌ Charge failed:', chargeId, error_message);
+
+              // Detectar si es un cargo de suscripción por la descripción
+              if (customer_id && description && description.toLowerCase().includes('subscription')) {
+                console.log('🔄 Detected subscription charge failure, marking past_due...');
+
+                await supabase
+                  .from('subscriptions')
+                  .update({
+                    status: 'past_due',
+                    updated_at: new Date().toISOString(),
+                  })
+                  .eq('openpay_customer_id', customer_id);
+              }
               break;
             }
 
