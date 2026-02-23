@@ -116,16 +116,28 @@ export default function ProgressSlider({
             style={{ width: PHOTO_SIZE, height: PHOTO_SIZE * 1.3 }}
           >
             <Image source={{ uri: photo.photo_url }} className="w-full h-full" resizeMode="cover" />
-            {/* Overlay con fecha y peso */}
-            <View className="absolute bottom-0 left-0 right-0 bg-black/70 p-2">
+            {/* Overlay con fecha y datos */}
+            <View className="absolute bottom-0 left-0 right-0 bg-black/80 p-2">
               <Text className="text-white text-[10px] font-bold">
                 {formatDate(photo.created_at)}
               </Text>
-              {photo.snapshot?.weight && (
-                <Text className="text-zinc-400 text-[9px] font-mono">
-                  {photo.snapshot.weight} kg
-                </Text>
-              )}
+              <View className="flex-row items-center gap-2 mt-0.5">
+                {photo.snapshot?.weight && (
+                  <Text className="text-zinc-400 text-[9px] font-mono">
+                    {photo.snapshot.weight} kg
+                  </Text>
+                )}
+                {photo.snapshot?.imc && (
+                  <Text className="text-fire-orange text-[9px] font-mono">
+                    IMC {photo.snapshot.imc}
+                  </Text>
+                )}
+                {photo.snapshot?.body_fat_percentage && (
+                  <Text className="text-zinc-500 text-[9px] font-mono">
+                    {photo.snapshot.body_fat_percentage}%
+                  </Text>
+                )}
+              </View>
             </View>
             {/* Indicador de datos */}
             <View className="absolute top-2 right-2">

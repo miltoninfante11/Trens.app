@@ -12,6 +12,11 @@ import {
   Pill,
   Calendar,
   TrendingUp,
+  Activity,
+  ShieldAlert,
+  AlertTriangle,
+  Zap,
+  Award,
 } from 'lucide-react-native';
 import * as Haptics from '../../lib/haptics';
 import type { ProgressPhoto } from '../../types/progress';
@@ -138,6 +143,12 @@ export default function ProgressPhotoDetailModal({
                     <Text className="text-white font-mono text-xs">{snapshot.height} cm</Text>
                   </View>
                 )}
+                {snapshot?.imc && (
+                  <View className="bg-zinc-900 px-3 py-2 rounded-lg border border-zinc-800 flex-row items-center gap-2">
+                    <Activity size={12} color="#F97316" />
+                    <Text className="text-white font-mono text-xs">IMC {snapshot.imc}</Text>
+                  </View>
+                )}
                 {snapshot?.body_fat_percentage && (
                   <View className="bg-zinc-900 px-3 py-2 rounded-lg border border-zinc-800 flex-row items-center gap-2">
                     <TrendingUp size={12} color="#DC2626" />
@@ -162,8 +173,65 @@ export default function ProgressPhotoDetailModal({
                     </Text>
                   </View>
                 )}
+                {snapshot?.age && (
+                  <View className="bg-zinc-900 px-3 py-2 rounded-lg border border-zinc-800 flex-row items-center gap-2">
+                    <Calendar size={12} color="#A1A1AA" />
+                    <Text className="text-white font-mono text-xs">{snapshot.age} años</Text>
+                  </View>
+                )}
+                {snapshot?.sex && (
+                  <View className="bg-zinc-900 px-3 py-2 rounded-lg border border-zinc-800">
+                    <Text className="text-white font-mono text-xs">
+                      {snapshot.sex === 'M' ? '♂ Masculino' : '♀ Femenino'}
+                    </Text>
+                  </View>
+                )}
               </View>
             </View>
+
+            {/* Sección: Estado Físico */}
+            {(snapshot?.activity_level ||
+              snapshot?.training_experience ||
+              snapshot?.injuries ||
+              snapshot?.allergies) && (
+              <View className="mb-4">
+                <Text className="text-white font-bold text-xs uppercase tracking-widest mb-3">
+                  ⚡ Estado Físico
+                </Text>
+                <View className="flex-row flex-wrap gap-2">
+                  {snapshot?.activity_level && (
+                    <View className="bg-zinc-900 px-3 py-2 rounded-lg border border-zinc-800 flex-row items-center gap-2">
+                      <Zap size={12} color="#F97316" />
+                      <Text className="text-fire-orange font-mono text-xs">
+                        {snapshot.activity_level}
+                      </Text>
+                    </View>
+                  )}
+                  {snapshot?.training_experience && (
+                    <View className="bg-zinc-900 px-3 py-2 rounded-lg border border-zinc-800 flex-row items-center gap-2">
+                      <Award size={12} color="#A1A1AA" />
+                      <Text className="text-white font-mono text-xs">
+                        {snapshot.training_experience}
+                      </Text>
+                    </View>
+                  )}
+                  {snapshot?.injuries && (
+                    <View className="bg-zinc-900 px-3 py-2 rounded-lg border border-red-900/50 flex-row items-center gap-2">
+                      <ShieldAlert size={12} color="#ef4444" />
+                      <Text className="text-red-400 font-mono text-xs">{snapshot.injuries}</Text>
+                    </View>
+                  )}
+                  {snapshot?.allergies && (
+                    <View className="bg-zinc-900 px-3 py-2 rounded-lg border border-yellow-900/50 flex-row items-center gap-2">
+                      <AlertTriangle size={12} color="#eab308" />
+                      <Text className="text-yellow-400 font-mono text-xs">
+                        {snapshot.allergies}
+                      </Text>
+                    </View>
+                  )}
+                </View>
+              </View>
+            )}
 
             {/* Sección: Medidas Corporales */}
             {snapshot?.measurements && snapshot.measurements.length > 0 && (

@@ -97,26 +97,43 @@ serve(async (req) => {
     }
 
     // Verificar rol del usuario que hace la petición
-    const { data: roleData, error: roleError } = await supabase
-      .from('user_roles')
+    // 1) Primero checar admin_users (fuente principal del panel admin)
+    const { data: adminData, error: adminError } = await supabase
+      .from('admin_users')
       .select('role')
       .eq('user_id', requestingUser.id)
       .single();
 
-    console.log('📥 Role data:', { role: roleData?.role, error: roleError?.message });
+    console.log('📥 Admin data:', { role: adminData?.role, error: adminError?.message });
 
-    // Si no tiene rol en user_roles, verificar si es el CEO por email
-    let userRole = roleData?.role;
+    let userRole = adminData?.role || null;
+
+    // 2) Fallback: checar user_roles
     if (!userRole) {
-      // Buscar en profiles por si es admin/ceo
+      const { data: roleData, error: roleError } = await supabase
+        .from('user_roles')
+        .select('role')
+        .eq('user_id', requestingUser.id)
+        .single();
+
+      console.log('📥 Role data:', { role: roleData?.role, error: roleError?.message });
+      userRole = roleData?.role;
+    }
+
+    // 3) Fallback final: verificar por email conocido
+    if (!userRole) {
       const { data: profileData } = await supabase
         .from('profiles')
         .select('email')
         .eq('id', requestingUser.id)
         .single();
 
-      // Lista de emails de CEOs
-      const ceoEmails = ['m.sanchez@neurocodestudio.com', 'admin@trens.app'];
+      // Lista de emails de CEOs (incluir todos los conocidos)
+      const ceoEmails = [
+        'micorp.latam@gmail.com',
+        'm.sanchez@neurocodestudio.com',
+        'admin@trens.app',
+      ];
       if (profileData && ceoEmails.includes(profileData.email)) {
         userRole = 'ceo';
         console.log('📥 User is CEO by email:', profileData.email);

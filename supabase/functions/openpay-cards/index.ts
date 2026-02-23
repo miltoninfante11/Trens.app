@@ -220,13 +220,39 @@ serve(async (req) => {
     // Verificar si necesita permisos admin
     const adminActions = ['list-cards'];
     if (adminActions.includes(action)) {
-      const { data: roleData } = await supabase
-        .from('user_roles')
+      // 1) Checar admin_users (fuente principal del panel admin)
+      const { data: adminData } = await supabase
+        .from('admin_users')
         .select('role')
         .eq('user_id', user.id)
         .single();
 
-      if (!roleData || !['admin', 'ceo'].includes(roleData.role)) {
+      let cardUserRole = adminData?.role || null;
+
+      // 2) Fallback: checar user_roles
+      if (!cardUserRole) {
+        const { data: roleData } = await supabase
+          .from('user_roles')
+          .select('role')
+          .eq('user_id', user.id)
+          .single();
+
+        cardUserRole = roleData?.role;
+      }
+
+      // 3) Fallback final: CEO por email
+      if (!cardUserRole) {
+        const ceoEmails = [
+          'micorp.latam@gmail.com',
+          'm.sanchez@neurocodestudio.com',
+          'admin@trens.app',
+        ];
+        if (user.email && ceoEmails.includes(user.email)) {
+          cardUserRole = 'ceo';
+        }
+      }
+
+      if (!cardUserRole || !['admin', 'ceo'].includes(cardUserRole)) {
         return new Response(
           JSON.stringify({ success: false, error: 'Sin permisos de administrador' }),
           { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }

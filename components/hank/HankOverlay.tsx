@@ -1369,22 +1369,19 @@ export const HankOverlay: React.FC = () => {
   /**
    * Handler cuando el usuario completa el onboarding
    */
-  const handleOnboardingComplete = useCallback(
-    (data: OnboardingData) => {
-      console.warn('✅ HANK: Onboarding completado', data);
-      setShowOnboarding(false);
-      // Mostrar mensaje de bienvenida personalizado
-      const welcomeMessage: ChatMessage = {
-        id: `onboarding-complete-${Date.now()}`,
-        role: 'hank',
-        content:
-          '🔥 ¡Perfecto! Ya te conozco mejor. Ahora puedo darte recomendaciones personalizadas. ¿Empezamos?',
-        timestamp: new Date(),
-      };
-      setMessages((prev) => [...prev, welcomeMessage]);
-    },
-    []
-  );
+  const handleOnboardingComplete = useCallback((data: OnboardingData) => {
+    console.warn('✅ HANK: Onboarding completado', data);
+    setShowOnboarding(false);
+    // Mostrar mensaje de bienvenida personalizado
+    const welcomeMessage: ChatMessage = {
+      id: `onboarding-complete-${Date.now()}`,
+      role: 'hank',
+      content:
+        '🔥 ¡Perfecto! Ya te conozco mejor. Ahora puedo darte recomendaciones personalizadas. ¿Empezamos?',
+      timestamp: new Date(),
+    };
+    setMessages((prev) => [...prev, welcomeMessage]);
+  }, []);
 
   /**
    * Handler cuando el usuario cierra el onboarding sin completar
@@ -1397,10 +1394,7 @@ export const HankOverlay: React.FC = () => {
       try {
         await supabase
           .from('user_profiles')
-          .upsert(
-            { user_id: userId, hank_first_time_shown: true },
-            { onConflict: 'user_id' }
-          );
+          .upsert({ user_id: userId, hank_first_time_shown: true }, { onConflict: 'user_id' });
       } catch (error) {
         console.error('Error marking onboarding dismissed:', error);
       }

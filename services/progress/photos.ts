@@ -87,6 +87,20 @@ export async function captureUserSnapshot(userId: string): Promise<ProgressSnaps
       goal: profile?.goal || undefined,
       age: profile?.age || undefined,
       sex: profile?.sex || undefined,
+      activity_level: profile?.activity_level || undefined,
+      training_experience: profile?.training_experience || undefined,
+      injuries: profile?.injuries || undefined,
+      allergies: profile?.allergies || undefined,
+      // Calcular IMC si hay peso y altura
+      imc: (() => {
+        const w = parseFloat(profile?.weight);
+        const hCm = parseFloat(profile?.height);
+        if (w > 0 && hCm > 0) {
+          const hM = hCm > 3 ? hCm / 100 : hCm;
+          return parseFloat((w / (hM * hM)).toFixed(1));
+        }
+        return undefined;
+      })(),
       measurements: (measurements || []).map(
         (m: { name: string; value: string; is_dominant: boolean }) => ({
           name: m.name,

@@ -237,10 +237,7 @@ export default function AccountModal({
       if (error) throw error;
 
       // Sync full_name in profiles table
-      await supabase
-        .from('profiles')
-        .update({ full_name: updatedName })
-        .eq('id', user.id);
+      await supabase.from('profiles').update({ full_name: updatedName }).eq('id', user.id);
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       Alert.alert('Perfil actualizado', 'Tu perfil se ha guardado correctamente.');

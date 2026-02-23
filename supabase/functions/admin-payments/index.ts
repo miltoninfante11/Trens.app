@@ -71,17 +71,33 @@ serve(async (req) => {
     }
 
     // Verificar rol CEO/Admin
-    const { data: roleData } = await supabase
-      .from('user_roles')
+    // 1) Primero checar admin_users (fuente principal del panel admin)
+    const { data: adminData } = await supabase
+      .from('admin_users')
       .select('role')
       .eq('user_id', user.id)
       .single();
 
-    let paymentUserRole = roleData?.role;
+    let paymentUserRole = adminData?.role || null;
 
-    // Fallback: verificar si es CEO por email
+    // 2) Fallback: checar user_roles
     if (!paymentUserRole) {
-      const ceoEmails = ['m.sanchez@neurocodestudio.com', 'admin@trens.app'];
+      const { data: roleData } = await supabase
+        .from('user_roles')
+        .select('role')
+        .eq('user_id', user.id)
+        .single();
+
+      paymentUserRole = roleData?.role;
+    }
+
+    // 3) Fallback final: verificar si es CEO por email
+    if (!paymentUserRole) {
+      const ceoEmails = [
+        'micorp.latam@gmail.com',
+        'm.sanchez@neurocodestudio.com',
+        'admin@trens.app',
+      ];
       if (user.email && ceoEmails.includes(user.email)) {
         paymentUserRole = 'ceo';
       }

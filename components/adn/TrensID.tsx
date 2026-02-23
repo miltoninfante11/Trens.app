@@ -170,6 +170,7 @@ export default function TrensID({ userId, profileData, measurements, onUpdate }:
 
       setNewMeasurement({ name: '', value: '', is_dominant: false });
       setShowMeasureForm(false);
+      onUpdate(); // Sincronizar padre
     } catch (err) {
       console.error('Error adding measurement:', err);
     }
@@ -188,6 +189,7 @@ export default function TrensID({ userId, profileData, measurements, onUpdate }:
           is_dominant: m.id === id,
         }))
       );
+      onUpdate(); // Sincronizar padre
     } catch (err) {
       console.error('Error toggling dominant:', err);
     }
@@ -200,8 +202,23 @@ export default function TrensID({ userId, profileData, measurements, onUpdate }:
       await supabase.from('body_measurements').delete().eq('id', id);
 
       setEditMeasurements((prev) => prev.filter((m) => m.id !== id));
+      onUpdate(); // Sincronizar padre
     } catch (err) {
       console.error('Error deleting measurement:', err);
+    }
+  };
+
+  // Actualizar valor de medida: local al escribir, DB al perder foco
+  const updateMeasurementLocal = (id: string, newValue: string) => {
+    setEditMeasurements((prev) => prev.map((m) => (m.id === id ? { ...m, value: newValue } : m)));
+  };
+
+  const saveMeasurementValue = async (id: string, newValue: string) => {
+    try {
+      await supabase.from('body_measurements').update({ value: newValue }).eq('id', id);
+      onUpdate(); // Sincronizar padre
+    } catch (err) {
+      console.error('Error saving measurement:', err);
     }
   };
 
@@ -317,7 +334,9 @@ export default function TrensID({ userId, profileData, measurements, onUpdate }:
                   <Text className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider mb-1">
                     Objetivo
                   </Text>
-                  <Text className="text-white font-bold text-sm uppercase">{editData.goal}</Text>
+                  <Text className="text-white font-bold text-sm uppercase" numberOfLines={2}>
+                    {editData.goal}
+                  </Text>
                 </View>
 
                 {/* Peso Actual */}
@@ -427,7 +446,7 @@ export default function TrensID({ userId, profileData, measurements, onUpdate }:
             <ScrollView showsVerticalScrollIndicator={false}>
               {/* CAMPOS PRINCIPALES */}
               <View className="flex-row flex-wrap -mx-1">
-                <View className="w-1/2 px-1 mb-3">
+                <View className="w-full px-1 mb-3">
                   <Text className="text-[9px] text-zinc-500 uppercase font-bold tracking-wider mb-1">
                     Objetivo
                   </Text>
@@ -436,6 +455,10 @@ export default function TrensID({ userId, profileData, measurements, onUpdate }:
                     onChangeText={(text) => setEditData({ ...editData, goal: text })}
                     className="bg-black border border-zinc-800 p-3 text-white text-xs font-bold"
                     placeholderTextColor="#52525b"
+                    placeholder="Ej: GANAR MÚSCULO, CORRER UN MARATÓN..."
+                    multiline
+                    numberOfLines={2}
+                    style={{ minHeight: 48, textAlignVertical: 'top' }}
                   />
                 </View>
                 <View className="w-1/2 px-1 mb-3">
@@ -555,6 +578,35 @@ export default function TrensID({ userId, profileData, measurements, onUpdate }:
                       className="bg-black border border-zinc-800 p-3 text-white text-xs font-bold"
                       placeholderTextColor="#52525b"
                     />
+                  </View>
+                  {/* IMC - Calculado automáticamente */}
+                  <View className="w-1/3 px-1 mb-3">
+                    <Text className="text-[9px] text-zinc-500 uppercase font-bold tracking-wider mb-1">
+                      IMC
+                    </Text>
+                    {(() => {
+                      const w = parseFloat(editData.weight);
+                      const hCm = parseFloat(editData.height);
+                      if (w > 0 && hCm > 0) {
+                        const hM = hCm > 3 ? hCm / 100 : hCm;
+                        const imc = (w / (hM * hM)).toFixed(1);
+                        return (
+                          <View className="bg-zinc-900 border border-zinc-700 p-3 rounded">
+                            <Text className="text-white text-xs font-mono font-bold text-center">
+                              {imc}
+                            </Text>
+                          </View>
+                        );
+                      }
+                      return (
+                        <View className="bg-zinc-900 border border-zinc-700 p-3 rounded">
+                          <Text className="text-zinc-600 text-xs font-mono font-bold text-center">
+                            -
+                          </Text>
+                        </View>
+                      );
+                    })()}
+                    <Text className="text-[7px] text-zinc-600 text-center mt-1">Auto</Text>
                   </View>
                   {/* Masa Muscular */}
                   <View className="w-1/2 px-1 mb-3">
@@ -746,7 +798,7 @@ export default function TrensID({ userId, profileData, measurements, onUpdate }:
                   </View>
                 )}
 
-                {/* Lista de Medidas */}
+                {/* Lista de Medidas - EDITABLES */}
                 <View className="gap-1">
                   {editMeasurements.map((m) => (
                     <View
@@ -757,7 +809,7 @@ export default function TrensID({ userId, profileData, measurements, onUpdate }:
                           : 'border-zinc-800/50'
                       }`}
                     >
-                      <View className="flex-row items-center gap-3">
+                      <View className="flex-row items-center gap-3 flex-1">
                         <TouchableOpacity onPress={() => toggleDominant(m.id)}>
                           <Crown
                             size={14}
@@ -765,18 +817,23 @@ export default function TrensID({ userId, profileData, measurements, onUpdate }:
                             fill={m.is_dominant ? '#eab308' : 'none'}
                           />
                         </TouchableOpacity>
-                        <View>
-                          <Text
-                            className={`text-xs font-bold uppercase ${
-                              m.is_dominant ? 'text-white' : 'text-zinc-400'
-                            }`}
-                          >
-                            {m.name}
-                          </Text>
-                          <Text className="text-[10px] text-zinc-600 font-mono">{m.value}</Text>
-                        </View>
+                        <Text
+                          className={`text-xs font-bold uppercase w-24 ${
+                            m.is_dominant ? 'text-white' : 'text-zinc-400'
+                          }`}
+                        >
+                          {m.name}
+                        </Text>
+                        <TextInput
+                          value={m.value}
+                          onChangeText={(text) => updateMeasurementLocal(m.id, text)}
+                          onBlur={() => saveMeasurementValue(m.id, m.value)}
+                          className="bg-black border border-zinc-800 px-3 py-1.5 text-white text-xs font-mono flex-1"
+                          placeholderTextColor="#52525b"
+                          placeholder="ej: 105 cm"
+                        />
                       </View>
-                      <TouchableOpacity onPress={() => deleteMeasurement(m.id)}>
+                      <TouchableOpacity onPress={() => deleteMeasurement(m.id)} className="ml-2">
                         <Trash2 size={12} color="#3f3f46" />
                       </TouchableOpacity>
                     </View>

@@ -43,6 +43,7 @@ import {
   Calendar,
   User,
   Heart,
+  Activity,
 } from 'lucide-react-native';
 import * as Haptics from '../../lib/haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -55,7 +56,8 @@ import { supabase } from '../../lib/supabase';
 export interface OnboardingData {
   weight?: string;
   height?: string;
-  goal?: 'PERDER' | 'MANTENER' | 'GANAR';
+  goal?: string;
+  activityLevel?: string;
   trainingExperience?: 'PRINCIPIANTE' | 'INTERMEDIO' | 'AVANZADO';
   trainingDaysPerWeek?: number;
   age?: number;
@@ -76,6 +78,7 @@ type OnboardingStep =
   | 'weight'
   | 'height'
   | 'goal'
+  | 'activity'
   | 'experience'
   | 'frequency'
   | 'complete';
@@ -94,7 +97,14 @@ const HANK_MESSAGES: Record<OnboardingStep, string[]> = {
   age: ['¿Cuántos años tienes?', 'La edad es clave para calcular tu gasto calórico.'],
   weight: ['¿Cuánto pesas actualmente?', 'Sé honesto. Sin datos reales, no hay resultados reales.'],
   height: ['Ahora tu altura.', 'Esto me ayuda a calcular tu metabolismo y macros ideales.'],
-  goal: ['¿Cuál es tu objetivo?', 'Cada gramo de comida y cada rep van dirigidos a esto.'],
+  goal: [
+    '¿Cuál es tu objetivo?',
+    'Elige uno o escribe el tuyo. Cada gramo de comida y cada rep van dirigidos a esto.',
+  ],
+  activity: [
+    '¿Qué tan activo eres en tu día a día?',
+    'No cuentes el gym. Solo tu actividad general: trabajo, caminar, moverte.',
+  ],
   experience: [
     '¿Cuánta experiencia tienes entrenando?',
     'No hay respuesta incorrecta. Solo honestidad.',
@@ -117,6 +127,19 @@ const EXPERIENCE_LEVELS = [
   { id: 'PRINCIPIANTE', label: 'PRINCIPIANTE', desc: 'Menos de 1 año', color: '#22C55E' },
   { id: 'INTERMEDIO', label: 'INTERMEDIO', desc: '1-3 años', color: '#F97316' },
   { id: 'AVANZADO', label: 'AVANZADO', desc: 'Más de 3 años', color: '#DC2626' },
+];
+
+const ACTIVITY_LEVELS = [
+  {
+    id: 'SEDENTARIO',
+    label: 'SEDENTARIO',
+    desc: 'Trabajo de escritorio, poco movimiento',
+    color: '#6B7280',
+  },
+  { id: 'LIGERO', label: 'LIGERO', desc: 'Caminas algo, actividad leve', color: '#3B82F6' },
+  { id: 'MODERADO', label: 'MODERADO', desc: 'Te mueves bastante en tu día', color: '#22C55E' },
+  { id: 'ACTIVO', label: 'ACTIVO', desc: 'Trabajo físico o muy activo', color: '#F97316' },
+  { id: 'MUY ACTIVO', label: 'MUY ACTIVO', desc: 'Actividad intensa constante', color: '#DC2626' },
 ];
 
 const TRAINING_FREQUENCIES = [3, 4, 5, 6];
@@ -425,24 +448,39 @@ const HeightStep: React.FC<{
       <View className="flex-row items-center">
         <TextInput
           value={value}
-          onChangeText={onChange}
-          keyboardType="decimal-pad"
-          placeholder="1.75"
+          onChangeText={(text) => {
+            const cleaned = text.replace(/[^0-9]/g, '');
+            onChange(cleaned);
+          }}
+          keyboardType="number-pad"
+          placeholder="175"
           placeholderTextColor="#52525B"
           className="bg-zinc-900 border-2 border-red-600/50 rounded-xl px-6 py-4 text-white text-4xl font-bold text-center w-36"
-          maxLength={4}
+          maxLength={3}
         />
-        <Text className="text-zinc-400 text-2xl font-bold ml-4">M</Text>
+        <Text className="text-zinc-400 text-2xl font-bold ml-4">CM</Text>
       </View>
+
+      <Text className="text-zinc-600 text-sm mt-4">
+        {value && parseInt(value) > 0 && parseInt(value) < 300
+          ? `${(parseInt(value) / 100).toFixed(2)} metros`
+          : ''}
+      </Text>
     </View>
   );
 };
 
 // Goal Selection Step
 const GoalStep: React.FC<{
-  value: OnboardingData['goal'];
-  onChange: (v: OnboardingData['goal']) => void;
+  value: string | undefined;
+  onChange: (v: string) => void;
 }> = ({ value, onChange }) => {
+  const [customGoal, setCustomGoal] = useState('');
+  const [showCustom, setShowCustom] = useState(!!value && !GOALS.some((g) => g.id === value));
+
+  // Si el valor actual no es ninguno de los predefinidos, es custom
+  const isCustomActive = showCustom || (!!value && !GOALS.some((g) => g.id === value));
+
   return (
     <View className="items-center w-full px-4">
       <Target size={48} color="#DC2626" className="mb-4" />
@@ -451,14 +489,16 @@ const GoalStep: React.FC<{
       <View className="w-full gap-3">
         {GOALS.map((goal) => {
           const Icon = goal.icon;
-          const isSelected = value === goal.id;
+          const isSelected = value === goal.id && !isCustomActive;
 
           return (
             <TouchableOpacity
               key={goal.id}
               onPress={() => {
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                onChange(goal.id as OnboardingData['goal']);
+                setShowCustom(false);
+                setCustomGoal('');
+                onChange(goal.id);
               }}
               className={`flex-row items-center p-4 rounded-xl border-2 ${
                 isSelected ? 'border-red-600 bg-red-600/10' : 'border-zinc-800 bg-zinc-900/50'
@@ -486,6 +526,111 @@ const GoalStep: React.FC<{
                 {goal.label}
               </Text>
               {isSelected && <Check size={24} color="#DC2626" />}
+            </TouchableOpacity>
+          );
+        })}
+
+        {/* Separador */}
+        <View className="flex-row items-center gap-3 my-1">
+          <View className="flex-1 h-px bg-zinc-800" />
+          <Text className="text-zinc-600 text-xs font-mono">O ESCRIBE EL TUYO</Text>
+          <View className="flex-1 h-px bg-zinc-800" />
+        </View>
+
+        {/* Objetivo personalizado */}
+        <TouchableOpacity
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            setShowCustom(true);
+          }}
+          className={`p-4 rounded-xl border-2 ${
+            isCustomActive ? 'border-red-600 bg-red-600/10' : 'border-zinc-800 bg-zinc-900/50'
+          }`}
+          style={
+            isCustomActive
+              ? {
+                  shadowColor: '#DC2626',
+                  shadowOffset: { width: 0, height: 0 },
+                  shadowOpacity: 0.4,
+                  shadowRadius: 12,
+                }
+              : {}
+          }
+          activeOpacity={1}
+        >
+          <TextInput
+            value={
+              isCustomActive
+                ? customGoal || (value && !GOALS.some((g) => g.id === value) ? value : '')
+                : ''
+            }
+            onChangeText={(text) => {
+              setCustomGoal(text);
+              setShowCustom(true);
+              if (text.trim()) {
+                onChange(text.trim().toUpperCase());
+              }
+            }}
+            onFocus={() => setShowCustom(true)}
+            placeholder="Ej: Correr un maratón, Ganar fuerza..."
+            placeholderTextColor="#52525B"
+            className={`font-bold text-lg ${isCustomActive ? 'text-white' : 'text-zinc-400'}`}
+            maxLength={50}
+          />
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+};
+
+// Activity Level Step
+const ActivityStep: React.FC<{
+  value: string | undefined;
+  onChange: (v: string) => void;
+}> = ({ value, onChange }) => {
+  return (
+    <View className="items-center w-full px-4">
+      <Activity size={48} color="#DC2626" className="mb-4" />
+      <Text className="text-zinc-500 text-sm font-bold tracking-widest mb-6">
+        NIVEL DE ACTIVIDAD
+      </Text>
+
+      <View className="w-full gap-3">
+        {ACTIVITY_LEVELS.map((level) => {
+          const isSelected = value === level.id;
+
+          return (
+            <TouchableOpacity
+              key={level.id}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                onChange(level.id);
+              }}
+              className={`p-4 rounded-xl border-2 ${
+                isSelected ? 'border-red-600 bg-red-600/10' : 'border-zinc-800 bg-zinc-900/50'
+              }`}
+              style={
+                isSelected
+                  ? {
+                      shadowColor: level.color,
+                      shadowOffset: { width: 0, height: 0 },
+                      shadowOpacity: 0.4,
+                      shadowRadius: 12,
+                    }
+                  : {}
+              }
+            >
+              <View className="flex-row items-center justify-between">
+                <View className="flex-1 mr-2">
+                  <Text
+                    className={`font-bold text-lg ${isSelected ? 'text-white' : 'text-zinc-400'}`}
+                  >
+                    {level.label}
+                  </Text>
+                  <Text className="text-zinc-500 text-sm mt-1">{level.desc}</Text>
+                </View>
+                {isSelected && <Check size={24} color="#DC2626" />}
+              </View>
             </TouchableOpacity>
           );
         })}
@@ -682,6 +827,7 @@ export const HankOnboarding: React.FC<HankOnboardingProps> = ({
     weight: '',
     height: '',
     goal: undefined,
+    activityLevel: undefined,
     trainingExperience: undefined,
     trainingDaysPerWeek: 4,
     age: undefined,
@@ -695,6 +841,7 @@ export const HankOnboarding: React.FC<HankOnboardingProps> = ({
     'weight',
     'height',
     'goal',
+    'activity',
     'experience',
     'frequency',
     'complete',
@@ -713,9 +860,11 @@ export const HankOnboarding: React.FC<HankOnboardingProps> = ({
       case 'weight':
         return !!data.weight && parseFloat(data.weight) > 0;
       case 'height':
-        return !!data.height && parseFloat(data.height) > 0;
+        return !!data.height && parseInt(data.height) >= 50 && parseInt(data.height) <= 300;
       case 'goal':
-        return !!data.goal;
+        return !!data.goal && data.goal.trim().length > 0;
+      case 'activity':
+        return !!data.activityLevel;
       case 'experience':
         return !!data.trainingExperience;
       case 'frequency':
@@ -748,6 +897,7 @@ export const HankOnboarding: React.FC<HankOnboardingProps> = ({
             weight: weightNum ? `${weightNum}` : null,
             height: heightNum ? `${heightNum}` : null,
             goal: data.goal || null,
+            activity_level: data.activityLevel || 'MODERADO',
             training_experience: data.trainingExperience || null,
             training_days_per_week: data.trainingDaysPerWeek || null,
             age: data.age || null,
@@ -809,6 +959,13 @@ export const HankOnboarding: React.FC<HankOnboardingProps> = ({
       case 'goal':
         return (
           <GoalStep value={data.goal} onChange={(v) => setData((prev) => ({ ...prev, goal: v }))} />
+        );
+      case 'activity':
+        return (
+          <ActivityStep
+            value={data.activityLevel}
+            onChange={(v) => setData((prev) => ({ ...prev, activityLevel: v }))}
+          />
         );
       case 'experience':
         return (

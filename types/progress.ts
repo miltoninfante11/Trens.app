@@ -15,6 +15,11 @@ export interface ProgressSnapshot {
   goal?: string;
   age?: number;
   sex?: string;
+  imc?: number;
+  activity_level?: string;
+  training_experience?: string;
+  injuries?: string;
+  allergies?: string;
 
   // Medidas corporales
   measurements?: Array<{
