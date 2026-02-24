@@ -22,10 +22,14 @@ import { supabase } from '../../../lib/supabase';
 import { useUserRoleContext } from '../../../context/UserRoleContext';
 import { useHank } from '../../../context/HankContext';
 import spotify from '../../../services/spotify/spotify';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Platform } from 'react-native';
 
 // ============================================================================
 // TIPOS
 // ============================================================================
+type FeedSource = 'pro_video' | 'instagram_reel';
+
 interface FeedVideo {
   id: string;
   user_id: string;
@@ -52,13 +56,19 @@ interface FeedVideo {
   comments_count: number;
   is_liked: boolean;
   is_saved: boolean;
+  // Fuente del video
+  source: FeedSource;
+  ig_permalink?: string | null;
+  is_official?: boolean;
 }
 
 // ============================================================================
 // DIMENSIONS
 // ============================================================================
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
-const VIDEO_HEIGHT = SCREEN_HEIGHT - 85; // Restar tab bar
+// VIDEO_HEIGHT se calcula dinámicamente dentro de FeedScreenContent
+// usando useSafeAreaInsets para medir exacto desde borde superior
+// hasta el borde superior de la tab bar
 
 // ============================================================================
 // VIDEO ITEM COMPONENT (Memoizado para performance)
@@ -78,6 +88,7 @@ const FeedVideoItem = memo(
     onSpotifyUpgrade,
     spotifySyncEnabled,
     contextReady,
+    videoHeight,
   }: {
     item: FeedVideo;
     isActive: boolean;
@@ -92,6 +103,7 @@ const FeedVideoItem = memo(
     onSpotifyUpgrade: () => void;
     spotifySyncEnabled: boolean;
     contextReady: boolean;
+    videoHeight: number;
   }) => {
     // Helper: Arreglar URLs de Cloudflare Stream incompletas
     const fixCloudflareUrl = (url: string): string => {
@@ -239,7 +251,7 @@ const FeedVideoItem = memo(
     };
 
     return (
-      <View style={{ width: SCREEN_WIDTH, height: VIDEO_HEIGHT }} className="bg-black">
+      <View style={{ width: SCREEN_WIDTH, height: videoHeight }} className="bg-black">
         {/* Photo or Video */}
         {item.media_type === 'photo' ? (
           <Image
@@ -249,7 +261,7 @@ const FeedVideoItem = memo(
               top: 0,
               left: 0,
               width: SCREEN_WIDTH,
-              height: VIDEO_HEIGHT,
+              height: videoHeight,
             }}
             contentFit="cover"
           />
@@ -261,7 +273,7 @@ const FeedVideoItem = memo(
               top: 0,
               left: 0,
               width: SCREEN_WIDTH,
-              height: VIDEO_HEIGHT,
+              height: videoHeight,
             }}
             contentFit="cover"
             nativeControls={false}
@@ -278,7 +290,7 @@ const FeedVideoItem = memo(
               top: 0,
               left: 0,
               width: SCREEN_WIDTH,
-              height: VIDEO_HEIGHT,
+              height: videoHeight,
               zIndex: 1,
             }}
           >
@@ -337,10 +349,31 @@ const FeedVideoItem = memo(
         <View className="absolute bottom-4 left-4 right-20" style={{ zIndex: 10 }}>
           {/* Usuario */}
           <TouchableOpacity
-            onPress={() => onUserPress(item.user_id)}
+            onPress={() => {
+              if (item.source === 'instagram_reel' && item.ig_permalink) {
+                // Para Reels de IG, abrir el permalink en Instagram
+                import('expo-web-browser').then((wb) => wb.openBrowserAsync(item.ig_permalink!));
+              } else {
+                onUserPress(item.user_id);
+              }
+            }}
             className="flex-row items-center mb-3"
           >
-            <View className="w-10 h-10 rounded-full bg-zinc-800 mr-3 overflow-hidden">
+            <View
+              className="w-10 h-10 rounded-full mr-3 overflow-hidden"
+              style={
+                item.is_official
+                  ? {
+                      backgroundColor: '#DC2626',
+                      shadowColor: '#DC2626',
+                      shadowOffset: { width: 0, height: 0 },
+                      shadowOpacity: 0.8,
+                      shadowRadius: 10,
+                      elevation: 8,
+                    }
+                  : { backgroundColor: '#27272a' }
+              }
+            >
               {item.user_avatar_url ? (
                 <Image
                   source={{ uri: item.user_avatar_url }}
@@ -348,13 +381,51 @@ const FeedVideoItem = memo(
                   contentFit="cover"
                 />
               ) : (
-                <View className="w-full h-full bg-savage-red items-center justify-center">
-                  <Text className="text-white font-bold">{item.user_display_name.charAt(0)}</Text>
+                <View className="w-full h-full items-center justify-center">
+                  <Text
+                    className="text-white font-bold"
+                    style={item.is_official ? { fontSize: 11, letterSpacing: 1 } : {}}
+                  >
+                    {item.is_official ? 'T' : item.user_display_name.charAt(0)}
+                  </Text>
                 </View>
               )}
             </View>
-            <View>
-              <Text className="text-white font-bold">{item.user_display_name}</Text>
+            <View className="flex-1">
+              <View className="flex-row items-center gap-1.5">
+                <Text
+                  className="text-white font-bold"
+                  style={
+                    item.is_official
+                      ? {
+                          textShadowColor: '#DC2626',
+                          textShadowOffset: { width: 0, height: 0 },
+                          textShadowRadius: 8,
+                        }
+                      : {}
+                  }
+                >
+                  {item.user_display_name}
+                </Text>
+                {item.is_official && (
+                  <View
+                    className="px-1.5 py-0.5 rounded"
+                    style={{ backgroundColor: 'rgba(220, 38, 38, 0.3)' }}
+                  >
+                    <Text className="text-red-500 text-[9px] font-bold tracking-wider">
+                      OFICIAL
+                    </Text>
+                  </View>
+                )}
+                {item.source === 'instagram_reel' && !item.is_official && (
+                  <View
+                    className="px-1.5 py-0.5 rounded"
+                    style={{ backgroundColor: 'rgba(225, 48, 108, 0.2)' }}
+                  >
+                    <Text className="text-pink-400 text-[9px] font-bold">IG</Text>
+                  </View>
+                )}
+              </View>
               <Text className="text-zinc-500 text-xs">{formatDate(item.created_at)}</Text>
             </View>
           </TouchableOpacity>
@@ -550,6 +621,13 @@ const FeedVideoItem = memo(
 // MAIN COMPONENT
 // ============================================================================
 function FeedScreenContent() {
+  const insets = useSafeAreaInsets();
+
+  // Altura exacta del video: desde borde superior de pantalla
+  // hasta el borde superior de la tab bar (pixel-perfect)
+  const TAB_BAR_H = (Platform.OS === 'web' ? 70 : 56) + insets.bottom;
+  const videoHeight = SCREEN_HEIGHT - TAB_BAR_H;
+
   const {
     user,
     spotifyPremium,
@@ -625,7 +703,7 @@ function FeedScreenContent() {
   // -------------------------------------------------------------------------
   const fetchVideos = useCallback(async () => {
     try {
-      // Obtener videos públicos de usuarios PRO
+      // ---- FUENTE 1: Videos de usuarios PRO (pro_videos) ----
       const { data: videosData, error } = await supabase
         .from('pro_videos')
         .select(
@@ -652,17 +730,15 @@ function FeedScreenContent() {
 
       if (error) throw error;
 
-      // Obtener info de usuarios y estado de likes/saves
-      const enrichedVideos: FeedVideo[] = await Promise.all(
+      // Enriquecer pro_videos con perfil de usuario y likes/saves
+      const enrichedProVideos: FeedVideo[] = await Promise.all(
         (videosData || []).map(async (video) => {
-          // Obtener perfil de usuario
           const { data: profile } = await supabase
             .from('user_profiles')
             .select('display_name, avatar_url')
             .eq('user_id', video.user_id)
             .single();
 
-          // Verificar si el usuario actual dio like/save
           let isLiked = false;
           let isSaved = false;
 
@@ -693,11 +769,52 @@ function FeedScreenContent() {
             comments_count: video.comments_count || 0,
             is_liked: isLiked,
             is_saved: isSaved,
+            source: 'pro_video' as FeedSource,
           };
         })
       );
 
-      setVideos(enrichedVideos);
+      // ---- FUENTE 2: Reels de Instagram (trens_feed) ----
+      const { data: reelsData, error: reelsError } = await supabase
+        .from('trens_feed')
+        .select('*')
+        .eq('is_active', true)
+        .order('created_at', { ascending: false })
+        .limit(30);
+
+      const enrichedReels: FeedVideo[] = (reelsData || []).map((reel: any) => ({
+        id: `ig_${reel.id}`,
+        user_id: reel.user_id || 'trens_official',
+        video_url: reel.video_url,
+        thumbnail_url: reel.thumbnail_url || '',
+        media_type: 'video' as const,
+        exercise_name: null,
+        weight_kg: null,
+        reps: null,
+        free_text: reel.caption || null,
+        spotify: null,
+        created_at: reel.ig_timestamp || reel.created_at,
+        user_display_name: reel.is_official ? 'TRENS' : 'COMUNIDAD',
+        user_avatar_url: null,
+        likes_count: reel.like_count || 0,
+        comments_count: reel.comment_count || 0,
+        is_liked: false,
+        is_saved: false,
+        source: 'instagram_reel' as FeedSource,
+        ig_permalink: reel.ig_permalink,
+        is_official: reel.is_official,
+      }));
+
+      if (reelsError) {
+        console.warn('Error fetching trens_feed (non-blocking):', reelsError.message);
+      }
+
+      // ---- MEZCLAR: Pro videos + IG Reels, ordenados por fecha ----
+      const allVideos = [...enrichedProVideos, ...enrichedReels].sort(
+        (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      );
+
+      setVideos(allVideos);
     } catch (err) {
       console.error('Error fetching feed:', err);
     } finally {
@@ -710,8 +827,14 @@ function FeedScreenContent() {
     fetchVideos();
   }, [fetchVideos]);
 
-  const onRefresh = useCallback(() => {
+  const onRefresh = useCallback(async () => {
     setRefreshing(true);
+    // Disparar sync de IG en background (no bloqueamos la UI esperándolo)
+    supabase.functions
+      .invoke('instagram-sync', { body: { action: 'sync-official' } })
+      .catch(() => {});
+    // Pequeña espera para que el sync procese al menos el más reciente
+    await new Promise((r) => setTimeout(r, 2000));
     fetchVideos();
   }, [fetchVideos]);
 
@@ -735,10 +858,10 @@ function FeedScreenContent() {
 
   const handleLike = useCallback(
     async (videoId: string) => {
-      if (!user) {
-        // Usuario no autenticado - mostrar mensaje
-        return;
-      }
+      if (!user) return;
+
+      // Los Reels de IG no soportan likes internos por ahora (optimistic only)
+      const isIGReel = videoId.startsWith('ig_');
 
       // Obtener estado actual
       const video = videos.find((v) => v.id === videoId);
@@ -758,6 +881,9 @@ function FeedScreenContent() {
             : v
         )
       );
+
+      // Para Reels de IG solo hacemos update visual
+      if (isIGReel) return;
 
       try {
         if (wasLiked) {
@@ -797,20 +923,26 @@ function FeedScreenContent() {
 
   const handleShare = useCallback(async (video: FeedVideo) => {
     const { Share } = await import('react-native');
-    await Share.share({
-      message: video.exercise_name
-        ? `🏋️ ${video.exercise_name} ${video.weight_kg}kg × ${video.reps}\n#TRENS`
-        : `💪 ${video.free_text || 'Check de entreno'}\n#TRENS`,
-      url: video.video_url,
-    });
+    if (video.source === 'instagram_reel' && video.ig_permalink) {
+      await Share.share({
+        message: `${video.free_text ? video.free_text.substring(0, 100) + '\n' : ''}${video.ig_permalink}`,
+        url: video.ig_permalink,
+      });
+    } else {
+      await Share.share({
+        message: video.exercise_name
+          ? `🏋️ ${video.exercise_name} ${video.weight_kg}kg × ${video.reps}\n#TRENS`
+          : `💪 ${video.free_text || 'Check de entreno'}\n#TRENS`,
+        url: video.video_url,
+      });
+    }
   }, []);
 
   const handleSave = useCallback(
     async (videoId: string) => {
-      if (!user) {
-        // Usuario no autenticado
-        return;
-      }
+      if (!user) return;
+
+      const isIGReel = videoId.startsWith('ig_');
 
       // Obtener estado actual
       const video = videos.find((v) => v.id === videoId);
@@ -822,6 +954,9 @@ function FeedScreenContent() {
       setVideos((prev) =>
         prev.map((v) => (v.id === videoId ? { ...v, is_saved: !v.is_saved } : v))
       );
+
+      // Para Reels de IG solo hacemos update visual
+      if (isIGReel) return;
 
       try {
         if (wasSaved) {
@@ -884,6 +1019,7 @@ function FeedScreenContent() {
         onSpotifyUpgrade={handleSpotifyUpgrade}
         spotifySyncEnabled={spotifyFeedSync}
         contextReady={!contextLoading}
+        videoHeight={videoHeight}
       />
     ),
     [
@@ -900,6 +1036,7 @@ function FeedScreenContent() {
       handleSpotifyUpgrade,
       spotifyFeedSync,
       contextLoading,
+      videoHeight,
     ]
   );
 
@@ -975,7 +1112,7 @@ function FeedScreenContent() {
         keyExtractor={keyExtractor}
         pagingEnabled
         showsVerticalScrollIndicator={false}
-        snapToInterval={VIDEO_HEIGHT}
+        snapToInterval={videoHeight}
         snapToAlignment="start"
         decelerationRate="fast"
         onViewableItemsChanged={onViewableItemsChanged}
@@ -984,8 +1121,8 @@ function FeedScreenContent() {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#DC2626" />
         }
         getItemLayout={(_, index) => ({
-          length: VIDEO_HEIGHT,
-          offset: VIDEO_HEIGHT * index,
+          length: videoHeight,
+          offset: videoHeight * index,
           index,
         })}
         removeClippedSubviews

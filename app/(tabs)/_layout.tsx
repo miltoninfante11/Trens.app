@@ -1,4 +1,5 @@
 import { Tabs, usePathname, useRouter } from 'expo-router';
+import { BottomTabBar } from '@react-navigation/bottom-tabs';
 import { View, Text, Platform } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -27,16 +28,19 @@ import Animated, {
   withDelay,
   withSpring,
   Easing,
-  runOnJS,
 } from 'react-native-reanimated';
-import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import { useEffect, useRef } from 'react';
-import { PanResponder } from 'react-native';
+import { useEffect, useRef, useCallback, useState, useMemo } from 'react';
+import {
+  PanResponder,
+  Dimensions,
+  Animated as RNAnimated,
+} from 'react-native';
 import { useAuth, useProRecording } from '../_layout';
 import { useSport } from '../../context/SportContext';
 import FloatingLoginButton from '../../components/auth/FloatingLoginButton';
 import { HankOverlay } from '../../components/hank/HankOverlay';
 import { SpotifyOverlay } from '../../components/spotify/SpotifyOverlay';
+import * as Haptics from '../../lib/haptics';
 
 // ============================================================================
 // ED HARDY COLORS
@@ -576,7 +580,9 @@ function ProTabIcon({ focused, onTabPress }: { focused: boolean; onTabPress: () 
       <Animated.View
         style={[
           buttonStyle,
-          Platform.OS === 'web' ? { touchAction: 'none', userSelect: 'none', cursor: 'grab' } as any : {},
+          Platform.OS === 'web'
+            ? ({ touchAction: 'none', userSelect: 'none', cursor: 'grab' } as any)
+            : {},
         ]}
         {...panResponder.panHandlers}
       >
@@ -615,6 +621,19 @@ function ProTabIcon({ focused, onTabPress }: { focused: boolean; onTabPress: () 
     </View>
   );
 }
+
+// ============================================================================
+// INITIAL ROUTE: Feed (TRENS) se abre primero
+// ============================================================================
+export const unstable_settings = {
+  initialRouteName: 'feed/index',
+};
+
+// ============================================================================
+// TAB ORDER - Solo Feed y ADN permiten swipe horizontal
+// ============================================================================
+const TAB_ROUTES = ['feed', 'adn', 'pro', 'gym', 'plan'] as const;
+const SWIPEABLE_TABS = ['feed', 'adn'] as const;
 
 export default function TabsLayout() {
   const { isProActive, previousModule } = useProNavigation();
@@ -656,184 +675,308 @@ export default function TabsLayout() {
   const webPadding = Platform.OS === 'web' ? 8 : 0;
   const tabBarHeight = (Platform.OS === 'web' ? 70 : 56) + insets.bottom;
 
+  // ==========================================================================
+  // SLIDER HORIZONTAL: solo entre TRENS (Feed) ↔ ADN
+  // Usa RNAnimated (React Native Animated) porque funciona con PanResponder en web
+  // La tab bar se queda fija usando contra-animación
+  // ==========================================================================
+  const SCREEN_W = Dimensions.get('window').width;
+  const SWIPE_THRESHOLD = SCREEN_W * 0.2;
+  const VELOCITY_THRESHOLD = 0.4;
+
+  // RN Animated.Value para el slide (compatible 100% con web + PanResponder)
+  const slideXRef = useRef(new RNAnimated.Value(0));
+  const slideX = slideXRef.current;
+
+  // Contra-animación: multiplica slideX por -1 para cancelar movimiento en la tab bar
+  const counterSlideX = useMemo(
+    () => RNAnimated.multiply(slideX, -1),
+    [slideX]
+  );
+
+  const [isSwiping, setIsSwiping] = useState(false);
+
+  /** Índice dentro de SWIPEABLE_TABS (0=feed, 1=adn), -1 si no aplica */
+  const getSwipeIndex = useCallback((): number => {
+    if (!pathname) return -1;
+    return SWIPEABLE_TABS.findIndex((t) => pathname.includes(t));
+  }, [pathname]);
+
+  const swipeIdxRef = useRef(0);
+  useEffect(() => {
+    swipeIdxRef.current = getSwipeIndex();
+  }, [pathname, getSwipeIndex]);
+
+  const navigateSwipe = useCallback(
+    (targetSwipeIdx: number, direction: 'left' | 'right') => {
+      if (targetSwipeIdx < 0 || targetSwipeIdx >= SWIPEABLE_TABS.length) return;
+      const tab = SWIPEABLE_TABS[targetSwipeIdx];
+
+      // Animar salida del contenido
+      const exitX = direction === 'left' ? -SCREEN_W : SCREEN_W;
+      RNAnimated.timing(slideX, {
+        toValue: exitX,
+        duration: 150,
+        useNativeDriver: true,
+      }).start(() => {
+        router.push(`/(tabs)/${tab}` as any);
+        // Preparar entrada desde el lado opuesto
+        slideX.setValue(direction === 'left' ? SCREEN_W * 0.25 : -SCREEN_W * 0.25);
+        RNAnimated.spring(slideX, {
+          toValue: 0,
+          damping: 22,
+          stiffness: 350,
+          mass: 0.7,
+          useNativeDriver: true,
+        }).start(() => setIsSwiping(false));
+      });
+      Haptics.impactAsync();
+    },
+    [router, SCREEN_W, slideX]
+  );
+
+  const sliderPanResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (_evt, gs) => {
+        if (swipeIdxRef.current < 0) return false;
+        const isHorizontal = Math.abs(gs.dx) > 12 && Math.abs(gs.dx) > Math.abs(gs.dy) * 1.8;
+        return isHorizontal;
+      },
+      onPanResponderGrant: () => {
+        setIsSwiping(true);
+      },
+      onPanResponderMove: (_evt, gs) => {
+        const idx = swipeIdxRef.current;
+        if (idx < 0) return;
+        let dx = gs.dx;
+        // Resistencia en los extremos
+        if ((idx === 0 && dx > 0) || (idx === SWIPEABLE_TABS.length - 1 && dx < 0)) {
+          dx = dx * 0.15;
+        }
+        slideX.setValue(dx);
+      },
+      onPanResponderRelease: (_evt, gs) => {
+        const idx = swipeIdxRef.current;
+        if (idx < 0) {
+          RNAnimated.spring(slideX, { toValue: 0, damping: 20, stiffness: 400, useNativeDriver: true }).start();
+          setIsSwiping(false);
+          return;
+        }
+
+        const shouldSwipe =
+          Math.abs(gs.dx) > SWIPE_THRESHOLD || Math.abs(gs.vx) > VELOCITY_THRESHOLD;
+        const goRight = gs.dx > 0;
+        const goLeft = gs.dx < 0;
+
+        if (shouldSwipe && goRight && idx > 0) {
+          navigateSwipe(idx - 1, 'right');
+        } else if (shouldSwipe && goLeft && idx < SWIPEABLE_TABS.length - 1) {
+          navigateSwipe(idx + 1, 'left');
+        } else {
+          RNAnimated.spring(slideX, { toValue: 0, damping: 20, stiffness: 400, useNativeDriver: true }).start();
+          setIsSwiping(false);
+        }
+      },
+      onPanResponderTerminate: () => {
+        RNAnimated.spring(slideX, { toValue: 0, damping: 20, stiffness: 400, useNativeDriver: true }).start();
+        setIsSwiping(false);
+      },
+    })
+  ).current;
+
   return (
-    <>
-      <Tabs
-        screenOptions={{
-          headerShown: false,
-          tabBarStyle: {
-            backgroundColor: ED_HARDY.black,
-            borderTopColor: ED_HARDY.zinc800,
-            borderTopWidth: 1,
-            height: tabBarHeight,
-            paddingBottom: insets.bottom + 4 + webPadding,
-            paddingTop: 8,
-            overflow: 'visible',
-            // ED HARDY: Subtle fire glow from bottom
-            shadowColor: ED_HARDY.fireOrange,
-            shadowOffset: { width: 0, height: -2 },
-            shadowOpacity: 0.15,
-            shadowRadius: 10,
-            elevation: 10,
-          },
-          tabBarActiveTintColor: sportColor,
-          tabBarInactiveTintColor: ED_HARDY.zinc600,
-          tabBarLabelStyle: {
-            fontSize: 10,
-            fontWeight: '700',
-            letterSpacing: 1.5,
-            textTransform: 'uppercase',
-          },
-          tabBarBackground: () => (
-            <LinearGradient
-              colors={['#0a0505', '#000000', '#000000']}
-              start={{ x: 0.5, y: 0 }}
-              end={{ x: 0.5, y: 1 }}
-              style={{ flex: 1 }}
-            >
-              <ConnectionLine isVisible={isProActive} sourceIndex={getSourceIndex()} />
-            </LinearGradient>
-          ),
-        }}
-      >
-        {/* TRENS - Pantalla principal (TikTok-style feed) */}
-        <Tabs.Screen
-          name="feed/index"
-          options={{
-            title: 'TRENS',
-            tabBarIcon: ({ color, focused }) => {
-              // Si estamos en profile, mostrar Feed como activo
-              const isProfileView = pathname?.includes('profile');
-              const effectiveFocused = focused || isProfileView;
-              const effectiveColor = effectiveFocused ? sportColor : color;
-              return (
-                <SyncedGlowIcon
-                  Icon={Play}
-                  color={effectiveColor}
-                  size={26}
-                  fill={effectiveColor}
-                  isSource={isSourceModule('feed')}
-                />
-              );
+    <View style={{ flex: 1, overflow: 'hidden' }} {...sliderPanResponder.panHandlers}>
+      <RNAnimated.View style={[{ flex: 1 }, { transform: [{ translateX: slideX }] }]}>
+        <Tabs
+          tabBar={(props) => (
+            <RNAnimated.View style={{ transform: [{ translateX: counterSlideX }] }}>
+              <BottomTabBar {...props} />
+            </RNAnimated.View>
+          )}
+          screenListeners={{
+            tabPress: () => {
+              Haptics.impactAsync();
+              slideX.setValue(0);
             },
           }}
-        />
-
-        {/* ADN - Perfil + Bóveda + Configuración */}
-        <Tabs.Screen
-          name="adn/index"
-          options={{
-            title: 'ADN',
-            tabBarIcon: ({ color }) => (
-              <SyncedGlowIcon
-                Icon={User}
-                color={color}
-                size={26}
-                isSource={isSourceModule('adn')}
-              />
-            ),
-          }}
-        />
-
-        {/* PRO - Botón central de cámara con indicadores dinámicos */}
-        <Tabs.Screen
-          name="pro/index"
-          options={{
-            title: '',
-            tabBarIcon: ({ focused }) => (
-              <ProTabIcon
-                focused={focused}
-                onTabPress={() => {
-                  if (isProActive) {
-                    if (isRecording) {
-                      stopRecording();
-                    } else {
-                      startRecording();
-                    }
-                  } else {
-                    router.push('/pro');
-                  }
-                }}
-              />
-            ),
-            // Reemplazar PlatformPressable con View simple para que PanResponder funcione
-            tabBarButton: (props) => (
-              <View
-                style={[props.style as any, { overflow: 'visible' }]}
-                accessibilityRole="button"
+          screenOptions={{
+            headerShown: false,
+            animation: 'none',
+            tabBarStyle: {
+              backgroundColor: ED_HARDY.black,
+              borderTopColor: ED_HARDY.zinc800,
+              borderTopWidth: 1,
+              height: tabBarHeight,
+              paddingBottom: insets.bottom + 4 + webPadding,
+              paddingTop: 8,
+              overflow: 'visible',
+              // ED HARDY: Subtle fire glow from bottom
+              shadowColor: ED_HARDY.fireOrange,
+              shadowOffset: { width: 0, height: -2 },
+              shadowOpacity: 0.15,
+              shadowRadius: 10,
+              elevation: 10,
+            },
+            tabBarActiveTintColor: sportColor,
+            tabBarInactiveTintColor: ED_HARDY.zinc600,
+            tabBarLabelStyle: {
+              fontSize: 10,
+              fontWeight: '700',
+              letterSpacing: 1.5,
+              textTransform: 'uppercase',
+            },
+            tabBarBackground: () => (
+              <LinearGradient
+                colors={['#0a0505', '#000000', '#000000']}
+                start={{ x: 0.5, y: 0 }}
+                end={{ x: 0.5, y: 1 }}
+                style={{ flex: 1 }}
               >
-                {props.children}
-              </View>
+                <ConnectionLine isVisible={isProActive} sourceIndex={getSourceIndex()} />
+              </LinearGradient>
             ),
           }}
-        />
+        >
+          {/* TRENS - Pantalla principal (TikTok-style feed) */}
+          <Tabs.Screen
+            name="feed/index"
+            options={{
+              title: 'TRENS',
+              tabBarIcon: ({ color, focused }) => {
+                // Si estamos en profile, mostrar Feed como activo
+                const isProfileView = pathname?.includes('profile');
+                const effectiveFocused = focused || isProfileView;
+                const effectiveColor = effectiveFocused ? sportColor : color;
+                return (
+                  <SyncedGlowIcon
+                    Icon={Play}
+                    color={effectiveColor}
+                    size={26}
+                    fill={effectiveColor}
+                    isSource={isSourceModule('feed')}
+                  />
+                );
+              },
+            }}
+          />
 
-        {/* GYM/GARAGE/QUIVER - Dinámico según deporte */}
-        <Tabs.Screen
-          name="gym/index"
-          options={{
-            title: tabConfig.tab4.name,
-            tabBarIcon: ({ color }) => (
-              <SyncedGlowIcon
-                Icon={Tab4Icon}
-                color={color}
-                size={26}
-                isSource={isSourceModule('gym')}
-                accentColor={sportColor}
-              />
-            ),
-          }}
-        />
+          {/* ADN - Perfil + Bóveda + Configuración */}
+          <Tabs.Screen
+            name="adn/index"
+            options={{
+              title: 'ADN',
+              tabBarIcon: ({ color }) => (
+                <SyncedGlowIcon
+                  Icon={User}
+                  color={color}
+                  size={26}
+                  isSource={isSourceModule('adn')}
+                />
+              ),
+            }}
+          />
 
-        {/* PLAN/TRACK/WAVES - Dinámico según deporte */}
-        <Tabs.Screen
-          name="plan/index"
-          options={{
-            title: tabConfig.tab5.name,
-            tabBarIcon: ({ color }) => (
-              <SyncedGlowIcon
-                Icon={Tab5Icon}
-                color={color}
-                size={26}
-                isSource={isSourceModule('plan')}
-                accentColor={sportColor}
-              />
-            ),
-          }}
-        />
+          {/* PRO - Botón central de cámara con indicadores dinámicos */}
+          <Tabs.Screen
+            name="pro/index"
+            options={{
+              title: '',
+              tabBarIcon: ({ focused }) => (
+                <ProTabIcon
+                  focused={focused}
+                  onTabPress={() => {
+                    if (isProActive) {
+                      if (isRecording) {
+                        stopRecording();
+                      } else {
+                        startRecording();
+                      }
+                    } else {
+                      router.push('/pro');
+                    }
+                  }}
+                />
+              ),
+              // Reemplazar PlatformPressable con View simple para que PanResponder funcione
+              tabBarButton: (props) => (
+                <View
+                  style={[props.style as any, { overflow: 'visible' }]}
+                  accessibilityRole="button"
+                >
+                  {props.children}
+                </View>
+              ),
+            }}
+          />
 
-        {/* Rutas ocultas - Se renderizan condicionalmente desde gym/plan */}
-        <Tabs.Screen
-          name="garaje/index"
-          options={{
-            href: null,
-          }}
-        />
-        <Tabs.Screen
-          name="race/index"
-          options={{
-            href: null,
-          }}
-        />
-        <Tabs.Screen
-          name="tabla/index"
-          options={{
-            href: null,
-          }}
-        />
-        <Tabs.Screen
-          name="spot/index"
-          options={{
-            href: null,
-          }}
-        />
-        <Tabs.Screen
-          name="profile/[userId]"
-          options={{
-            href: null,
-          }}
-        />
-      </Tabs>
+          {/* GYM/GARAGE/QUIVER - Dinámico según deporte */}
+          <Tabs.Screen
+            name="gym/index"
+            options={{
+              title: tabConfig.tab4.name,
+              tabBarIcon: ({ color }) => (
+                <SyncedGlowIcon
+                  Icon={Tab4Icon}
+                  color={color}
+                  size={26}
+                  isSource={isSourceModule('gym')}
+                  accentColor={sportColor}
+                />
+              ),
+            }}
+          />
+
+          {/* PLAN/TRACK/WAVES - Dinámico según deporte */}
+          <Tabs.Screen
+            name="plan/index"
+            options={{
+              title: tabConfig.tab5.name,
+              tabBarIcon: ({ color }) => (
+                <SyncedGlowIcon
+                  Icon={Tab5Icon}
+                  color={color}
+                  size={26}
+                  isSource={isSourceModule('plan')}
+                  accentColor={sportColor}
+                />
+              ),
+            }}
+          />
+
+          {/* Rutas ocultas - Se renderizan condicionalmente desde gym/plan */}
+          <Tabs.Screen
+            name="garaje/index"
+            options={{
+              href: null,
+            }}
+          />
+          <Tabs.Screen
+            name="race/index"
+            options={{
+              href: null,
+            }}
+          />
+          <Tabs.Screen
+            name="tabla/index"
+            options={{
+              href: null,
+            }}
+          />
+          <Tabs.Screen
+            name="spot/index"
+            options={{
+              href: null,
+            }}
+          />
+          <Tabs.Screen
+            name="profile/[userId]"
+            options={{
+              href: null,
+            }}
+          />
+        </Tabs>
+      </RNAnimated.View>
 
       {/* Overlays globales - aquí tienen contexto de navegación */}
       <HankOverlay />
@@ -841,6 +984,6 @@ export default function TabsLayout() {
 
       {/* Botón flotante de login (solo para usuarios no autenticados) */}
       <FloatingLoginButton visible={showLoginButton} />
-    </>
+    </View>
   );
 }

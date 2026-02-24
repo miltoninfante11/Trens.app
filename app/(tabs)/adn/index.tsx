@@ -45,6 +45,7 @@ import { useSaveGuard } from '../../_layout';
 import spotify from '../../../services/spotify/spotify';
 import TrensID from '../../../components/adn/TrensID';
 import RecordCard from '../../../components/adn/RecordCard';
+import InstagramConnectButton from '../../../components/adn/InstagramConnectButton';
 import SelectRecordVideoModal from '../../../components/adn/SelectRecordVideoModal';
 import { SportBadges } from '../../../components/adn/SportBadges';
 import { TodayCards } from '../../../components/adn/TodayCards';
@@ -1049,6 +1050,13 @@ function AdnScreenContent() {
             />
           )}
         </View>
+
+        {/* INSTAGRAM CONNECT — Solo visible para el dueño del perfil */}
+        {isOwner && isPro && (
+          <View className="px-4 mt-4">
+            <InstagramConnectButton />
+          </View>
+        )}
 
         {/* RECORDS (PÚBLICO) - ED HARDY FIRE STYLE */}
         <View className={`px-4 ${!isOwner ? 'mt-8' : ''}`}>

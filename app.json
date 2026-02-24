@@ -12,7 +12,7 @@
       "bundleIdentifier": "com.trens.app",
       "associatedDomains": ["applinks:share.trens.app", "applinks:trens.app"],
       "infoPlist": {
-        "LSApplicationQueriesSchemes": ["spotify"],
+        "LSApplicationQueriesSchemes": ["spotify", "instagram"],
         "CFBundleURLTypes": [
           {
             "CFBundleURLSchemes": ["trensdev"]
@@ -45,6 +45,10 @@
             {
               "scheme": "trensdev",
               "host": "spotify-callback"
+            },
+            {
+              "scheme": "trensdev",
+              "host": "instagram-callback"
             }
           ],
           "category": ["BROWSABLE", "DEFAULT"]
@@ -107,7 +111,8 @@
         "projectId": "27fc2ccb-6af3-47ae-902f-94561e739752"
       },
       "supabaseUrl": "https://cnrcrhlrteeqsyhlxhbb.supabase.co",
-      "supabaseAnonKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNucmNyaGxydGVlcXN5aGx4aGJiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjYxODIyODYsImV4cCI6MjA4MTc1ODI4Nn0.9C2orxQ6xSBIt2Y7ua37rvlvPZBxNNIv0eZoYVRM5tE"
+      "supabaseAnonKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNucmNyaGxydGVlcXN5aGx4aGJiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjYxODIyODYsImV4cCI6MjA4MTc1ODI4Nn0.9C2orxQ6xSBIt2Y7ua37rvlvPZBxNNIv0eZoYVRM5tE",
+      "instagramAppId": "917846514493235"
     },
     "runtimeVersion": {
       "policy": "appVersion"

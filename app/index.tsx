@@ -54,8 +54,7 @@ export default function Index() {
       // Si está autenticado, permitir acceso (clientes en efectivo)
       if (isAuthenticated) {
         if (isAdmin) return <Redirect href={'/(admin)/usuarios' as Href} />;
-        const defaultRoute = isPro ? '/(tabs)/adn' : '/(tabs)/feed';
-        return <Redirect href={defaultRoute as Href} />;
+        return <Redirect href={'/(tabs)/feed' as Href} />;
       }
       // Si NO está autenticado, mostrar landing DIRECTAMENTE en /
       return <LandingPage />;
@@ -68,8 +67,7 @@ export default function Index() {
 
     // En PWA autenticado: ir a la app
     if (isAdmin) return <Redirect href={'/(admin)/usuarios' as Href} />;
-    const defaultRoute = isPro ? '/(tabs)/adn' : '/(tabs)/feed';
-    return <Redirect href={defaultRoute as Href} />;
+    return <Redirect href={'/(tabs)/feed' as Href} />;
   }
 
   // ============================================================================
@@ -82,7 +80,6 @@ export default function Index() {
   // - FREE/Invitado: Abre FEED por defecto (contenido público)
   // ============================================================================
   if (isAdmin) return <Redirect href={'/(admin)/usuarios' as Href} />;
-  const defaultRoute = isPro ? '/(tabs)/adn' : '/(tabs)/feed';
 
-  return <Redirect href={defaultRoute as Href} />;
+  return <Redirect href={'/(tabs)/feed' as Href} />;
 }

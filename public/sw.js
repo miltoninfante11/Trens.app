@@ -1,6 +1,6 @@
 // Service Worker mínimo - solo para PWA install
 // Cache version: 2026-01-04-v3 - FORCE UPDATE
-const CACHE_VERSION = '2026-01-04-v3';
+const CACHE_VERSION = '2026-02-24-v3';
 
 self.addEventListener('install', () => {
   console.log('🔄 SW: Installing new version', CACHE_VERSION);
