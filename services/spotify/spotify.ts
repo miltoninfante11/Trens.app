@@ -10,6 +10,7 @@ import * as Crypto from 'expo-crypto';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Alert } from '../../lib/alert';
 import { spotifyNative } from './spotifyNative';
+import { Linking, Platform } from 'react-native';
 
 // IMPORTANTE: Debe ejecutarse a nivel global para interceptar el callback de OAuth
 // Esto permite que WebBrowser.openAuthSessionAsync reciba la respuesta
@@ -718,9 +719,18 @@ class SpotifyService {
       if (!deviceId) {
         // Buscar un dispositivo disponible
         const devices = await this.getDevices();
-        const availableDevice = devices.find((d) => !d.is_restricted) || devices[0];
+        let availableDevice = devices.find((d) => !d.is_restricted) || devices[0];
 
-        if (!availableDevice) return false;
+        if (!availableDevice) {
+          // No devices → try to wake Spotify via deep link
+          console.log('🎵 play(): No devices, attempting deep link wake...');
+          const woke = await this.wakeWithDeepLink();
+          if (woke) {
+            const retryDevices = await this.getDevices();
+            availableDevice = retryDevices.find((d) => !d.is_restricted) || retryDevices[0];
+          }
+          if (!availableDevice) return false;
+        }
 
         deviceId = availableDevice.id as string;
 
@@ -1598,7 +1608,6 @@ class SpotifyService {
         console.log('🔥 Spotify warmUp: No hay dispositivos - intentando técnica de despertar...');
 
         // Técnica de despertar: hacer una llamada "silenciosa" para activar
-        // Esto a veces despierta la app de Spotify en segundo plano
         const state = await this.getPlaybackState();
 
         if (state?.hasActiveDevice) {
@@ -1607,7 +1616,14 @@ class SpotifyService {
           return true;
         }
 
-        // Si sigue sin dispositivos, no está listo pero al menos intentamos
+        // Técnica 2: Deep link para despertar la app de Spotify
+        console.log('🔥 Spotify warmUp: Intentando deep link wake...');
+        const woke = await this.wakeWithDeepLink();
+        if (woke) {
+          console.log('🔥 Spotify warmUp: ✅ Despertado via deep link');
+          return true;
+        }
+
         console.log('🔥 Spotify warmUp: ⚠️ Sin dispositivos activos - necesita abrir Spotify');
         this.isWarmedUp = false;
         return false;
@@ -1722,6 +1738,94 @@ class SpotifyService {
   resetWarmUpState(): void {
     this.isWarmedUp = false;
     this.lastWarmUpAttempt = 0;
+  }
+
+  // =========================================================================
+  // 📡 DEEP LINK WAKE - Despertar Spotify sin abrir la app visualmente
+  // =========================================================================
+
+  /**
+   * Despertar la app de Spotify usando deep links.
+   *
+   * Estrategia por plataforma:
+   * - **Web/PWA**: Abre un iframe oculto con spotify: URI.
+   *   El browser intenta resolver el intent, lo que despierta la app
+   *   de Spotify en segundo plano si está instalada.
+   * - **Nativo (iOS/Android)**: Usa Linking.openURL con spotify: URI.
+   *   En iOS esto trae Spotify al frente brevemente.
+   *
+   * Después de abrir el deep link, espera y verifica si apareció un dispositivo.
+   *
+   * @param trackUri - Opcional: URI específica. Si no se da, abre la app genérica.
+   * @returns true si después del intento hay un dispositivo disponible.
+   */
+  async wakeWithDeepLink(trackUri?: string): Promise<boolean> {
+    try {
+      console.log('📡 Spotify wakeWithDeepLink: Intentando despertar...');
+
+      if (Platform.OS === 'web' && typeof document !== 'undefined') {
+        // WEB/PWA: iframe oculto con intent de Spotify
+        // Esto envía un intent al OS sin navegar la página actual
+        const uri = trackUri || 'spotify:';
+
+        // Crear un iframe invisible que dispara el deep link
+        const iframe = document.createElement('iframe');
+        iframe.style.display = 'none';
+        iframe.src = uri;
+        document.body.appendChild(iframe);
+
+        // Limpiar después de 2 segundos
+        setTimeout(() => {
+          try { document.body.removeChild(iframe); } catch {}
+        }, 2000);
+
+        // También intentar con window.open como fallback para Android Chrome
+        // Android Chrome a veces ignora iframe intents pero responde a window.open
+        try {
+          const w = window.open(uri, '_blank');
+          if (w) setTimeout(() => { try { w.close(); } catch {} }, 500);
+        } catch {}
+
+        // Esperar a que Spotify se despierte y registre dispositivo
+        await new Promise((resolve) => setTimeout(resolve, 3000));
+
+      } else {
+        // NATIVO: Linking.openURL abre la app directamente
+        const uri = trackUri || 'spotify:';
+        const canOpen = await Linking.canOpenURL(uri);
+        if (canOpen) {
+          await Linking.openURL(uri);
+          // Esperar a que Spotify arranque
+          await new Promise((resolve) => setTimeout(resolve, 3000));
+        } else {
+          console.log('📡 wakeWithDeepLink: Spotify no instalado');
+          return false;
+        }
+      }
+
+      // Verificar si ahora hay un dispositivo disponible
+      const devices = await this.getDevices();
+      if (devices.length > 0) {
+        console.log('📡 wakeWithDeepLink: ✅ Dispositivo encontrado:', devices[0].name);
+
+        // Transferir sin reproducir para tenerlo listo
+        const target = devices.find((d) => !d.is_restricted) || devices[0];
+        if (target && !devices.find((d) => d.is_active)) {
+          await this.transferPlayback(target.id, false);
+          await new Promise((resolve) => setTimeout(resolve, 300));
+        }
+
+        this.isWarmedUp = true;
+        return true;
+      }
+
+      console.log('📡 wakeWithDeepLink: ❌ No aparecieron dispositivos');
+      return false;
+
+    } catch (error) {
+      console.error('📡 wakeWithDeepLink error:', error);
+      return false;
+    }
   }
 }
 

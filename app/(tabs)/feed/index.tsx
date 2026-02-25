@@ -803,10 +803,12 @@ function FeedScreenContent() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setIsMuted((prev) => {
       const newMuted = !prev;
-      if (!newMuted && spotifyPlayingFromFeed) {
-        // User unmuted video → pause Spotify but keep track URI for resume
-        spotify.pause().catch(() => {});
-        setSpotifyPlayingFromFeed(false);
+      if (!newMuted) {
+        // User unmuted video → pause Spotify and reset chip to "Spotify"
+        if (spotifyPlayingFromFeed) {
+          spotify.pause().catch(() => {});
+          setSpotifyPlayingFromFeed(false);
+        }
         setNowPlayingTrack(null);
       }
       return newMuted;
@@ -979,8 +981,11 @@ function FeedScreenContent() {
         currentTrainingDay: 0,
       });
 
-      // Fetch currently playing track for the header chip
+      // Fetch currently playing track for the header chip + warm up Spotify
       if (spotifyConnected) {
+        // Warm up Spotify silenciosamente (deep link si es necesario)
+        spotify.warmUp().catch(() => {});
+
         spotify
           .getPlaybackState()
           .then((playback) => {
