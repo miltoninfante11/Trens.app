@@ -30,6 +30,11 @@
     color: #ffffff;
   }
 
+  /* Video inline en iOS Safari/PWA */
+  video {
+    -webkit-playsinline: true;
+  }
+
   * {
     -webkit-user-select: none;
     -moz-user-select: none;

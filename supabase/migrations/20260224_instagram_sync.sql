@@ -84,10 +84,10 @@ CREATE INDEX IF NOT EXISTS idx_trens_feed_hashtags ON public.trens_feed USING GI
 -- RLS: Feed público para lectura, escritura restringida
 ALTER TABLE public.trens_feed ENABLE ROW LEVEL SECURITY;
 
--- Todos los usuarios autenticados pueden ver el feed activo
-CREATE POLICY "Authenticated users can view active feed"
+-- Cualquier usuario (incluido anon) puede ver el feed activo
+CREATE POLICY "Public can view active feed"
   ON public.trens_feed FOR SELECT
-  USING (auth.role() = 'authenticated' AND is_active = true);
+  USING (is_active = true);
 
 -- Usuarios solo pueden insertar sus propios posts
 CREATE POLICY "Users can insert own feed items"

@@ -29,7 +29,7 @@ PWA_META+='<meta name="theme-color" media="(prefers-color-scheme: light)" conten
 PWA_META+='<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#000000"/>'
 PWA_META+='<meta name="msapplication-navbutton-color" content="#000000"/>'
 PWA_META+='<meta name="apple-mobile-web-app-capable" content="yes"/>'
-PWA_META+='<meta name="apple-mobile-web-app-status-bar-style" content="black"/>'
+PWA_META+='<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>'
 PWA_META+='<meta name="apple-mobile-web-app-title" content="TRENS"/>'
 PWA_META+='<meta name="mobile-web-app-capable" content="yes"/>'
 PWA_META+='<link rel="manifest" href="/manifest.json"/>'

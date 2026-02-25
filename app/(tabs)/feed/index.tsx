@@ -3,25 +3,40 @@ import {
   View,
   Text,
   TouchableOpacity,
-  Dimensions,
   ActivityIndicator,
   FlatList,
   ViewToken,
   RefreshControl,
+  ScrollView,
+  useWindowDimensions,
 } from 'react-native';
 import { PWAGuard } from '../../../components/auth/PWAGuard';
 import { Alert } from '../../../lib/alert';
 import { useFocusEffect, router } from 'expo-router';
 import { Lock } from 'lucide-react-native';
 import { Image } from 'expo-image';
-import { Heart, MessageCircle, Share2, Music, Bookmark, Play, Unlink } from 'lucide-react-native';
+import {
+  Heart,
+  MessageCircle,
+  Share2,
+  Music,
+  Bookmark,
+  Play,
+  Volume2,
+  VolumeX,
+  ListVideo,
+  PlusCircle,
+  CheckCircle,
+} from 'lucide-react-native';
 import * as Haptics from '../../../lib/haptics';
 import { VideoView, useVideoPlayer } from 'expo-video';
+import { Audio } from 'expo-av';
 import { LinearGradient } from 'expo-linear-gradient';
 import { supabase } from '../../../lib/supabase';
 import { useUserRoleContext } from '../../../context/UserRoleContext';
 import { useHank } from '../../../context/HankContext';
 import spotify from '../../../services/spotify/spotify';
+import { spotifyModalEvent, SpotifyNowPlaying } from '../../../lib/spotifyModalEvent';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Platform } from 'react-native';
 
@@ -45,6 +60,7 @@ interface FeedVideo {
     trackUri?: string;
     trackName?: string;
     artist?: string;
+    albumArt?: string;
     positionMs?: number;
   } | null;
   created_at: string;
@@ -63,12 +79,9 @@ interface FeedVideo {
 }
 
 // ============================================================================
-// DIMENSIONS
+// DIMENSIONS - Se calculan dinámicamente en cada componente con hooks
+// para adaptarse a PWA iPhone (notch, Dynamic Island, rotación)
 // ============================================================================
-const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
-// VIDEO_HEIGHT se calcula dinámicamente dentro de FeedScreenContent
-// usando useSafeAreaInsets para medir exacto desde borde superior
-// hasta el borde superior de la tab bar
 
 // ============================================================================
 // VIDEO ITEM COMPONENT (Memoizado para performance)
@@ -85,10 +98,17 @@ const FeedVideoItem = memo(
     spotifyPremium,
     spotifyConnected,
     isPro,
-    onSpotifyUpgrade,
-    spotifySyncEnabled,
+    onSpotifyToggle,
+    isMuted,
+    autoScrollEnabled,
+    onVideoEnd,
     contextReady,
     videoHeight,
+    screenWidth,
+    savedTrackIds,
+    onToggleSaveTrack,
+    currentPlayingTrackUri,
+    spotifyPlayingFromFeed,
   }: {
     item: FeedVideo;
     isActive: boolean;
@@ -100,10 +120,17 @@ const FeedVideoItem = memo(
     spotifyPremium: boolean;
     spotifyConnected: boolean;
     isPro: boolean;
-    onSpotifyUpgrade: () => void;
-    spotifySyncEnabled: boolean;
+    onSpotifyToggle: (trackUri: string) => void;
+    isMuted: boolean;
+    autoScrollEnabled: boolean;
+    onVideoEnd: () => void;
     contextReady: boolean;
     videoHeight: number;
+    screenWidth: number;
+    savedTrackIds: Set<string>;
+    onToggleSaveTrack: (trackId: string) => void;
+    currentPlayingTrackUri: string | null;
+    spotifyPlayingFromFeed: boolean;
   }) => {
     // Helper: Arreglar URLs de Cloudflare Stream incompletas
     const fixCloudflareUrl = (url: string): string => {
@@ -118,47 +145,29 @@ const FeedVideoItem = memo(
     const videoUrl = fixCloudflareUrl(item.video_url);
 
     // =====================================================================
-    // 3 ESTADOS DE AUDIO (NUNCA SE MEZCLAN):
-    // Estado 1: Spotify conectado + SYNC ON → Video MUTE, reproduce canción del video
-    // Estado 2: Spotify conectado + SYNC OFF → Video con AUDIO AMBIENTE
-    // Estado 3: Sin Spotify → Video con AUDIO AMBIENTE
+    // AUDIO: Controlado por botón MUTE global del feed
     // =====================================================================
 
-    // ¿Puede sincronizar canción? (tiene track + conectado + premium + sync ON + contexto listo)
-    const canSyncTrack = !!(
-      contextReady &&
-      item.spotify?.enabled &&
-      item.spotify.trackUri &&
-      spotifyConnected &&
-      spotifyPremium &&
-      spotifySyncEnabled
-    );
-
-    // ¿Video debe estar muteado? → SOLO si SYNC está activado y puede sincronizar
-    // Si SYNC está OFF o no hay Spotify → escuchar audio ambiente del video
-    const shouldMuteVideo = canSyncTrack;
+    // El video se mutea según el toggle global del usuario
+    const shouldMuteVideo = isMuted;
 
     // Debug log
     console.log('🎵 Feed Audio State:', {
       videoId: item.id.substring(0, 8),
-      state: canSyncTrack ? '🎵 Estado 1: SYNC (canción del video)' : '🔊 Audio Ambiente',
-      spotifyConnected,
-      spotifySyncEnabled,
-      canSyncTrack,
-      shouldMuteVideo,
+      state: isMuted ? '🔇 MUTED' : '🔊 AUDIO ON',
+      isMuted,
     });
 
     // Para fotos, no hay loading de video
     const [isVideoLoading, setIsVideoLoading] = useState(item.media_type !== 'photo');
     const [videoError, setVideoError] = useState<string | null>(null);
     const [isManuallyPaused, setIsManuallyPaused] = useState(false);
+    const [isTextExpanded, setIsTextExpanded] = useState(false);
     const hasBeenReady = useRef(item.media_type === 'photo'); // Para fotos ya está listo
-    const spotifySyncedRef = useRef(false); // Evita re-sync al reanudar de pausa manual
 
     const player = useVideoPlayer(videoUrl, (p) => {
-      p.loop = true;
-      // Si Spotify conectado → video SIEMPRE mute (usuario escucha Spotify)
-      // Si NO hay Spotify → video con audio ambiente
+      // Si autoscroll activo → no loop, el video termina y avanza
+      p.loop = !autoScrollEnabled;
       p.muted = shouldMuteVideo;
     });
 
@@ -193,35 +202,37 @@ const FeedVideoItem = memo(
       }
     }, [player, videoUrl]);
 
-    // Control de reproducción basado en isActive - 3 ESTADOS CLAROS
+    // Autoscroll: detectar cuando el video termina para avanzar al siguiente
     useEffect(() => {
-      // Video mute si Spotify conectado, con audio si no
+      if (!player || !isActive || !autoScrollEnabled) return;
+
+      const endSub = player.addListener('playToEnd', () => {
+        console.log('⏭️ Video terminó, avanzando al siguiente...');
+        onVideoEnd();
+      });
+
+      return () => {
+        endSub.remove();
+      };
+    }, [player, isActive, autoScrollEnabled, onVideoEnd]);
+
+    // Actualizar loop cuando cambia autoScrollEnabled
+    useEffect(() => {
+      player.loop = !autoScrollEnabled;
+    }, [player, autoScrollEnabled]);
+
+    // Control de reproducción basado en isActive
+    useEffect(() => {
+      // Video mute controlado por toggle global
       player.muted = shouldMuteVideo;
 
       if (isActive && !isManuallyPaused) {
         player.play();
-
-        // Solo sincronizar Spotify la PRIMERA vez que el video se activa
-        if (spotifyConnected && canSyncTrack && !spotifySyncedRef.current) {
-          // ESTADO 1: SYNC ON → Reproducir canción del video (solo primera vez)
-          spotifySyncedRef.current = true;
-          const positionMs = item.spotify!.positionMs || 0;
-          console.log('🎵 Estado 1: Sync canción del video', item.id.substring(0, 8));
-          spotify.syncWithVideo(item.spotify!.trackUri!, positionMs).catch(console.warn);
-        }
-        // ESTADO 2: SYNC OFF → No tocamos Spotify, usuario sigue con su música
-        // ESTADO 3: Sin Spotify → Video suena con audio ambiente (ya configurado arriba)
       } else if (!isActive) {
         player.pause();
-        setIsManuallyPaused(false); // Reset manual pause cuando cambia de video
-        // Solo pausar Spotify si REALMENTE sincronizamos la canción del video
-        // (spotifySyncedRef.current = true significa que hicimos syncWithVideo)
-        if (spotifySyncedRef.current) {
-          spotify.pauseForSwipe().catch(console.warn);
-        }
-        spotifySyncedRef.current = false; // Reset para próxima activación
+        setIsManuallyPaused(false);
       }
-    }, [isActive, player, item.spotify, canSyncTrack, shouldMuteVideo, spotifyConnected]);
+    }, [isActive, player, shouldMuteVideo]);
 
     // Handler para tap en el video (pausar/reanudar solo video, NO Spotify)
     const handleVideoTap = useCallback(() => {
@@ -251,7 +262,7 @@ const FeedVideoItem = memo(
     };
 
     return (
-      <View style={{ width: SCREEN_WIDTH, height: videoHeight }} className="bg-black">
+      <View style={{ width: screenWidth, height: videoHeight }} className="bg-black">
         {/* Photo or Video */}
         {item.media_type === 'photo' ? (
           <Image
@@ -260,7 +271,7 @@ const FeedVideoItem = memo(
               position: 'absolute',
               top: 0,
               left: 0,
-              width: SCREEN_WIDTH,
+              width: screenWidth,
               height: videoHeight,
             }}
             contentFit="cover"
@@ -272,7 +283,7 @@ const FeedVideoItem = memo(
               position: 'absolute',
               top: 0,
               left: 0,
-              width: SCREEN_WIDTH,
+              width: screenWidth,
               height: videoHeight,
             }}
             contentFit="cover"
@@ -289,7 +300,7 @@ const FeedVideoItem = memo(
               position: 'absolute',
               top: 0,
               left: 0,
-              width: SCREEN_WIDTH,
+              width: screenWidth,
               height: videoHeight,
               zIndex: 1,
             }}
@@ -458,45 +469,163 @@ const FeedVideoItem = memo(
                 </Text>
               )}
               {item.free_text && (
-                <Text className="text-zinc-300 text-sm mt-1" numberOfLines={2}>
-                  {item.free_text}
-                </Text>
+                <TouchableOpacity
+                  activeOpacity={0.8}
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    setIsTextExpanded((prev) => !prev);
+                  }}
+                >
+                  {isTextExpanded ? (
+                    <ScrollView
+                      style={{ maxHeight: videoHeight * 0.4, marginTop: 4 }}
+                      showsVerticalScrollIndicator={true}
+                      nestedScrollEnabled
+                    >
+                      <Text className="text-zinc-300 text-sm">{item.free_text}</Text>
+                    </ScrollView>
+                  ) : (
+                    <Text className="text-zinc-300 text-sm mt-1" numberOfLines={2}>
+                      {item.free_text}
+                    </Text>
+                  )}
+                </TouchableOpacity>
               )}
             </View>
           )}
 
           {/* Texto libre (cuando NO hay ejercicio) */}
           {item.free_text && !item.exercise_name && (
-            <Text className="text-white text-base mb-2">{item.free_text}</Text>
-          )}
-
-          {/* Spotify info - Ed Hardy style */}
-          {item.spotify?.enabled && (
             <TouchableOpacity
-              onPress={async () => {
-                // Premium: Puede reproducir desde posición exacta
-                if (spotifyPremium && item.spotify?.trackUri) {
-                  const positionMs = item.spotify.positionMs || 0;
-                  await spotify.syncWithVideo(item.spotify.trackUri, positionMs);
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                } else if (!spotifyConnected) {
-                  // No conectado: Mostrar modal de conexión
-                  onSpotifyUpgrade();
-                }
+              activeOpacity={0.8}
+              onPress={(e) => {
+                e.stopPropagation();
+                setIsTextExpanded((prev) => !prev);
               }}
-              className="flex-row items-center rounded-full px-3 py-1.5 self-start"
-              style={{
-                backgroundColor: 'rgba(30, 215, 96, 0.15)',
-                borderWidth: 1,
-                borderColor: '#1DB954',
-              }}
+              className="mb-2"
             >
-              <Music size={14} color="#1DB954" />
-              <Text className="text-white text-xs ml-2" numberOfLines={1}>
-                {item.spotify.trackName} – {item.spotify.artist}
-              </Text>
+              {isTextExpanded ? (
+                <ScrollView
+                  style={{ maxHeight: videoHeight * 0.45 }}
+                  showsVerticalScrollIndicator={true}
+                  nestedScrollEnabled
+                >
+                  <Text className="text-white text-base">{item.free_text}</Text>
+                </ScrollView>
+              ) : (
+                <Text className="text-white text-base" numberOfLines={2}>
+                  {item.free_text}
+                </Text>
+              )}
             </TouchableOpacity>
           )}
+
+          {/* Spotify info - play/pause toggle, save to liked, open Spotify */}
+          {item.spotify?.enabled &&
+            item.spotify?.trackUri &&
+            (() => {
+              const thisTrackUri = item.spotify.trackUri;
+              const trackId = thisTrackUri?.split(':').pop() || '';
+              const isThisPlaying =
+                spotifyPlayingFromFeed && currentPlayingTrackUri === thisTrackUri;
+              const isSaved = savedTrackIds.has(trackId);
+
+              return (
+                <View className="flex-row items-center self-start mt-1 gap-1.5">
+                  {/* Song chip - play/pause toggle */}
+                  <TouchableOpacity
+                    onPress={() => {
+                      if (spotifyConnected && thisTrackUri) {
+                        onSpotifyToggle(thisTrackUri);
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      } else {
+                        spotifyModalEvent.open();
+                      }
+                    }}
+                    className="flex-row items-center rounded-full px-3 py-1.5"
+                    style={{
+                      backgroundColor: isThisPlaying
+                        ? 'rgba(30, 215, 96, 0.15)'
+                        : 'rgba(255, 255, 255, 0.08)',
+                      borderWidth: 1,
+                      borderColor: isThisPlaying ? '#1DB954' : 'rgba(255, 255, 255, 0.15)',
+                      maxWidth: '70%',
+                    }}
+                  >
+                    {/* Play/Pause icon */}
+                    {isThisPlaying ? (
+                      <View style={{ flexDirection: 'row', gap: 2, alignItems: 'center' }}>
+                        <View
+                          style={{
+                            width: 3,
+                            height: 12,
+                            backgroundColor: '#1DB954',
+                            borderRadius: 1,
+                          }}
+                        />
+                        <View
+                          style={{
+                            width: 3,
+                            height: 12,
+                            backgroundColor: '#1DB954',
+                            borderRadius: 1,
+                          }}
+                        />
+                      </View>
+                    ) : (
+                      <Play size={14} color="#FFFFFF" fill="#FFFFFF" />
+                    )}
+                    {/* Album art */}
+                    {item.spotify.albumArt ? (
+                      <Image
+                        source={{ uri: item.spotify.albumArt }}
+                        style={{ width: 18, height: 18, borderRadius: 3, marginLeft: 6 }}
+                      />
+                    ) : (
+                      <Music
+                        size={14}
+                        color={isThisPlaying ? '#1DB954' : '#FFFFFF'}
+                        style={{ marginLeft: 6 }}
+                      />
+                    )}
+                    <Text
+                      className="text-xs ml-2 flex-shrink"
+                      style={{ color: isThisPlaying ? '#1DB954' : '#FFFFFF' }}
+                      numberOfLines={1}
+                    >
+                      {item.spotify.trackName} – {item.spotify.artist}
+                    </Text>
+                  </TouchableOpacity>
+
+                  {/* Add/Remove from Spotify liked */}
+                  <TouchableOpacity
+                    onPress={() => {
+                      if (!spotifyConnected) {
+                        spotifyModalEvent.open();
+                        return;
+                      }
+                      if (trackId) {
+                        onToggleSaveTrack(trackId);
+                      }
+                    }}
+                    className="w-8 h-8 rounded-full items-center justify-center"
+                    style={{
+                      backgroundColor: isSaved
+                        ? 'rgba(30, 215, 96, 0.35)'
+                        : 'rgba(30, 215, 96, 0.2)',
+                      borderWidth: 1,
+                      borderColor: isSaved ? '#1DB954' : 'rgba(30, 215, 96, 0.4)',
+                    }}
+                  >
+                    {isSaved ? (
+                      <CheckCircle size={16} color="#1DB954" />
+                    ) : (
+                      <PlusCircle size={16} color="#1DB954" />
+                    )}
+                  </TouchableOpacity>
+                </View>
+              );
+            })()}
         </View>
 
         {/* Acciones laterales - ED HARDY FIRE GLOW */}
@@ -622,9 +751,10 @@ const FeedVideoItem = memo(
 // ============================================================================
 function FeedScreenContent() {
   const insets = useSafeAreaInsets();
+  const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = useWindowDimensions();
 
   // Altura exacta del video: desde borde superior de pantalla
-  // hasta el borde superior de la tab bar (pixel-perfect)
+  // hasta el borde superior de la tab bar (pixel-perfect, reactivo a PWA)
   const TAB_BAR_H = (Platform.OS === 'web' ? 70 : 56) + insets.bottom;
   const videoHeight = SCREEN_HEIGHT - TAB_BAR_H;
 
@@ -633,43 +763,208 @@ function FeedScreenContent() {
     spotifyPremium,
     spotifyConnected,
     isPro,
-    spotifyFeedSync,
-    updateSpotifyFeedSync,
     loading: contextLoading,
   } = useUserRoleContext();
   const { setScreenContext } = useHank();
 
+  const PAGE_SIZE = 15;
   const [videos, setVideos] = useState<FeedVideo[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  const offsetRef = useRef(0);
   const [activeIndex, setActiveIndex] = useState(0);
   // Estado para rastrear si el Feed está enfocado
   const [isFeedFocused, setIsFeedFocused] = useState(true);
+  // Mute global del feed - iOS PWA no permite autoplay con audio,
+  // Solo iOS PWA necesita empezar muteado para autoplay; Android web reproduce con audio
+  const isIOSWeb =
+    Platform.OS === 'web' &&
+    typeof navigator !== 'undefined' &&
+    /iPad|iPhone|iPod/.test(navigator.userAgent);
+  const [isMuted, setIsMuted] = useState(isIOSWeb);
+  // Spotify playing from feed chip
+  const [spotifyPlayingFromFeed, setSpotifyPlayingFromFeed] = useState(false);
+  const [currentPlayingTrackUri, setCurrentPlayingTrackUri] = useState<string | null>(null);
+  // Track IDs already saved in user's Spotify library
+  const [savedTrackIds, setSavedTrackIds] = useState<Set<string>>(new Set());
+  // Autoscroll del feed (avanza cuando termina el video)
+  const [autoScrollEnabled, setAutoScrollEnabled] = useState(false);
+  // Now-playing track info (from modal or feed chip)
+  const [nowPlayingTrack, setNowPlayingTrack] = useState<SpotifyNowPlaying | null>(null);
 
   const flatListRef = useRef<FlatList>(null);
 
-  // Ref para tener siempre el valor actual de spotifyFeedSync (evita closure stale en cleanup)
-  const spotifyFeedSyncRef = useRef(spotifyFeedSync);
-  useEffect(() => {
-    spotifyFeedSyncRef.current = spotifyFeedSync;
-  }, [spotifyFeedSync]);
-
   // -------------------------------------------------------------------------
-  // TOGGLE SPOTIFY SYNC (ahora persiste en Supabase)
+  // TOGGLE MUTE - Also pauses Spotify when user unmutes video
   // -------------------------------------------------------------------------
-  const handleToggleSpotifySync = useCallback(() => {
+  const handleToggleMute = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    const newValue = !spotifyFeedSync;
-    // Guardar en Supabase
-    updateSpotifyFeedSync(newValue);
-    console.log(
-      '🎵 Spotify SYNC toggled:',
-      newValue ? 'ON (auto-sync canción del video)' : 'OFF (tu música)'
-    );
-  }, [spotifyFeedSync, updateSpotifyFeedSync]);
+    setIsMuted((prev) => {
+      const newMuted = !prev;
+      if (!newMuted && spotifyPlayingFromFeed) {
+        // User unmuted video → pause Spotify but keep track URI for resume
+        spotify.pause().catch(() => {});
+        setSpotifyPlayingFromFeed(false);
+        setNowPlayingTrack(null);
+      }
+      return newMuted;
+    });
+  }, [spotifyPlayingFromFeed]);
 
   // -------------------------------------------------------------------------
-  // PAUSAR AL SALIR DEL FEED (Videos + Spotify si sincronizando)
+  // TOGGLE AUTOSCROLL
+  // -------------------------------------------------------------------------
+  const handleToggleAutoScroll = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setAutoScrollEnabled((prev) => !prev);
+  }, []);
+
+  // -------------------------------------------------------------------------
+  // AUTOSCROLL: Avanza al siguiente reel cuando el video actual termina
+  // -------------------------------------------------------------------------
+  const handleVideoEnd = useCallback(() => {
+    if (!autoScrollEnabled) return;
+    setActiveIndex((prev) => {
+      const nextIndex = prev + 1 < videos.length ? prev + 1 : 0;
+      flatListRef.current?.scrollToIndex({ index: nextIndex, animated: true });
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      return nextIndex;
+    });
+  }, [autoScrollEnabled, videos.length]);
+
+  // -------------------------------------------------------------------------
+  // HEADPHONE / MEDIA CONTROLS: next/prev track = next/prev reel
+  // Use a real <audio> element (not just AudioContext) because browsers tie
+  // the OS media-session to <audio>/<video> elements.  A looping silent
+  // MP3 keeps the browser as the "active media app" so hardware media
+  // buttons fire our handlers instead of Spotify's native app.
+  // When the user leaves the Feed we pause + remove it → Spotify regains
+  // the buttons.
+  // -------------------------------------------------------------------------
+  const silentAudioElRef = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const setupAudioSession = async () => {
+      try {
+        if (Platform.OS === 'web') return;
+        await Audio.setAudioModeAsync({
+          staysActiveInBackground: false,
+          playsInSilentModeIOS: true,
+        });
+      } catch (err) {
+        console.warn('⚠️ Audio session setup error:', err);
+      }
+    };
+
+    setupAudioSession();
+
+    // Web: create a real <audio> element playing near-silent audio.
+    // This makes the browser claim the OS media session robustly.
+    // Data-URI = tiny valid MP3 of ~0.1 s silence (avoids network request).
+    if (Platform.OS === 'web' && typeof document !== 'undefined') {
+      try {
+        const audio = document.createElement('audio');
+        // Smallest valid MP3 frame - silence
+        audio.src =
+          'data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4Ljc2LjEwMAAAAAAAAAAAAAAA//tQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAABhgC7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7//////////////////////////////////////////////////////////////////8AAAAATGF2YzU4LjEzAAAAAAAAAAAAAAAAJAAAAAAAAAABhgIkdOAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=';
+        audio.loop = true;
+        audio.volume = 0.01; // Near-silent but audible enough for OS
+        audio.setAttribute('playsinline', 'true');
+        // Play — must handle autoplay-policy by trying after user gesture
+        const playPromise = audio.play();
+        if (playPromise) {
+          playPromise.catch(() => {
+            // Autoplay blocked; retry on next user interaction
+            const resume = () => {
+              audio.play().catch(() => {});
+              document.removeEventListener('touchstart', resume);
+              document.removeEventListener('click', resume);
+            };
+            document.addEventListener('touchstart', resume, { once: true });
+            document.addEventListener('click', resume, { once: true });
+          });
+        }
+        silentAudioElRef.current = audio;
+      } catch (err) {
+        console.warn('⚠️ Silent audio element setup error:', err);
+      }
+    }
+
+    // Web: MediaSession API handlers (Chrome, Edge, etc.)
+    if (Platform.OS === 'web' && typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
+      try {
+        navigator.mediaSession.metadata = new MediaMetadata({
+          title: 'TRENS Feed',
+          artist: 'TRENS',
+        });
+        navigator.mediaSession.playbackState = 'playing';
+
+        navigator.mediaSession.setActionHandler('nexttrack', () => {
+          if (!isMounted) return;
+          setActiveIndex((prev) => {
+            const nextIndex = prev + 1 < videos.length ? prev + 1 : 0;
+            flatListRef.current?.scrollToIndex({ index: nextIndex, animated: true });
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            return nextIndex;
+          });
+        });
+
+        navigator.mediaSession.setActionHandler('previoustrack', () => {
+          if (!isMounted) return;
+          setActiveIndex((prev) => {
+            const prevIndex = prev - 1 >= 0 ? prev - 1 : videos.length - 1;
+            flatListRef.current?.scrollToIndex({ index: prevIndex, animated: true });
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            return prevIndex;
+          });
+        });
+
+        // Also claim play/pause to strengthen our session ownership
+        navigator.mediaSession.setActionHandler('play', () => {
+          silentAudioElRef.current?.play().catch(() => {});
+          navigator.mediaSession.playbackState = 'playing';
+        });
+        navigator.mediaSession.setActionHandler('pause', () => {
+          navigator.mediaSession.playbackState = 'paused';
+        });
+      } catch (err) {
+        console.warn('⚠️ MediaSession setup error:', err);
+      }
+    }
+
+    return () => {
+      isMounted = false;
+      // Remove silent audio → Spotify regains media buttons
+      if (silentAudioElRef.current) {
+        try {
+          silentAudioElRef.current.pause();
+          silentAudioElRef.current.src = '';
+          silentAudioElRef.current.remove();
+        } catch {}
+        silentAudioElRef.current = null;
+      }
+      if (
+        Platform.OS === 'web' &&
+        typeof navigator !== 'undefined' &&
+        'mediaSession' in navigator
+      ) {
+        try {
+          navigator.mediaSession.playbackState = 'none';
+          navigator.mediaSession.setActionHandler('nexttrack', null);
+          navigator.mediaSession.setActionHandler('previoustrack', null);
+          navigator.mediaSession.setActionHandler('play', null);
+          navigator.mediaSession.setActionHandler('pause', null);
+        } catch {}
+      }
+    };
+  }, [videos.length]);
+
+  // -------------------------------------------------------------------------
+  // PAUSAR AL SALIR DEL FEED
   // -------------------------------------------------------------------------
   useFocusEffect(
     useCallback(() => {
@@ -684,148 +979,103 @@ function FeedScreenContent() {
         currentTrainingDay: 0,
       });
 
+      // Fetch currently playing track for the header chip
+      if (spotifyConnected) {
+        spotify
+          .getPlaybackState()
+          .then((playback) => {
+            if (playback?.isPlaying && playback.track) {
+              setNowPlayingTrack({
+                trackName: playback.track.name,
+                artist: playback.track.artist,
+                trackUri: playback.track.uri,
+              });
+            }
+          })
+          .catch(() => {});
+      }
+
       return () => {
         // Al salir del Feed, marcar como no enfocado (pausará videos)
         setIsFeedFocused(false);
-
-        // Solo pausar Spotify si estaba en modo SYNC
-        // Si el usuario escucha su propia música (SYNC OFF), no interrumpimos
-        // Usamos ref para obtener el valor actual (evita closure stale)
-        if (spotifyConnected && spotifyFeedSyncRef.current) {
-          spotify.pauseForSwipe().catch(() => {});
-        }
       };
     }, [spotifyConnected])
   );
 
   // -------------------------------------------------------------------------
-  // FETCH VIDEOS
+  // FETCH FEED PAGE (RPC con scoring + paginación)
   // -------------------------------------------------------------------------
-  const fetchVideos = useCallback(async () => {
-    try {
-      // ---- FUENTE 1: Videos de usuarios PRO (pro_videos) ----
-      const { data: videosData, error } = await supabase
-        .from('pro_videos')
-        .select(
-          `
-          id,
-          user_id,
-          video_url,
-          thumbnail_url,
-          media_type,
-          exercise_name,
-          weight_kg,
-          reps,
-          free_text,
-          spotify,
-          created_at,
-          likes_count,
-          comments_count,
-          views_count
-        `
-        )
-        .eq('is_public', true)
-        .order('created_at', { ascending: false })
-        .limit(50);
+  const fetchFeedPage = useCallback(
+    async (offset: number, isRefresh: boolean = false) => {
+      try {
+        if (!isRefresh && offset > 0) setLoadingMore(true);
 
-      if (error) throw error;
+        const { data, error } = await supabase.rpc('get_feed_page', {
+          p_limit: PAGE_SIZE,
+          p_offset: offset,
+          p_user_id: user?.id || null,
+        });
 
-      // Enriquecer pro_videos con perfil de usuario y likes/saves
-      const enrichedProVideos: FeedVideo[] = await Promise.all(
-        (videosData || []).map(async (video) => {
-          const { data: profile } = await supabase
-            .from('user_profiles')
-            .select('display_name, avatar_url')
-            .eq('user_id', video.user_id)
-            .single();
+        if (error) throw error;
 
-          let isLiked = false;
-          let isSaved = false;
+        const feedItems: FeedVideo[] = (data || []).map((item: any) => ({
+          id: item.id,
+          user_id: item.user_id,
+          video_url: item.video_url,
+          thumbnail_url: item.thumbnail_url || '',
+          media_type: (item.media_type || 'video') as 'video' | 'photo',
+          exercise_name: item.exercise_name,
+          weight_kg: item.weight_kg,
+          reps: item.reps,
+          free_text: item.free_text,
+          spotify: item.spotify || null,
+          created_at: item.created_at,
+          user_display_name: item.user_display_name || 'ATLETA',
+          user_avatar_url: item.user_avatar_url || null,
+          likes_count: item.likes_count || 0,
+          comments_count: item.comments_count || 0,
+          is_liked: item.is_liked || false,
+          is_saved: item.is_saved || false,
+          source: item.source as FeedSource,
+          ig_permalink: item.ig_permalink,
+          is_official: item.is_official || false,
+        }));
 
-          if (user) {
-            const { data: likeData } = await supabase
-              .from('video_likes')
-              .select('id')
-              .eq('user_id', user.id)
-              .eq('video_id', video.id)
-              .single();
+        const total = data?.[0]?.total_count || 0;
+        setHasMore(offset + PAGE_SIZE < total);
 
-            const { data: saveData } = await supabase
-              .from('video_saves')
-              .select('id')
-              .eq('user_id', user.id)
-              .eq('video_id', video.id)
-              .single();
-
-            isLiked = !!likeData;
-            isSaved = !!saveData;
-          }
-
-          return {
-            ...video,
-            user_display_name: profile?.display_name || 'ATLETA',
-            user_avatar_url: profile?.avatar_url || null,
-            likes_count: video.likes_count || 0,
-            comments_count: video.comments_count || 0,
-            is_liked: isLiked,
-            is_saved: isSaved,
-            source: 'pro_video' as FeedSource,
-          };
-        })
-      );
-
-      // ---- FUENTE 2: Reels de Instagram (trens_feed) ----
-      const { data: reelsData, error: reelsError } = await supabase
-        .from('trens_feed')
-        .select('*')
-        .eq('is_active', true)
-        .order('created_at', { ascending: false })
-        .limit(30);
-
-      const enrichedReels: FeedVideo[] = (reelsData || []).map((reel: any) => ({
-        id: `ig_${reel.id}`,
-        user_id: reel.user_id || 'trens_official',
-        video_url: reel.video_url,
-        thumbnail_url: reel.thumbnail_url || '',
-        media_type: 'video' as const,
-        exercise_name: null,
-        weight_kg: null,
-        reps: null,
-        free_text: reel.caption || null,
-        spotify: null,
-        created_at: reel.ig_timestamp || reel.created_at,
-        user_display_name: reel.is_official ? 'TRENS' : 'COMUNIDAD',
-        user_avatar_url: null,
-        likes_count: reel.like_count || 0,
-        comments_count: reel.comment_count || 0,
-        is_liked: false,
-        is_saved: false,
-        source: 'instagram_reel' as FeedSource,
-        ig_permalink: reel.ig_permalink,
-        is_official: reel.is_official,
-      }));
-
-      if (reelsError) {
-        console.warn('Error fetching trens_feed (non-blocking):', reelsError.message);
+        if (isRefresh || offset === 0) {
+          setVideos(feedItems);
+          offsetRef.current = PAGE_SIZE;
+        } else {
+          // Deduplicar por id al agregar más páginas
+          setVideos((prev) => {
+            const existingIds = new Set(prev.map((v) => v.id));
+            const newItems = feedItems.filter((v) => !existingIds.has(v.id));
+            return [...prev, ...newItems];
+          });
+          offsetRef.current = offset + PAGE_SIZE;
+        }
+      } catch (err) {
+        console.error('Error fetching feed:', err);
+      } finally {
+        setLoading(false);
+        setLoadingMore(false);
+        setRefreshing(false);
       }
+    },
+    [user]
+  );
 
-      // ---- MEZCLAR: Pro videos + IG Reels, ordenados por fecha ----
-      const allVideos = [...enrichedProVideos, ...enrichedReels].sort(
-        (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-      );
-
-      setVideos(allVideos);
-    } catch (err) {
-      console.error('Error fetching feed:', err);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, [user]);
+  // Cargar más videos al llegar al final
+  const loadMore = useCallback(() => {
+    if (loadingMore || !hasMore || loading) return;
+    fetchFeedPage(offsetRef.current);
+  }, [loadingMore, hasMore, loading, fetchFeedPage]);
 
   useEffect(() => {
-    fetchVideos();
-  }, [fetchVideos]);
+    fetchFeedPage(0);
+  }, [fetchFeedPage]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -835,8 +1085,8 @@ function FeedScreenContent() {
       .catch(() => {});
     // Pequeña espera para que el sync procese al menos el más reciente
     await new Promise((r) => setTimeout(r, 2000));
-    fetchVideos();
-  }, [fetchVideos]);
+    fetchFeedPage(0, true);
+  }, [fetchFeedPage]);
 
   // -------------------------------------------------------------------------
   // VIEWABILITY CONFIG
@@ -984,16 +1234,143 @@ function FeedScreenContent() {
     router.push(`/profile/${userId}`);
   }, []);
 
-  // -------------------------------------------------------------------------
-  // SPOTIFY UPGRADE HANDLER - FREE usuarios
-  // -------------------------------------------------------------------------
-  const handleSpotifyUpgrade = useCallback(() => {
-    Alert.alert(
-      '⭐ TRENS PRO',
-      'Desbloquea TRENS PRO para escuchar la música con la que se grabó este levantamiento.\n\nCon PRO puedes:\n• Auto-reproducir la canción exacta\n• Controlar Spotify\n• Grabar tus propios videos',
-      [{ text: 'ENTENDIDO', style: 'default' }]
-    );
+  // Mute feed & reset chip when a song starts playing from the Spotify modal
+  useEffect(() => {
+    const unsub = spotifyModalEvent.onPlay((info) => {
+      setIsMuted(true);
+      // Modal took over playback → chip no longer controls it
+      setSpotifyPlayingFromFeed(false);
+      setCurrentPlayingTrackUri(null);
+      // Update now-playing info for the header chip
+      if (info) setNowPlayingTrack(info);
+    });
+    return unsub;
   }, []);
+
+  // Clear now-playing when Spotify is paused from the modal
+  useEffect(() => {
+    const unsub = spotifyModalEvent.onPause(() => {
+      setNowPlayingTrack(null);
+    });
+    return unsub;
+  }, []);
+
+  // -------------------------------------------------------------------------
+  // SPOTIFY TOGGLE FROM FEED CHIP - play/pause toggle
+  // -------------------------------------------------------------------------
+  const handleSpotifyToggle = useCallback(
+    async (trackUri: string) => {
+      if (!spotifyConnected) {
+        spotifyModalEvent.open();
+        return;
+      }
+      try {
+        if (currentPlayingTrackUri === trackUri && spotifyPlayingFromFeed) {
+          // Same track playing → pause (keep trackUri for resume)
+          await spotify.pause();
+          setSpotifyPlayingFromFeed(false);
+          setNowPlayingTrack(null);
+        } else if (currentPlayingTrackUri === trackUri && !spotifyPlayingFromFeed) {
+          // Same track paused → resume (not restart)
+          await spotify.play();
+          setIsMuted(true);
+          setSpotifyPlayingFromFeed(true);
+        } else {
+          // Different track or first play → play new track
+          await spotify.playTrack(trackUri);
+          setIsMuted(true);
+          setSpotifyPlayingFromFeed(true);
+          setCurrentPlayingTrackUri(trackUri);
+          // Update now-playing from the active video's spotify data
+          const activeVideo = videos[activeIndex];
+          if (activeVideo?.spotify?.trackName) {
+            setNowPlayingTrack({
+              trackName: activeVideo.spotify.trackName,
+              artist: activeVideo.spotify.artist || '',
+              trackUri,
+            });
+          }
+        }
+      } catch (err) {
+        console.warn('Error toggling Spotify track:', err);
+      }
+    },
+    [spotifyConnected, currentPlayingTrackUri, spotifyPlayingFromFeed, videos, activeIndex]
+  );
+
+  // -------------------------------------------------------------------------
+  // CHECK SAVED TRACKS - verify which feed tracks are in user's Spotify library
+  // -------------------------------------------------------------------------
+  const checkSavedTracks = useCallback(
+    async (feedVideos: FeedVideo[]) => {
+      if (!spotifyConnected) return;
+      const trackIds = feedVideos
+        .filter((v) => v.spotify?.trackUri)
+        .map((v) => v.spotify!.trackUri!.split(':').pop()!)
+        .filter(Boolean);
+      if (trackIds.length === 0) return;
+      // Check in batches of 50 (Spotify API limit)
+      const uniqueIds = [...new Set(trackIds)];
+      for (let i = 0; i < uniqueIds.length; i += 50) {
+        const batch = uniqueIds.slice(i, i + 50);
+        try {
+          const results = await spotify.checkSavedTracks(batch);
+          setSavedTrackIds((prev) => {
+            const next = new Set(prev);
+            results.forEach((saved, id) => {
+              if (saved) next.add(id);
+            });
+            return next;
+          });
+        } catch (err) {
+          console.warn('Error checking saved tracks:', err);
+        }
+      }
+    },
+    [spotifyConnected]
+  );
+
+  // Check saved tracks whenever videos change
+  useEffect(() => {
+    if (videos.length > 0 && spotifyConnected) {
+      checkSavedTracks(videos);
+    }
+  }, [videos.length, spotifyConnected]);
+
+  // -------------------------------------------------------------------------
+  // TOGGLE SAVE TRACK - add or remove from Spotify library
+  // -------------------------------------------------------------------------
+  const handleToggleSaveTrack = useCallback(
+    async (trackId: string) => {
+      if (!spotifyConnected || !trackId) return;
+      const isSaved = savedTrackIds.has(trackId);
+      try {
+        let ok: boolean;
+        if (isSaved) {
+          ok = await spotify.removeTrack(trackId);
+          if (ok) {
+            setSavedTrackIds((prev) => {
+              const next = new Set(prev);
+              next.delete(trackId);
+              return next;
+            });
+          }
+        } else {
+          ok = await spotify.saveTrack(trackId);
+          if (ok) {
+            setSavedTrackIds((prev) => new Set(prev).add(trackId));
+          }
+        }
+        Haptics.notificationAsync(
+          ok ? Haptics.NotificationFeedbackType.Success : Haptics.NotificationFeedbackType.Error
+        );
+      } catch (err) {
+        console.warn('Error toggling saved track:', err);
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      }
+    },
+    [spotifyConnected, savedTrackIds]
+  );
 
   // -------------------------------------------------------------------------
   // RENDER KEY EXTRACTOR
@@ -1016,10 +1393,17 @@ function FeedScreenContent() {
         spotifyPremium={spotifyPremium}
         spotifyConnected={spotifyConnected ?? false}
         isPro={isPro}
-        onSpotifyUpgrade={handleSpotifyUpgrade}
-        spotifySyncEnabled={spotifyFeedSync}
+        onSpotifyToggle={handleSpotifyToggle}
+        isMuted={isMuted}
+        autoScrollEnabled={autoScrollEnabled}
+        onVideoEnd={handleVideoEnd}
         contextReady={!contextLoading}
         videoHeight={videoHeight}
+        screenWidth={SCREEN_WIDTH}
+        savedTrackIds={savedTrackIds}
+        onToggleSaveTrack={handleToggleSaveTrack}
+        currentPlayingTrackUri={currentPlayingTrackUri}
+        spotifyPlayingFromFeed={spotifyPlayingFromFeed}
       />
     ),
     [
@@ -1033,10 +1417,17 @@ function FeedScreenContent() {
       spotifyPremium,
       spotifyConnected,
       isPro,
-      handleSpotifyUpgrade,
-      spotifyFeedSync,
+      handleSpotifyToggle,
+      isMuted,
+      autoScrollEnabled,
+      handleVideoEnd,
       contextLoading,
       videoHeight,
+      SCREEN_WIDTH,
+      savedTrackIds,
+      handleToggleSaveTrack,
+      currentPlayingTrackUri,
+      spotifyPlayingFromFeed,
     ]
   );
 
@@ -1072,36 +1463,103 @@ function FeedScreenContent() {
   // -------------------------------------------------------------------------
   return (
     <View className="flex-1 bg-black">
-      {/* Header flotante */}
-      <View className="absolute top-0 left-0 right-0 z-10 pt-14 px-4 pb-2">
+      {/* Header flotante - usa insets.top para adaptarse al notch/Dynamic Island */}
+      <View
+        className="absolute top-0 left-0 right-0 z-10 px-4 pb-2"
+        style={{ paddingTop: Math.max(insets.top, 20) + 8 }}
+      >
         <LinearGradient colors={['rgba(0,0,0,0.8)', 'transparent']} className="absolute inset-0" />
         <View className="flex-row items-center justify-between">
           <Text className="text-white text-xl font-bold tracking-wider">TRENS</Text>
           <View className="flex-row items-center gap-2">
-            {/* Toggle de Spotify Sync - Solo mostrar si está conectado */}
-            {spotifyConnected && (
-              <TouchableOpacity
-                onPress={handleToggleSpotifySync}
-                className={`px-3 py-1.5 rounded-full flex-row items-center ${
-                  spotifyFeedSync ? 'bg-green-500/20' : 'bg-black/50'
+            {/* Toggle Autoscroll */}
+            <TouchableOpacity
+              onPress={handleToggleAutoScroll}
+              className={`px-3 py-1.5 rounded-full flex-row items-center ${
+                autoScrollEnabled ? 'bg-red-600/30' : 'bg-black/50'
+              }`}
+              style={
+                autoScrollEnabled
+                  ? { borderWidth: 1, borderColor: '#DC2626' }
+                  : { borderWidth: 1, borderColor: 'rgba(113,113,122,0.3)' }
+              }
+            >
+              <ListVideo size={14} color={autoScrollEnabled ? '#DC2626' : '#71717a'} />
+              <Text
+                className={`ml-1.5 text-xs font-bold ${
+                  autoScrollEnabled ? 'text-red-500' : 'text-zinc-500'
                 }`}
               >
-                {spotifyFeedSync ? (
-                  <Music size={14} color="#1DB954" />
-                ) : (
-                  <Unlink size={14} color="#71717a" />
-                )}
-                <Text
-                  className={`ml-1.5 text-xs font-bold ${
-                    spotifyFeedSync ? 'text-green-500' : 'text-zinc-500'
-                  }`}
-                >
-                  {spotifyFeedSync ? 'SYNC' : 'OFF'}
-                </Text>
-              </TouchableOpacity>
-            )}
+                AUTO
+              </Text>
+            </TouchableOpacity>
+
+            {/* Toggle Mute */}
+            <TouchableOpacity
+              onPress={handleToggleMute}
+              className={`px-3 py-1.5 rounded-full flex-row items-center ${
+                isMuted ? 'bg-black/50' : 'bg-white/10'
+              }`}
+              style={
+                isMuted
+                  ? { borderWidth: 1, borderColor: 'rgba(113,113,122,0.3)' }
+                  : { borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)' }
+              }
+            >
+              {isMuted ? (
+                <VolumeX size={14} color="#71717a" />
+              ) : (
+                <Volume2 size={14} color="#FFFFFF" />
+              )}
+              <Text
+                className={`ml-1.5 text-xs font-bold ${isMuted ? 'text-zinc-500' : 'text-white'}`}
+              >
+                {isMuted ? 'MUTE' : 'ON'}
+              </Text>
+            </TouchableOpacity>
           </View>
         </View>
+
+        {/* Spotify Now-Playing chip */}
+        {(() => {
+          const activeVideo = videos[activeIndex];
+          const assignedUri = activeVideo?.spotify?.trackUri;
+          // If playing the same track assigned to the video, show just "Spotify" (no track name)
+          const isSameAsAssigned =
+            (nowPlayingTrack && assignedUri && nowPlayingTrack.trackUri === assignedUri) ||
+            (spotifyPlayingFromFeed && currentPlayingTrackUri === assignedUri);
+
+          // nowPlayingTrack is non-null only when Spotify is actively playing
+          const isPlaying = !!nowPlayingTrack && !isSameAsAssigned;
+
+          return (
+            <TouchableOpacity
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                spotifyModalEvent.open();
+              }}
+              className="self-end mt-1.5 flex-row items-center rounded-full px-3 py-1.5"
+              style={{
+                backgroundColor: isPlaying
+                  ? 'rgba(30, 215, 96, 0.12)'
+                  : 'rgba(255, 255, 255, 0.06)',
+                borderWidth: 1,
+                borderColor: isPlaying ? '#1DB954' : 'rgba(255, 255, 255, 0.12)',
+                maxWidth: '60%',
+              }}
+            >
+              <Music size={12} color={isPlaying ? '#1DB954' : '#71717a'} />
+              <Text
+                numberOfLines={1}
+                className={`ml-1.5 text-xs font-bold ${
+                  isPlaying ? 'text-green-400' : 'text-zinc-500'
+                }`}
+              >
+                {isPlaying ? `${nowPlayingTrack.trackName} — ${nowPlayingTrack.artist}` : 'Spotify'}
+              </Text>
+            </TouchableOpacity>
+          );
+        })()}
       </View>
 
       {/* Feed vertical */}
@@ -1129,6 +1587,16 @@ function FeedScreenContent() {
         maxToRenderPerBatch={3}
         windowSize={5}
         initialNumToRender={2}
+        onEndReached={loadMore}
+        onEndReachedThreshold={1.5}
+        ListFooterComponent={
+          loadingMore ? (
+            <View style={{ height: videoHeight }} className="bg-black items-center justify-center">
+              <ActivityIndicator size="large" color="#DC2626" />
+              <Text className="text-zinc-500 mt-3 text-sm">Cargando más videos...</Text>
+            </View>
+          ) : null
+        }
       />
     </View>
   );

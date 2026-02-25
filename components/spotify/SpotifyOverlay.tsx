@@ -40,6 +40,7 @@ import { useUserRoleContext } from '../../context/UserRoleContext';
 import { useHank } from '../../context/HankContext';
 import { useSaveGuard } from '../../context/SaveGuardContext';
 import { calculateFabPositions } from '../../constants/floatingTools';
+import { spotifyModalEvent } from '../../lib/spotifyModalEvent';
 
 // Dimensiones de pantalla
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -585,6 +586,15 @@ export function SpotifyOverlay() {
     await spotify.togglePlayPause();
     const playback = await spotify.getPlaybackState();
     setPlaybackState(playback);
+    if (playback?.isPlaying && playback?.track) {
+      spotifyModalEvent.emitPlay({
+        trackName: playback.track.name,
+        artist: playback.track.artist,
+        trackUri: playback.track.uri,
+      });
+    } else {
+      spotifyModalEvent.emitPause();
+    }
   };
 
   const handleNext = async () => {
@@ -596,6 +606,13 @@ export function SpotifyOverlay() {
         setCurrentTrack(playback?.track || null);
         if (playback?.track?.albumArt) {
           setAlbumArtUrl(playback.track.albumArt);
+        }
+        if (playback?.isPlaying && playback?.track) {
+          spotifyModalEvent.emitPlay({
+            trackName: playback.track.name,
+            artist: playback.track.artist,
+            trackUri: playback.track.uri,
+          });
         }
       }, 600);
     }
@@ -610,6 +627,13 @@ export function SpotifyOverlay() {
       if (playback?.track?.albumArt) {
         setAlbumArtUrl(playback.track.albumArt);
       }
+      if (playback?.isPlaying && playback?.track) {
+        spotifyModalEvent.emitPlay({
+          trackName: playback.track.name,
+          artist: playback.track.artist,
+          trackUri: playback.track.uri,
+        });
+      }
     }, 600);
   };
 
@@ -618,6 +642,12 @@ export function SpotifyOverlay() {
     if (track.albumArt) {
       setAlbumArtUrl(track.albumArt);
     }
+    // Track changed from modal → notify Feed to mute video + send track info
+    spotifyModalEvent.emitPlay({
+      trackName: track.name,
+      artist: track.artist,
+      trackUri: track.uri || '',
+    });
     setTimeout(async () => {
       const playback = await spotify.getPlaybackState();
       setPlaybackState(playback);
@@ -626,8 +656,31 @@ export function SpotifyOverlay() {
 
   const handleFabPress = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    setModalVisible(true);
+    openModalAndRefresh();
   };
+
+  // Refresh playback state when modal opens so it shows the actual current track
+  const openModalAndRefresh = useCallback(async () => {
+    setModalVisible(true);
+    if (spotifyConnected) {
+      try {
+        const playback = await spotify.getPlaybackState();
+        setPlaybackState(playback);
+        if (playback?.track) {
+          setCurrentTrack(playback.track);
+          setAlbumArtUrl(playback.track.albumArt || null);
+        }
+      } catch {}
+    }
+  }, [spotifyConnected]);
+
+  // Listen for external open requests (e.g. from Feed)
+  useEffect(() => {
+    const unsub = spotifyModalEvent.subscribe(() => {
+      openModalAndRefresh();
+    });
+    return unsub;
+  }, [openModalAndRefresh]);
 
   // Handler para reiniciar canción (seek to 0)
   const handleRestartTrack = useCallback(async () => {
@@ -951,6 +1004,26 @@ export function SpotifyOverlay() {
   // - Spotify NO conectado → Solo visible en GYM (para promover conexión)
   // -------------------------------------------------------------------------
   if (isHidden) {
+    // Even when hidden (e.g. Feed), render SpotifyModal if opened via event
+    if (modalVisible) {
+      return (
+        <SpotifyModal
+          visible={modalVisible}
+          onClose={() => setModalVisible(false)}
+          isPro={isPro}
+          onSpotifyConnect={handleSpotifyConnect}
+          onSpotifyDisconnect={handleSpotifyDisconnect}
+          spotifyConnected={spotifyConnected}
+          spotifyLoading={spotifyLoading}
+          currentTrack={currentTrack}
+          playbackState={playbackState}
+          onPlayPause={handlePlayPause}
+          onNext={handleNext}
+          onPrevious={handlePrevious}
+          onTrackChange={handleTrackChange}
+        />
+      );
+    }
     return null;
   }
 

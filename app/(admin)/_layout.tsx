@@ -1,7 +1,15 @@
 import { Tabs, Redirect } from 'expo-router';
 import { View, Text, ActivityIndicator } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Dumbbell, LayoutList, Users, CreditCard, BarChart3, Shield } from 'lucide-react-native';
+import {
+  Dumbbell,
+  LayoutList,
+  Users,
+  CreditCard,
+  BarChart3,
+  Shield,
+  Video,
+} from 'lucide-react-native';
 import { useEffect, useState } from 'react';
 import { useAuth } from '../_layout';
 import { supabase } from '../../lib/supabase';
@@ -180,6 +188,13 @@ export default function AdminLayout() {
           options={{
             title: 'FINANZAS',
             tabBarIcon: ({ color, size }) => <BarChart3 size={size} color={color} />,
+          }}
+        />
+        <Tabs.Screen
+          name="feed/index"
+          options={{
+            title: 'FEED',
+            tabBarIcon: ({ color, size }) => <Video size={size} color={color} />,
           }}
         />
 

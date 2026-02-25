@@ -1447,6 +1447,29 @@ class SpotifyService {
   }
 
   /**
+   * Verificar si múltiples tracks están guardados en la biblioteca del usuario
+   * @param trackIds - Array de IDs (sin prefijo spotify:track:), max 50 por llamada
+   * @returns Map de trackId → boolean
+   */
+  async checkSavedTracks(trackIds: string[]): Promise<Map<string, boolean>> {
+    const result = new Map<string, boolean>();
+    if (!trackIds.length) return result;
+
+    try {
+      const ids = trackIds.join(',');
+      const data = await this.apiCall<boolean[]>(`/me/tracks/contains?ids=${ids}`);
+      if (data && Array.isArray(data)) {
+        trackIds.forEach((id, idx) => {
+          result.set(id, data[idx] ?? false);
+        });
+      }
+    } catch (error) {
+      console.warn('Error checking saved tracks batch:', error);
+    }
+    return result;
+  }
+
+  /**
    * Guardar un track en la biblioteca del usuario (Me gusta)
    * @param trackId - ID del track (sin el prefijo spotify:track:)
    * @returns true si se guardó correctamente
