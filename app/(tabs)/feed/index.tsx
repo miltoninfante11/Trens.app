@@ -43,6 +43,7 @@ import { useHank } from '../../../context/HankContext';
 import spotify from '../../../services/spotify/spotify';
 import { spotifyModalEvent, SpotifyNowPlaying } from '../../../lib/spotifyModalEvent';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import feedTracking from '../../../services/feed/feedTracking';
 
 // ============================================================================
 // TIPOS
@@ -559,7 +560,8 @@ const TrainingDayChip = memo(({ userId }: { userId: string | undefined }) => {
                             showsHorizontalScrollIndicator={false}
                             scrollEventThrottle={16}
                             onScroll={(event) => {
-                              const w = cardWidths[ex.id] || event.nativeEvent.layoutMeasurement.width;
+                              const w =
+                                cardWidths[ex.id] || event.nativeEvent.layoutMeasurement.width;
                               if (w <= 0) return;
                               const newIdx = Math.round(event.nativeEvent.contentOffset.x / w);
                               // Debounce to avoid rapid state updates
@@ -877,23 +879,43 @@ const FeedVideoItem = memo(
     }, [player, videoUrl]);
 
     // Autoscroll: detectar cuando el video termina para avanzar al siguiente
+    // Also track loop/replay for the feed algorithm
     useEffect(() => {
-      if (!player || !isActive || !autoScrollEnabled) return;
+      if (!player || !isActive) return;
 
       const endSub = player.addListener('playToEnd', () => {
-        console.log('⏭️ Video terminó, avanzando al siguiente...');
-        onVideoEnd();
+        if (autoScrollEnabled) {
+          // Autoscroll mode: advance to next video
+          console.log('⏭️ Video terminó, avanzando al siguiente...');
+          onVideoEnd();
+        } else {
+          // Loop mode: track replay signal for algorithm
+          feedTracking.onVideoLooped(item.id);
+        }
       });
 
       return () => {
         endSub.remove();
       };
-    }, [player, isActive, autoScrollEnabled, onVideoEnd]);
+    }, [player, isActive, autoScrollEnabled, onVideoEnd, item.id]);
 
     // Actualizar loop cuando cambia autoScrollEnabled
     useEffect(() => {
       player.loop = !autoScrollEnabled;
     }, [player, autoScrollEnabled]);
+
+    // FEED TRACKING: Track when video enters/exits viewport
+    useEffect(() => {
+      if (isActive) {
+        // Video became visible — start tracking watch time
+        const durationMs =
+          item.media_type !== 'photo' && player?.duration ? Math.round(player.duration * 1000) : 0;
+        feedTracking.onVideoVisible(item.id, item.source, durationMs);
+      } else {
+        // Video left viewport — finalize tracking
+        feedTracking.onVideoHidden(item.id);
+      }
+    }, [isActive, item.id, item.source, item.media_type]);
 
     // Control de reproducción basado en isActive
     useEffect(() => {
@@ -915,12 +937,14 @@ const FeedVideoItem = memo(
         const newPaused = !prev;
         if (newPaused) {
           player.pause();
+          feedTracking.onVideoPaused(item.id);
         } else {
           player.play();
+          feedTracking.onVideoResumed(item.id);
         }
         return newPaused;
       });
-    }, [player]);
+    }, [player, item.id]);
 
     const formatDate = (dateStr: string) => {
       const date = new Date(dateStr);
@@ -1449,6 +1473,17 @@ function FeedScreenContent() {
   const [hasMore, setHasMore] = useState(true);
   const offsetRef = useRef(0);
   const [activeIndex, setActiveIndex] = useState(0);
+
+  // SESSION SEED: Unique per app open. New seed = new shuffle order.
+  // Stays stable during the session (tab switches, pagination, multitask).
+  // Changes on: app reopen (remount), pull-to-refresh.
+  const sessionSeedRef = useRef<string>(
+    Date.now().toString(36) + Math.random().toString(36).substring(2, 6)
+  );
+
+  // Track if initial data has been loaded (prevents re-fetch on tab return)
+  const hasLoadedRef = useRef(false);
+
   // Estado para rastrear si el Feed está enfocado
   const [isFeedFocused, setIsFeedFocused] = useState(true);
   // Mute global del feed - iOS PWA no permite autoplay con audio,
@@ -1644,7 +1679,7 @@ function FeedScreenContent() {
   // -------------------------------------------------------------------------
   useFocusEffect(
     useCallback(() => {
-      // Al entrar al Feed, marcar como enfocado
+      // Al entrar al Feed, marcar como enfocado (resume video playback)
       setIsFeedFocused(true);
 
       // Sincronizar contexto con HANK
@@ -1711,23 +1746,32 @@ function FeedScreenContent() {
       return () => {
         // Al salir del Feed, marcar como no enfocado (pausará videos)
         setIsFeedFocused(false);
+        // Flush all pending tracking data to Supabase
+        feedTracking.flushAll();
         cleanup?.();
       };
     }, [spotifyConnected])
   );
 
   // -------------------------------------------------------------------------
-  // FETCH FEED PAGE (RPC con scoring + paginación)
+  // FETCH FEED PAGE (RPC con scoring + paginación + session seed)
   // -------------------------------------------------------------------------
   const fetchFeedPage = useCallback(
     async (offset: number, isRefresh: boolean = false) => {
       try {
         if (!isRefresh && offset > 0) setLoadingMore(true);
 
+        // On refresh: generate a new session seed → new shuffle order
+        if (isRefresh) {
+          sessionSeedRef.current =
+            Date.now().toString(36) + Math.random().toString(36).substring(2, 6);
+        }
+
         const { data, error } = await supabase.rpc('get_feed_page', {
           p_limit: PAGE_SIZE,
           p_offset: offset,
           p_user_id: user?.id || null,
+          p_session_seed: sessionSeedRef.current,
         });
 
         if (error) throw error;
@@ -1787,8 +1831,13 @@ function FeedScreenContent() {
     fetchFeedPage(offsetRef.current);
   }, [loadingMore, hasMore, loading, fetchFeedPage]);
 
+  // Initial load: only once per mount (app open).
+  // Tab switches do NOT trigger this (component stays mounted).
   useEffect(() => {
-    fetchFeedPage(0);
+    if (!hasLoadedRef.current) {
+      hasLoadedRef.current = true;
+      fetchFeedPage(0);
+    }
   }, [fetchFeedPage]);
 
   const onRefresh = useCallback(async () => {
@@ -1799,6 +1848,7 @@ function FeedScreenContent() {
       .catch(() => {});
     // Pequeña espera para que el sync procese al menos el más reciente
     await new Promise((r) => setTimeout(r, 2000));
+    // Refresh generates a new seed inside fetchFeedPage → new shuffle order
     fetchFeedPage(0, true);
   }, [fetchFeedPage]);
 
@@ -1832,6 +1882,13 @@ function FeedScreenContent() {
       if (!video) return;
 
       const wasLiked = video.is_liked;
+
+      // Track interaction for algorithm
+      if (!wasLiked) {
+        feedTracking.trackLike(videoId, video.source);
+      } else {
+        feedTracking.trackUnlike(videoId, video.source);
+      }
 
       // Toggle like local (optimistic update)
       setVideos((prev) =>
@@ -1886,6 +1943,9 @@ function FeedScreenContent() {
   }, []);
 
   const handleShare = useCallback(async (video: FeedVideo) => {
+    // Track share for algorithm
+    feedTracking.trackShare(video.id, video.source);
+
     const { Share } = await import('react-native');
     if (video.source === 'instagram_reel' && video.ig_permalink) {
       await Share.share({
@@ -1913,6 +1973,13 @@ function FeedScreenContent() {
       if (!video) return;
 
       const wasSaved = video.is_saved;
+
+      // Track interaction for algorithm
+      if (!wasSaved) {
+        feedTracking.trackSave(videoId, video.source);
+      } else {
+        feedTracking.trackUnsave(videoId, video.source);
+      }
 
       // Toggle save local (optimistic update)
       setVideos((prev) =>
