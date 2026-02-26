@@ -8,7 +8,15 @@
 // ============================================================================
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { View, Text, PanResponder, Dimensions, GestureResponderEvent, AppState, Platform } from 'react-native';
+import {
+  View,
+  Text,
+  PanResponder,
+  Dimensions,
+  GestureResponderEvent,
+  AppState,
+  Platform,
+} from 'react-native';
 import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, {

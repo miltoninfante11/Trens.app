@@ -1008,6 +1008,8 @@ function FeedScreenContent() {
           try {
             const playback = await spotify.getPlaybackState();
             if (playback?.isPlaying && playback.track) {
+              // Spotify está reproduciendo → mutear el Feed
+              setIsMuted(true);
               setNowPlayingTrack({
                 trackName: playback.track.name,
                 artist: playback.track.artist,
