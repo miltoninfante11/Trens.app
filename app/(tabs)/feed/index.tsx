@@ -85,12 +85,20 @@ interface FeedVideo {
 // ============================================================================
 // TRAINING CHIP TYPES
 // ============================================================================
+interface TrainingExerciseAlternative {
+  id: string;
+  name: string;
+  image_url: string;
+}
+
 interface TrainingExercise {
   id: string;
+  exercise_id: string;
   name: string;
   image_url: string;
   sets: string;
   series: { type: string; reps: number | string; weight?: number | string }[];
+  alternatives: TrainingExerciseAlternative[];
 }
 
 // Series type colors (same as GYM module)
@@ -116,6 +124,7 @@ const TrainingDayChip = memo(({ userId }: { userId: string | undefined }) => {
   const [modalVisible, setModalVisible] = useState(false);
   const [loadingExercises, setLoadingExercises] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [activeAlternatives, setActiveAlternatives] = useState<Record<string, number>>({});
 
   // Fetch training days (called on mount + when refreshKey changes)
   const fetchTrainingDays = useCallback(async () => {
@@ -193,7 +202,7 @@ const TrainingDayChip = memo(({ userId }: { userId: string | undefined }) => {
     };
   }, [userId, modalVisible, selectedDayIdx]);
 
-  // Load exercises for a day
+  // Load exercises for a day (including alternatives)
   const loadDayExercises = useCallback(
     async (dayIdx: number) => {
       if (!userId) return;
@@ -203,7 +212,7 @@ const TrainingDayChip = memo(({ userId }: { userId: string | undefined }) => {
           .from('user_exercise_config')
           .select(
             `id, exercise_id, training_days, display_order, config, custom_media_url,
-            exercises (id, name, default_media_url, thumbnail_url)`
+            exercises (id, name, default_media_url, thumbnail_url, alternatives)`
           )
           .eq('user_id', userId)
           .order('display_order', { ascending: true });
@@ -222,29 +231,91 @@ const TrainingDayChip = memo(({ userId }: { userId: string | undefined }) => {
           });
         }
 
-        const dayExercises: TrainingExercise[] = (configs || [])
-          .filter((c: any) => c.training_days?.includes(dayIdx))
-          .map((c: any) => {
-            const ex = c.exercises as any;
-            const seriesByDay =
-              c.config?.series_by_day?.[String(dayIdx)] || c.config?.custom_series || [];
-            return {
-              id: c.id,
-              name: ex?.name || 'Sin nombre',
-              image_url:
-                c.custom_media_url ||
-                mediaMap[c.exercise_id] ||
-                ex?.default_media_url ||
-                ex?.thumbnail_url ||
-                '',
-              sets: c.config?.sets || '4x10',
-              series: seriesByDay.map((s: any) => ({
-                type: s.type || 'EFECTIVA',
-                reps: s.reps || 0,
-                weight: s.weight || 0,
-              })),
+        // Collect all alternative IDs across all exercises for this day
+        const filteredConfigs = (configs || []).filter((c: any) =>
+          c.training_days?.includes(dayIdx)
+        );
+        const allAltIds: string[] = [];
+        filteredConfigs.forEach((c: any) => {
+          const altIds = (c.exercises as any)?.alternatives || [];
+          altIds.forEach((id: string) => {
+            if (id && !allAltIds.includes(id)) allAltIds.push(id);
+          });
+        });
+
+        // Fetch alternative exercise details in one batch
+        let altMap: Record<string, { name: string; image_url: string }> = {};
+        if (allAltIds.length > 0) {
+          const { data: altData } = await supabase
+            .from('exercises')
+            .select('id, name, thumbnail_url, default_media_url')
+            .in('id', allAltIds);
+
+          // Also check for user custom media on alternatives
+          const { data: altConfigs } = await supabase
+            .from('user_exercise_config')
+            .select('exercise_id, custom_media_url')
+            .eq('user_id', userId)
+            .in('exercise_id', allAltIds)
+            .not('custom_media_url', 'is', null);
+
+          const altCustomMedia: Record<string, string> = {};
+          altConfigs?.forEach((ac: any) => {
+            if (ac.custom_media_url) altCustomMedia[ac.exercise_id] = ac.custom_media_url;
+          });
+
+          // Also check user_exercise_media for persistent media
+          const { data: altMedia } = await supabase
+            .from('user_exercise_media')
+            .select('exercise_id, custom_media_url')
+            .eq('user_id', userId)
+            .in('exercise_id', allAltIds);
+          altMedia?.forEach((am: any) => {
+            if (am.custom_media_url && !altCustomMedia[am.exercise_id]) {
+              altCustomMedia[am.exercise_id] = am.custom_media_url;
+            }
+          });
+
+          altData?.forEach((a: any) => {
+            altMap[a.id] = {
+              name: a.name,
+              image_url: altCustomMedia[a.id] || a.default_media_url || a.thumbnail_url || '',
             };
           });
+        }
+
+        const dayExercises: TrainingExercise[] = filteredConfigs.map((c: any) => {
+          const ex = c.exercises as any;
+          const seriesByDay =
+            c.config?.series_by_day?.[String(dayIdx)] || c.config?.custom_series || [];
+          const altIds: string[] = ex?.alternatives || [];
+          const alternatives: TrainingExerciseAlternative[] = altIds
+            .filter((id: string) => altMap[id])
+            .map((id: string) => ({
+              id,
+              name: altMap[id].name,
+              image_url: altMap[id].image_url,
+            }));
+
+          return {
+            id: c.id,
+            exercise_id: c.exercise_id,
+            name: ex?.name || 'Sin nombre',
+            image_url:
+              c.custom_media_url ||
+              mediaMap[c.exercise_id] ||
+              ex?.default_media_url ||
+              ex?.thumbnail_url ||
+              '',
+            sets: c.config?.sets || '4x10',
+            series: seriesByDay.map((s: any) => ({
+              type: s.type || 'EFECTIVA',
+              reps: s.reps || 0,
+              weight: s.weight || 0,
+            })),
+            alternatives,
+          };
+        });
 
         setExercises(dayExercises);
       } catch (e) {
@@ -270,6 +341,7 @@ const TrainingDayChip = memo(({ userId }: { userId: string | undefined }) => {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       setSelectedDayIdx(dayIdx);
       setCurrentDayIdx(dayIdx); // Update locally immediately
+      setActiveAlternatives({}); // Reset alternative scroll positions
       loadDayExercises(dayIdx);
 
       // Persist to Supabase so GYM module picks it up
@@ -438,71 +510,222 @@ const TrainingDayChip = memo(({ userId }: { userId: string | undefined }) => {
               </View>
             ) : (
               <ScrollView className="px-4 py-3" showsVerticalScrollIndicator={false}>
-                {exercises.map((ex, idx) => (
-                  <View
-                    key={ex.id}
-                    className="flex-row items-center mb-3 rounded-xl overflow-hidden"
-                    style={{
-                      backgroundColor: 'rgba(255, 255, 255, 0.04)',
-                      borderWidth: 1,
-                      borderColor: 'rgba(255, 255, 255, 0.06)',
-                    }}
-                  >
-                    {/* Thumbnail */}
-                    <View className="w-16 h-16">
-                      {ex.image_url ? (
-                        <Image
-                          source={{ uri: ex.image_url }}
-                          className="w-full h-full"
-                          contentFit="cover"
-                        />
-                      ) : (
-                        <View className="w-full h-full bg-zinc-800 items-center justify-center">
-                          <Dumbbell size={20} color="#3f3f46" />
-                        </View>
-                      )}
-                    </View>
+                {exercises.map((ex, idx) => {
+                  // Build variations array: main + alternatives
+                  const allVariations = [
+                    { id: ex.exercise_id, name: ex.name, image_url: ex.image_url, isMain: true },
+                    ...ex.alternatives.map((alt) => ({
+                      id: alt.id,
+                      name: alt.name,
+                      image_url: alt.image_url,
+                      isMain: false,
+                    })),
+                  ];
+                  const hasAlternatives = allVariations.length > 1;
+                  const activeAltIdx = activeAlternatives[ex.id] || 0;
+                  const safeIdx = Math.min(activeAltIdx, allVariations.length - 1);
+                  const currentVariation = allVariations[safeIdx];
 
-                    {/* Exercise info */}
-                    <View className="flex-1 px-3 py-2">
-                      <Text className="text-white font-bold text-sm" numberOfLines={1}>
-                        {idx + 1}. {ex.name}
-                      </Text>
-
-                      {/* Sets summary */}
-                      <Text className="text-zinc-500 text-xs font-mono mt-0.5">{ex.sets}</Text>
-
-                      {/* Series pills */}
-                      {ex.series.length > 0 && (
-                        <View className="flex-row flex-wrap mt-1.5 gap-1">
-                          {ex.series.map((s, sIdx) => {
-                            const color = SERIES_COLORS[s.type] || SERIES_COLORS.EFECTIVA;
-                            return (
+                  return (
+                    <View
+                      key={ex.id}
+                      className="mb-3 rounded-xl overflow-hidden"
+                      style={{
+                        backgroundColor: 'rgba(255, 255, 255, 0.04)',
+                        borderWidth: 1,
+                        borderColor: hasAlternatives
+                          ? 'rgba(251, 146, 60, 0.15)'
+                          : 'rgba(255, 255, 255, 0.06)',
+                      }}
+                    >
+                      {/* Horizontal scroll for alternatives */}
+                      {hasAlternatives ? (
+                        <View>
+                          <ScrollView
+                            horizontal
+                            pagingEnabled
+                            showsHorizontalScrollIndicator={false}
+                            scrollEventThrottle={16}
+                            onMomentumScrollEnd={(event) => {
+                              const cardWidth = event.nativeEvent.layoutMeasurement.width;
+                              const newIdx = Math.round(
+                                event.nativeEvent.contentOffset.x / cardWidth
+                              );
+                              if (newIdx !== safeIdx) {
+                                setActiveAlternatives((prev) => ({
+                                  ...prev,
+                                  [ex.id]: newIdx,
+                                }));
+                                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                              }
+                            }}
+                          >
+                            {allVariations.map((variation, vIdx) => (
                               <View
-                                key={sIdx}
-                                className="flex-row items-center rounded-md px-1.5 py-0.5"
-                                style={{ backgroundColor: color.bg }}
+                                key={variation.id}
+                                className="flex-row items-center"
+                                style={{ width: '100%' }}
                               >
-                                <Text
-                                  className="font-bold mr-0.5"
-                                  style={{ color: color.text, fontSize: 9 }}
-                                >
-                                  {color.label}
-                                </Text>
-                                <Text
-                                  className="font-mono"
-                                  style={{ color: color.text, fontSize: 9 }}
-                                >
-                                  {s.reps}r{s.weight ? ` ${s.weight}kg` : ''}
-                                </Text>
+                                {/* Thumbnail */}
+                                <View className="w-16 h-16">
+                                  {variation.image_url ? (
+                                    <Image
+                                      source={{ uri: variation.image_url }}
+                                      className="w-full h-full"
+                                      contentFit="cover"
+                                    />
+                                  ) : (
+                                    <View className="w-full h-full bg-zinc-800 items-center justify-center">
+                                      <Dumbbell size={20} color="#3f3f46" />
+                                    </View>
+                                  )}
+                                </View>
+
+                                {/* Exercise info */}
+                                <View className="flex-1 px-3 py-2">
+                                  <View className="flex-row items-center">
+                                    <Text
+                                      className="text-white font-bold text-sm flex-1"
+                                      numberOfLines={1}
+                                    >
+                                      {idx + 1}. {variation.name}
+                                    </Text>
+                                  </View>
+
+                                  {!variation.isMain && (
+                                    <View className="flex-row items-center mt-0.5">
+                                      <View className="w-1.5 h-1.5 bg-orange-400 rounded-full mr-1" />
+                                      <Text
+                                        className="font-bold uppercase"
+                                        style={{
+                                          color: '#fb923c',
+                                          fontSize: 8,
+                                          letterSpacing: 1,
+                                        }}
+                                      >
+                                        Alternativa
+                                      </Text>
+                                    </View>
+                                  )}
+
+                                  {/* Sets summary */}
+                                  <Text className="text-zinc-500 text-xs font-mono mt-0.5">
+                                    {ex.sets}
+                                  </Text>
+
+                                  {/* Series pills */}
+                                  {ex.series.length > 0 && (
+                                    <View className="flex-row flex-wrap mt-1.5 gap-1">
+                                      {ex.series.map((s, sIdx) => {
+                                        const color =
+                                          SERIES_COLORS[s.type] || SERIES_COLORS.EFECTIVA;
+                                        return (
+                                          <View
+                                            key={sIdx}
+                                            className="flex-row items-center rounded-md px-1.5 py-0.5"
+                                            style={{ backgroundColor: color.bg }}
+                                          >
+                                            <Text
+                                              className="font-bold mr-0.5"
+                                              style={{ color: color.text, fontSize: 9 }}
+                                            >
+                                              {color.label}
+                                            </Text>
+                                            <Text
+                                              className="font-mono"
+                                              style={{ color: color.text, fontSize: 9 }}
+                                            >
+                                              {s.reps}r{s.weight ? ` ${s.weight}kg` : ''}
+                                            </Text>
+                                          </View>
+                                        );
+                                      })}
+                                    </View>
+                                  )}
+                                </View>
                               </View>
-                            );
-                          })}
+                            ))}
+                          </ScrollView>
+
+                          {/* Dot indicators */}
+                          <View className="flex-row items-center justify-center py-1.5 gap-1">
+                            {allVariations.map((_, dotIdx) => (
+                              <View
+                                key={dotIdx}
+                                className="rounded-full"
+                                style={{
+                                  width: dotIdx === safeIdx ? 16 : 5,
+                                  height: 5,
+                                  backgroundColor:
+                                    dotIdx === safeIdx ? '#fb923c' : 'rgba(255, 255, 255, 0.2)',
+                                }}
+                              />
+                            ))}
+                          </View>
+                        </View>
+                      ) : (
+                        /* Single exercise - no alternatives */
+                        <View className="flex-row items-center">
+                          {/* Thumbnail */}
+                          <View className="w-16 h-16">
+                            {ex.image_url ? (
+                              <Image
+                                source={{ uri: ex.image_url }}
+                                className="w-full h-full"
+                                contentFit="cover"
+                              />
+                            ) : (
+                              <View className="w-full h-full bg-zinc-800 items-center justify-center">
+                                <Dumbbell size={20} color="#3f3f46" />
+                              </View>
+                            )}
+                          </View>
+
+                          {/* Exercise info */}
+                          <View className="flex-1 px-3 py-2">
+                            <Text className="text-white font-bold text-sm" numberOfLines={1}>
+                              {idx + 1}. {ex.name}
+                            </Text>
+
+                            {/* Sets summary */}
+                            <Text className="text-zinc-500 text-xs font-mono mt-0.5">
+                              {ex.sets}
+                            </Text>
+
+                            {/* Series pills */}
+                            {ex.series.length > 0 && (
+                              <View className="flex-row flex-wrap mt-1.5 gap-1">
+                                {ex.series.map((s, sIdx) => {
+                                  const color = SERIES_COLORS[s.type] || SERIES_COLORS.EFECTIVA;
+                                  return (
+                                    <View
+                                      key={sIdx}
+                                      className="flex-row items-center rounded-md px-1.5 py-0.5"
+                                      style={{ backgroundColor: color.bg }}
+                                    >
+                                      <Text
+                                        className="font-bold mr-0.5"
+                                        style={{ color: color.text, fontSize: 9 }}
+                                      >
+                                        {color.label}
+                                      </Text>
+                                      <Text
+                                        className="font-mono"
+                                        style={{ color: color.text, fontSize: 9 }}
+                                      >
+                                        {s.reps}r{s.weight ? ` ${s.weight}kg` : ''}
+                                      </Text>
+                                    </View>
+                                  );
+                                })}
+                              </View>
+                            )}
+                          </View>
                         </View>
                       )}
                     </View>
-                  </View>
-                ))}
+                  );
+                })}
                 <View className="h-4" />
               </ScrollView>
             )}
