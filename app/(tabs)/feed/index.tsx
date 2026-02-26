@@ -11,6 +11,9 @@ import {
   useWindowDimensions,
   AppState,
   Platform,
+  Modal,
+  PanResponder,
+  GestureResponderEvent,
 } from 'react-native';
 import { PWAGuard } from '../../../components/auth/PWAGuard';
 import { Alert } from '../../../lib/alert';
@@ -29,11 +32,16 @@ import {
   ListVideo,
   PlusCircle,
   CheckCircle,
+  Dumbbell,
+  ChevronLeft,
+  ChevronRight,
+  X,
 } from 'lucide-react-native';
 import * as Haptics from '../../../lib/haptics';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { Audio } from 'expo-av';
 import { LinearGradient } from 'expo-linear-gradient';
+import Animated, { useSharedValue, withSpring, useAnimatedStyle } from 'react-native-reanimated';
 import { supabase } from '../../../lib/supabase';
 import { useUserRoleContext } from '../../../context/UserRoleContext';
 import { useHank } from '../../../context/HankContext';
@@ -78,6 +86,367 @@ interface FeedVideo {
   ig_permalink?: string | null;
   is_official?: boolean;
 }
+
+// ============================================================================
+// TRAINING CHIP TYPES
+// ============================================================================
+interface TrainingExercise {
+  id: string;
+  name: string;
+  image_url: string;
+  sets: string;
+  series: { type: string; reps: number | string; weight?: number | string }[];
+}
+
+// Series type colors (same as GYM module)
+const SERIES_COLORS: Record<string, { bg: string; text: string; label: string }> = {
+  CALENTAMIENTO: { bg: '#1e3a5f', text: '#60a5fa', label: 'C' },
+  APROXIMACION: { bg: '#422006', text: '#fbbf24', label: 'A' },
+  EFECTIVA: { bg: '#052e16', text: '#4ade80', label: 'E' },
+  FALLO: { bg: '#450a0a', text: '#f87171', label: 'F' },
+  WARMUP: { bg: '#1e3a5f', text: '#60a5fa', label: 'C' },
+  FEEDER: { bg: '#422006', text: '#fbbf24', label: 'A' },
+  EFFECTIVE: { bg: '#052e16', text: '#4ade80', label: 'E' },
+  INTENSITY: { bg: '#450a0a', text: '#f87171', label: 'I' },
+};
+
+const SWIPE_DAY_THRESHOLD = 40;
+
+// ============================================================================
+// TRAINING DAY CHIP COMPONENT
+// ============================================================================
+const TrainingDayChip = memo(({ userId }: { userId: string | undefined }) => {
+  const [trainingDays, setTrainingDays] = useState<{ name: string; index: number }[]>([]);
+  const [currentDayIdx, setCurrentDayIdx] = useState(0);
+  const [selectedDayIdx, setSelectedDayIdx] = useState(0);
+  const [exercises, setExercises] = useState<TrainingExercise[]>([]);
+  const [modalVisible, setModalVisible] = useState(false);
+  const [loadingExercises, setLoadingExercises] = useState(false);
+  const chipTranslateX = useSharedValue(0);
+  const startPosRef = useRef({ x: 0, y: 0 });
+  const gestureHandledRef = useRef(false);
+  const trainingDaysRef = useRef(trainingDays);
+  trainingDaysRef.current = trainingDays;
+  const selectedDayIdxRef = useRef(selectedDayIdx);
+  selectedDayIdxRef.current = selectedDayIdx;
+  const loadDayExercisesRef = useRef<(dayIdx: number) => void>(() => {});
+
+  // Fetch training days on mount
+  useEffect(() => {
+    if (!userId) return;
+    (async () => {
+      try {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('training_current_day, training_frequency, training_routine_names')
+          .eq('id', userId)
+          .single();
+
+        if (!profile || !profile.training_frequency) return;
+
+        const freq = profile.training_frequency;
+        const names = profile.training_routine_names || {};
+        const days = Array.from({ length: freq }, (_, i) => ({
+          name: names[String(i)] || `DÍA ${i + 1}`,
+          index: i,
+        }));
+
+        setTrainingDays(days);
+        const current = profile.training_current_day || 0;
+        setCurrentDayIdx(current);
+        setSelectedDayIdx(current);
+      } catch (e) {
+        console.error('TrainingChip fetch error:', e);
+      }
+    })();
+  }, [userId]);
+
+  // Load exercises for a day
+  const loadDayExercises = useCallback(
+    async (dayIdx: number) => {
+      if (!userId) return;
+      setLoadingExercises(true);
+      try {
+        const { data: configs } = await supabase
+          .from('user_exercise_config')
+          .select(
+            `id, exercise_id, training_days, display_order, config, custom_media_url,
+            exercises (id, name, default_media_url, thumbnail_url)`
+          )
+          .eq('user_id', userId)
+          .order('display_order', { ascending: true });
+
+        // Load persistent media
+        const exerciseIds = configs?.map((c: any) => c.exercise_id) || [];
+        let mediaMap: Record<string, string> = {};
+        if (exerciseIds.length > 0) {
+          const { data: media } = await supabase
+            .from('user_exercise_media')
+            .select('exercise_id, custom_media_url')
+            .eq('user_id', userId)
+            .in('exercise_id', exerciseIds);
+          media?.forEach((m: any) => {
+            if (m.custom_media_url) mediaMap[m.exercise_id] = m.custom_media_url;
+          });
+        }
+
+        const dayExercises: TrainingExercise[] = (configs || [])
+          .filter((c: any) => c.training_days?.includes(dayIdx))
+          .map((c: any) => {
+            const ex = c.exercises as any;
+            const seriesByDay =
+              c.config?.series_by_day?.[String(dayIdx)] || c.config?.custom_series || [];
+            return {
+              id: c.id,
+              name: ex?.name || 'Sin nombre',
+              image_url:
+                c.custom_media_url ||
+                mediaMap[c.exercise_id] ||
+                ex?.default_media_url ||
+                ex?.thumbnail_url ||
+                '',
+              sets: c.config?.sets || '4x10',
+              series: seriesByDay.map((s: any) => ({
+                type: s.type || 'EFECTIVA',
+                reps: s.reps || 0,
+                weight: s.weight || 0,
+              })),
+            };
+          });
+
+        setExercises(dayExercises);
+      } catch (e) {
+        console.error('Load exercises error:', e);
+      } finally {
+        setLoadingExercises(false);
+      }
+    },
+    [userId]
+  );
+
+  // Keep ref updated
+  useEffect(() => {
+    loadDayExercisesRef.current = loadDayExercises;
+  });
+
+  // Swipe pan responder for day change
+  const chipPan = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: (_, gs) => Math.abs(gs.dx) > 8,
+      onPanResponderGrant: (evt: GestureResponderEvent) => {
+        startPosRef.current = { x: evt.nativeEvent.pageX, y: evt.nativeEvent.pageY };
+        gestureHandledRef.current = false;
+      },
+      onPanResponderMove: (evt: GestureResponderEvent) => {
+        const dx = evt.nativeEvent.pageX - startPosRef.current.x;
+        chipTranslateX.value = Math.max(-50, Math.min(50, dx * 0.6));
+      },
+      onPanResponderRelease: (evt: GestureResponderEvent) => {
+        const dx = evt.nativeEvent.pageX - startPosRef.current.x;
+        chipTranslateX.value = withSpring(0, { damping: 15 });
+
+        if (gestureHandledRef.current) return;
+        const days = trainingDaysRef.current;
+        if (days.length === 0) return;
+
+        if (dx < -SWIPE_DAY_THRESHOLD) {
+          // Swipe left → next day
+          gestureHandledRef.current = true;
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          setSelectedDayIdx((prev) => (prev + 1 >= days.length ? 0 : prev + 1));
+        } else if (dx > SWIPE_DAY_THRESHOLD) {
+          // Swipe right → prev day
+          gestureHandledRef.current = true;
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          setSelectedDayIdx((prev) => (prev - 1 < 0 ? days.length - 1 : prev - 1));
+        } else {
+          // Tap → open modal
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+          loadDayExercisesRef.current(selectedDayIdxRef.current);
+          setModalVisible(true);
+        }
+      },
+    })
+  ).current;
+
+  const chipAnimStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: chipTranslateX.value }],
+  }));
+
+  if (trainingDays.length === 0) return null;
+
+  const day = trainingDays[selectedDayIdx];
+  const isCurrentDay = selectedDayIdx === currentDayIdx;
+
+  return (
+    <>
+      {/* Purple training chip */}
+      <Animated.View style={chipAnimStyle} className="self-end mt-1">
+        <View
+          {...chipPan.panHandlers}
+          className="flex-row items-center rounded-full px-3 py-1.5"
+          style={{
+            backgroundColor: isCurrentDay
+              ? 'rgba(147, 51, 234, 0.15)'
+              : 'rgba(255, 255, 255, 0.06)',
+            borderWidth: 1,
+            borderColor: isCurrentDay ? '#9333ea' : 'rgba(255, 255, 255, 0.12)',
+            maxWidth: 220,
+          }}
+        >
+          <ChevronLeft size={10} color={isCurrentDay ? '#a855f7' : '#52525b'} />
+          <Dumbbell size={12} color={isCurrentDay ? '#a855f7' : '#71717a'} />
+          <Text
+            numberOfLines={1}
+            className={`ml-1.5 mr-0.5 text-xs font-bold ${
+              isCurrentDay ? 'text-purple-400' : 'text-zinc-500'
+            }`}
+          >
+            {day?.name || 'REST'}
+          </Text>
+          <ChevronRight size={10} color={isCurrentDay ? '#a855f7' : '#52525b'} />
+        </View>
+      </Animated.View>
+
+      {/* Exercises Modal */}
+      <Modal
+        visible={modalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setModalVisible(false)}
+      >
+        <TouchableOpacity
+          activeOpacity={1}
+          onPress={() => setModalVisible(false)}
+          className="flex-1 justify-center items-center"
+          style={{ backgroundColor: 'rgba(0,0,0,0.7)' }}
+        >
+          <TouchableOpacity
+            activeOpacity={1}
+            onPress={() => {}}
+            className="rounded-2xl overflow-hidden"
+            style={{
+              backgroundColor: 'rgba(24, 24, 27, 0.95)',
+              borderWidth: 1,
+              borderColor: 'rgba(147, 51, 234, 0.3)',
+              maxHeight: '75%',
+              width: '90%',
+            }}
+          >
+            {/* Modal Header */}
+            <View className="flex-row items-center justify-between px-4 pt-4 pb-3">
+              <View className="flex-row items-center flex-1">
+                <View
+                  className="w-8 h-8 rounded-lg items-center justify-center mr-3"
+                  style={{ backgroundColor: 'rgba(147, 51, 234, 0.2)' }}
+                >
+                  <Dumbbell size={16} color="#a855f7" />
+                </View>
+                <View className="flex-1">
+                  <Text className="text-white font-bold text-base" numberOfLines={1}>
+                    {day?.name}
+                  </Text>
+                  <Text className="text-zinc-500 text-xs font-mono">
+                    DÍA {selectedDayIdx + 1} • {exercises.length} ejercicios
+                  </Text>
+                </View>
+              </View>
+              <TouchableOpacity
+                onPress={() => setModalVisible(false)}
+                className="w-8 h-8 rounded-full items-center justify-center"
+                style={{ backgroundColor: 'rgba(255,255,255,0.08)' }}
+              >
+                <X size={16} color="#71717a" />
+              </TouchableOpacity>
+            </View>
+
+            {/* Divider */}
+            <View className="h-px mx-4" style={{ backgroundColor: 'rgba(147, 51, 234, 0.15)' }} />
+
+            {/* Exercises list */}
+            {loadingExercises ? (
+              <View className="py-12 items-center">
+                <ActivityIndicator size="small" color="#a855f7" />
+              </View>
+            ) : exercises.length === 0 ? (
+              <View className="py-12 items-center">
+                <Dumbbell size={32} color="#3f3f46" />
+                <Text className="text-zinc-500 text-sm mt-3">Sin ejercicios asignados</Text>
+              </View>
+            ) : (
+              <ScrollView className="px-4 py-3" showsVerticalScrollIndicator={false}>
+                {exercises.map((ex, idx) => (
+                  <View
+                    key={ex.id}
+                    className="flex-row items-center mb-3 rounded-xl overflow-hidden"
+                    style={{
+                      backgroundColor: 'rgba(255, 255, 255, 0.04)',
+                      borderWidth: 1,
+                      borderColor: 'rgba(255, 255, 255, 0.06)',
+                    }}
+                  >
+                    {/* Thumbnail */}
+                    <View className="w-16 h-16">
+                      {ex.image_url ? (
+                        <Image
+                          source={{ uri: ex.image_url }}
+                          className="w-full h-full"
+                          contentFit="cover"
+                        />
+                      ) : (
+                        <View className="w-full h-full bg-zinc-800 items-center justify-center">
+                          <Dumbbell size={20} color="#3f3f46" />
+                        </View>
+                      )}
+                    </View>
+
+                    {/* Exercise info */}
+                    <View className="flex-1 px-3 py-2">
+                      <Text className="text-white font-bold text-sm" numberOfLines={1}>
+                        {idx + 1}. {ex.name}
+                      </Text>
+
+                      {/* Sets summary */}
+                      <Text className="text-zinc-500 text-xs font-mono mt-0.5">{ex.sets}</Text>
+
+                      {/* Series pills */}
+                      {ex.series.length > 0 && (
+                        <View className="flex-row flex-wrap mt-1.5 gap-1">
+                          {ex.series.map((s, sIdx) => {
+                            const color = SERIES_COLORS[s.type] || SERIES_COLORS.EFECTIVA;
+                            return (
+                              <View
+                                key={sIdx}
+                                className="flex-row items-center rounded-md px-1.5 py-0.5"
+                                style={{ backgroundColor: color.bg }}
+                              >
+                                <Text
+                                  className="font-bold mr-0.5"
+                                  style={{ color: color.text, fontSize: 9 }}
+                                >
+                                  {color.label}
+                                </Text>
+                                <Text className="font-mono" style={{ color: color.text, fontSize: 9 }}>
+                                  {s.reps}r{s.weight ? ` ${s.weight}kg` : ''}
+                                </Text>
+                              </View>
+                            );
+                          })}
+                        </View>
+                      )}
+                    </View>
+                  </View>
+                ))}
+                <View className="h-4" />
+              </ScrollView>
+            )}
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+    </>
+  );
+});
 
 // ============================================================================
 // DIMENSIONS - Se calculan dinámicamente en cada componente con hooks
@@ -1601,6 +1970,9 @@ function FeedScreenContent() {
             </TouchableOpacity>
           );
         })()}
+
+        {/* Training Day chip */}
+        <TrainingDayChip userId={user?.id} />
       </View>
 
       {/* Feed vertical */}
