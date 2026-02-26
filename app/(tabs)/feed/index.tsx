@@ -125,6 +125,8 @@ const TrainingDayChip = memo(({ userId }: { userId: string | undefined }) => {
   const [loadingExercises, setLoadingExercises] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [activeAlternatives, setActiveAlternatives] = useState<Record<string, number>>({});
+  const [cardWidths, setCardWidths] = useState<Record<string, number>>({});
+  const scrollTimeoutRefs = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
   // Fetch training days (called on mount + when refreshKey changes)
   const fetchTrainingDays = useCallback(async () => {
@@ -540,31 +542,45 @@ const TrainingDayChip = memo(({ userId }: { userId: string | undefined }) => {
                     >
                       {/* Horizontal scroll for alternatives */}
                       {hasAlternatives ? (
-                        <View>
+                        <View
+                          onLayout={(e) => {
+                            const w = e.nativeEvent.layout.width;
+                            if (w > 0) {
+                              setCardWidths((prev) => {
+                                if (prev[ex.id] === w) return prev;
+                                return { ...prev, [ex.id]: w };
+                              });
+                            }
+                          }}
+                        >
                           <ScrollView
                             horizontal
                             pagingEnabled
                             showsHorizontalScrollIndicator={false}
                             scrollEventThrottle={16}
-                            onMomentumScrollEnd={(event) => {
-                              const cardWidth = event.nativeEvent.layoutMeasurement.width;
-                              const newIdx = Math.round(
-                                event.nativeEvent.contentOffset.x / cardWidth
-                              );
-                              if (newIdx !== safeIdx) {
-                                setActiveAlternatives((prev) => ({
-                                  ...prev,
-                                  [ex.id]: newIdx,
-                                }));
-                                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                            onScroll={(event) => {
+                              const w = cardWidths[ex.id] || event.nativeEvent.layoutMeasurement.width;
+                              if (w <= 0) return;
+                              const newIdx = Math.round(event.nativeEvent.contentOffset.x / w);
+                              // Debounce to avoid rapid state updates
+                              if (scrollTimeoutRefs.current[ex.id]) {
+                                clearTimeout(scrollTimeoutRefs.current[ex.id]);
                               }
+                              scrollTimeoutRefs.current[ex.id] = setTimeout(() => {
+                                setActiveAlternatives((prev) => {
+                                  const current = prev[ex.id] || 0;
+                                  if (current === newIdx) return prev;
+                                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                                  return { ...prev, [ex.id]: newIdx };
+                                });
+                              }, 50);
                             }}
                           >
-                            {allVariations.map((variation, vIdx) => (
+                            {allVariations.map((variation) => (
                               <View
                                 key={variation.id}
                                 className="flex-row items-center"
-                                style={{ width: '100%' }}
+                                style={{ width: cardWidths[ex.id] || '100%' }}
                               >
                                 {/* Thumbnail */}
                                 <View className="w-16 h-16">
