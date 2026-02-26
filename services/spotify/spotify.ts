@@ -1768,52 +1768,19 @@ class SpotifyService {
       console.log('📡 playViaDeepLink: Abriendo Spotify con:', trackUri);
 
       if (Platform.OS === 'web' && typeof document !== 'undefined') {
-        // WEB/PWA: Intentar abrir Spotify con el track
-        // Primero intentar con el protocolo spotify: nativo
-        const iframe = document.createElement('iframe');
-        iframe.style.display = 'none';
-        iframe.src = trackUri;
-        document.body.appendChild(iframe);
-        setTimeout(() => {
-          try {
-            document.body.removeChild(iframe);
-          } catch {}
-        }, 2000);
-
-        // Fallback: abrir la URL web de Spotify como tab
-        // Convertir spotify:track:ID → https://open.spotify.com/track/ID
-        const webUrl = this.spotifyUriToWebUrl(trackUri);
-        if (webUrl) {
-          setTimeout(() => {
-            window.open(webUrl, '_blank');
-          }, 1500); // Dar tiempo al iframe, si no funciona abre la web
-        }
+        // WEB/PWA: Usar solo el protocolo spotify: para abrir la app nativa
+        // NO abrir open.spotify.com porque crea una pestaña que queda al volver
+        window.location.href = trackUri;
       } else {
         // NATIVO: Abrir directamente la app con el track
         const canOpen = await Linking.canOpenURL(trackUri);
         if (canOpen) {
           await Linking.openURL(trackUri);
-        } else {
-          // Si no puede abrir el URI de Spotify, abrir la URL web
-          const webUrl = this.spotifyUriToWebUrl(trackUri);
-          if (webUrl) await Linking.openURL(webUrl);
         }
       }
     } catch (error) {
       console.error('📡 playViaDeepLink error:', error);
     }
-  }
-
-  /**
-   * Convierte un URI de Spotify (spotify:track:ID) a URL web (https://open.spotify.com/track/ID)
-   */
-  private spotifyUriToWebUrl(uri: string): string | null {
-    // spotify:track:4iV5W9uYEdYUVa79Axb7Rh → https://open.spotify.com/track/4iV5W9uYEdYUVa79Axb7Rh
-    const match = uri.match(/^spotify:(track|album|playlist|artist):(.+)$/);
-    if (match) {
-      return `https://open.spotify.com/${match[1]}/${match[2]}?play=true`;
-    }
-    return null;
   }
 
   async wakeWithDeepLink(trackUri?: string): Promise<boolean> {
