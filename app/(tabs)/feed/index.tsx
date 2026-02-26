@@ -1688,6 +1688,15 @@ function FeedScreenContent() {
           await spotify.play();
           setIsMuted(true);
           setSpotifyPlayingFromFeed(true);
+          // Restore now-playing header chip
+          const activeVideo = videos[activeIndex];
+          if (activeVideo?.spotify?.trackName) {
+            setNowPlayingTrack({
+              trackName: activeVideo.spotify.trackName,
+              artist: activeVideo.spotify.artist || '',
+              trackUri,
+            });
+          }
         } else {
           // Different track or first play → play new track
           await spotify.playTrack(trackUri);
