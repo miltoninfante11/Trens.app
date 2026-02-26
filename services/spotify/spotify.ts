@@ -722,14 +722,22 @@ class SpotifyService {
         let availableDevice = devices.find((d) => !d.is_restricted) || devices[0];
 
         if (!availableDevice) {
-          // No devices → try to wake Spotify via deep link
-          console.log('🎵 play(): No devices, attempting deep link wake...');
+          // No devices → try to wake Spotify silently via deep link
+          console.log('🎵 play(): No devices, attempting silent deep link wake...');
           const woke = await this.wakeWithDeepLink();
           if (woke) {
             const retryDevices = await this.getDevices();
             availableDevice = retryDevices.find((d) => !d.is_restricted) || retryDevices[0];
           }
-          if (!availableDevice) return false;
+          if (!availableDevice) {
+            // ÚLTIMO RECURSO: abrir Spotify directamente con la canción
+            // El usuario saldrá brevemente de la app pero la canción se reproduce
+            if (trackUri) {
+              console.log('🎵 play(): Último recurso → abrir Spotify con deep link directo');
+              await this.playViaDeepLink(trackUri);
+            }
+            return false;
+          }
         }
 
         deviceId = availableDevice.id as string;
@@ -1759,6 +1767,65 @@ class SpotifyService {
    * @param trackUri - Opcional: URI específica. Si no se da, abre la app genérica.
    * @returns true si después del intento hay un dispositivo disponible.
    */
+  /**
+   * ÚLTIMO RECURSO: Abre Spotify directamente con el track URI.
+   * El usuario saldrá brevemente de la app pero la canción se reproducirá.
+   * En web: window.open con el URI de Spotify.
+   * En nativo: Linking.openURL con el URI del track.
+   */
+  async playViaDeepLink(trackUri: string): Promise<void> {
+    try {
+      console.log('📡 playViaDeepLink: Abriendo Spotify con:', trackUri);
+
+      if (Platform.OS === 'web' && typeof document !== 'undefined') {
+        // WEB/PWA: Intentar abrir Spotify con el track
+        // Primero intentar con el protocolo spotify: nativo
+        const iframe = document.createElement('iframe');
+        iframe.style.display = 'none';
+        iframe.src = trackUri;
+        document.body.appendChild(iframe);
+        setTimeout(() => {
+          try {
+            document.body.removeChild(iframe);
+          } catch {}
+        }, 2000);
+
+        // Fallback: abrir la URL web de Spotify como tab
+        // Convertir spotify:track:ID → https://open.spotify.com/track/ID
+        const webUrl = this.spotifyUriToWebUrl(trackUri);
+        if (webUrl) {
+          setTimeout(() => {
+            window.open(webUrl, '_blank');
+          }, 1500); // Dar tiempo al iframe, si no funciona abre la web
+        }
+      } else {
+        // NATIVO: Abrir directamente la app con el track
+        const canOpen = await Linking.canOpenURL(trackUri);
+        if (canOpen) {
+          await Linking.openURL(trackUri);
+        } else {
+          // Si no puede abrir el URI de Spotify, abrir la URL web
+          const webUrl = this.spotifyUriToWebUrl(trackUri);
+          if (webUrl) await Linking.openURL(webUrl);
+        }
+      }
+    } catch (error) {
+      console.error('📡 playViaDeepLink error:', error);
+    }
+  }
+
+  /**
+   * Convierte un URI de Spotify (spotify:track:ID) a URL web (https://open.spotify.com/track/ID)
+   */
+  private spotifyUriToWebUrl(uri: string): string | null {
+    // spotify:track:4iV5W9uYEdYUVa79Axb7Rh → https://open.spotify.com/track/4iV5W9uYEdYUVa79Axb7Rh
+    const match = uri.match(/^spotify:(track|album|playlist|artist):(.+)$/);
+    if (match) {
+      return `https://open.spotify.com/${match[1]}/${match[2]}?play=true`;
+    }
+    return null;
+  }
+
   async wakeWithDeepLink(trackUri?: string): Promise<boolean> {
     try {
       console.log('📡 Spotify wakeWithDeepLink: Intentando despertar...');
@@ -1776,19 +1843,25 @@ class SpotifyService {
 
         // Limpiar después de 2 segundos
         setTimeout(() => {
-          try { document.body.removeChild(iframe); } catch {}
+          try {
+            document.body.removeChild(iframe);
+          } catch {}
         }, 2000);
 
         // También intentar con window.open como fallback para Android Chrome
         // Android Chrome a veces ignora iframe intents pero responde a window.open
         try {
           const w = window.open(uri, '_blank');
-          if (w) setTimeout(() => { try { w.close(); } catch {} }, 500);
+          if (w)
+            setTimeout(() => {
+              try {
+                w.close();
+              } catch {}
+            }, 500);
         } catch {}
 
         // Esperar a que Spotify se despierte y registre dispositivo
         await new Promise((resolve) => setTimeout(resolve, 3000));
-
       } else {
         // NATIVO: Linking.openURL abre la app directamente
         const uri = trackUri || 'spotify:';
@@ -1821,7 +1894,6 @@ class SpotifyService {
 
       console.log('📡 wakeWithDeepLink: ❌ No aparecieron dispositivos');
       return false;
-
     } catch (error) {
       console.error('📡 wakeWithDeepLink error:', error);
       return false;
