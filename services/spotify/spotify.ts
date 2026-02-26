@@ -722,22 +722,12 @@ class SpotifyService {
         let availableDevice = devices.find((d) => !d.is_restricted) || devices[0];
 
         if (!availableDevice) {
-          // No devices → try to wake Spotify silently via deep link
-          console.log('🎵 play(): No devices, attempting silent deep link wake...');
-          const woke = await this.wakeWithDeepLink();
-          if (woke) {
-            const retryDevices = await this.getDevices();
-            availableDevice = retryDevices.find((d) => !d.is_restricted) || retryDevices[0];
+          // No hay dispositivo → abrir Spotify directamente con la canción
+          if (trackUri) {
+            console.log('🎵 play(): No devices → abriendo Spotify con deep link');
+            await this.playViaDeepLink(trackUri);
           }
-          if (!availableDevice) {
-            // ÚLTIMO RECURSO: abrir Spotify directamente con la canción
-            // El usuario saldrá brevemente de la app pero la canción se reproduce
-            if (trackUri) {
-              console.log('🎵 play(): Último recurso → abrir Spotify con deep link directo');
-              await this.playViaDeepLink(trackUri);
-            }
-            return false;
-          }
+          return false;
         }
 
         deviceId = availableDevice.id as string;
