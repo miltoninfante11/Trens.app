@@ -9,6 +9,8 @@ import {
   RefreshControl,
   ScrollView,
   useWindowDimensions,
+  AppState,
+  Platform,
 } from 'react-native';
 import { PWAGuard } from '../../../components/auth/PWAGuard';
 import { Alert } from '../../../lib/alert';
@@ -38,7 +40,6 @@ import { useHank } from '../../../context/HankContext';
 import spotify from '../../../services/spotify/spotify';
 import { spotifyModalEvent, SpotifyNowPlaying } from '../../../lib/spotifyModalEvent';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Platform } from 'react-native';
 
 // ============================================================================
 // TIPOS
@@ -1000,9 +1001,42 @@ function FeedScreenContent() {
           .catch(() => {});
       }
 
+      // Listener para refrescar playback al volver de Spotify
+      let cleanup: (() => void) | undefined;
+      if (spotifyConnected) {
+        const refreshOnReturn = async () => {
+          try {
+            const playback = await spotify.getPlaybackState();
+            if (playback?.isPlaying && playback.track) {
+              setNowPlayingTrack({
+                trackName: playback.track.name,
+                artist: playback.track.artist,
+                trackUri: playback.track.uri,
+              });
+            } else {
+              setNowPlayingTrack(null);
+            }
+          } catch {}
+        };
+
+        if (Platform.OS === 'web' && typeof document !== 'undefined') {
+          const handleVisibility = () => {
+            if (document.visibilityState === 'visible') refreshOnReturn();
+          };
+          document.addEventListener('visibilitychange', handleVisibility);
+          cleanup = () => document.removeEventListener('visibilitychange', handleVisibility);
+        } else {
+          const sub = AppState.addEventListener('change', (state) => {
+            if (state === 'active') refreshOnReturn();
+          });
+          cleanup = () => sub.remove();
+        }
+      }
+
       return () => {
         // Al salir del Feed, marcar como no enfocado (pausará videos)
         setIsFeedFocused(false);
+        cleanup?.();
       };
     }, [spotifyConnected])
   );

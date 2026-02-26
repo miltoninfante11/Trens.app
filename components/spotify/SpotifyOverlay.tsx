@@ -8,7 +8,7 @@
 // ============================================================================
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { View, Text, PanResponder, Dimensions, GestureResponderEvent } from 'react-native';
+import { View, Text, PanResponder, Dimensions, GestureResponderEvent, AppState, Platform } from 'react-native';
 import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, {
@@ -454,6 +454,48 @@ export function SpotifyOverlay() {
     }, 10000);
 
     return () => clearInterval(interval);
+  }, [spotifyConnected]);
+
+  // -------------------------------------------------------------------------
+  // REFRESCAR PLAYBACK AL VOLVER A LA APP (visibilitychange / AppState)
+  // -------------------------------------------------------------------------
+  useEffect(() => {
+    if (!spotifyConnected) return;
+
+    const refreshPlayback = async () => {
+      try {
+        const playback = await spotify.getPlaybackState();
+        setPlaybackState(playback);
+        if (playback?.track) {
+          setCurrentTrack((prev) => {
+            if (prev?.uri !== playback.track?.uri) {
+              setAlbumArtUrl(playback.track?.albumArt || null);
+              return playback.track;
+            }
+            return prev;
+          });
+        }
+      } catch {}
+    };
+
+    if (Platform.OS === 'web' && typeof document !== 'undefined') {
+      // WEB/PWA: visibilitychange detecta cuando la pestaña/PWA vuelve al frente
+      const handleVisibility = () => {
+        if (document.visibilityState === 'visible') {
+          refreshPlayback();
+        }
+      };
+      document.addEventListener('visibilitychange', handleVisibility);
+      return () => document.removeEventListener('visibilitychange', handleVisibility);
+    } else {
+      // NATIVO: AppState detecta cuando la app vuelve al foreground
+      const sub = AppState.addEventListener('change', (state) => {
+        if (state === 'active') {
+          refreshPlayback();
+        }
+      });
+      return () => sub.remove();
+    }
   }, [spotifyConnected]);
 
   // -------------------------------------------------------------------------
