@@ -205,7 +205,7 @@ BEGIN
         -- ============================================================
         + CASE
             WHEN v_has_history AND cs.raw_affinity IS NOT NULL THEN
-              LEAST(1.0, cs.raw_affinity / (cs.raw_affinity + 5.0)) * 0.35
+              LEAST(1.0, cs.raw_affinity / GREATEST(ABS(cs.raw_affinity) + 5.0, 0.01)) * 0.35
             WHEN v_has_history THEN
               0.05
             ELSE

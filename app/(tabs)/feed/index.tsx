@@ -3,6 +3,7 @@ import {
   View,
   Text,
   TouchableOpacity,
+  Pressable,
   ActivityIndicator,
   FlatList,
   ViewToken,
@@ -1471,6 +1472,7 @@ function FeedScreenContent() {
   const [refreshing, setRefreshing] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
+  const [feedError, setFeedError] = useState<string | null>(null);
   const offsetRef = useRef(0);
   const [activeIndex, setActiveIndex] = useState(0);
 
@@ -1776,6 +1778,8 @@ function FeedScreenContent() {
 
         if (error) throw error;
 
+        setFeedError(null);
+
         const feedItems: FeedVideo[] = (data || []).map((item: any) => ({
           id: item.id,
           user_id: item.user_id,
@@ -1814,8 +1818,9 @@ function FeedScreenContent() {
           });
           offsetRef.current = offset + PAGE_SIZE;
         }
-      } catch (err) {
+      } catch (err: any) {
         console.error('Error fetching feed:', err);
+        setFeedError(err?.message || err?.code || 'Error desconocido');
       } finally {
         setLoading(false);
         setLoadingMore(false);
@@ -1833,9 +1838,11 @@ function FeedScreenContent() {
 
   // Initial load: only once per mount (app open).
   // Tab switches do NOT trigger this (component stays mounted).
+  // Also retries if first load returned empty (e.g., auth wasn't ready yet).
   useEffect(() => {
     if (!hasLoadedRef.current) {
       hasLoadedRef.current = true;
+      setFeedError(null);
       fetchFeedPage(0);
     }
   }, [fetchFeedPage]);
@@ -2240,10 +2247,28 @@ function FeedScreenContent() {
     return (
       <View className="flex-1 bg-black items-center justify-center px-6">
         <Play size={64} color="#27272a" />
-        <Text className="text-white text-xl font-bold mt-6 mb-2">Feed vacío</Text>
-        <Text className="text-zinc-500 text-center">
-          Sé el primero en compartir tu entrenamiento con la comunidad TRENS
+        <Text className="text-white text-xl font-bold mt-6 mb-2">
+          {feedError ? 'Error al cargar' : 'Feed vacío'}
         </Text>
+        {feedError && (
+          <Text className="text-red-500 text-xs font-mono text-center mb-3">{feedError}</Text>
+        )}
+        <Text className="text-zinc-500 text-center mb-4">
+          {feedError
+            ? 'No pudimos cargar el feed. Intenta de nuevo.'
+            : 'Sé el primero en compartir tu entrenamiento con la comunidad TRENS'}
+        </Text>
+        <Pressable
+          onPress={() => {
+            setLoading(true);
+            setFeedError(null);
+            hasLoadedRef.current = false;
+            fetchFeedPage(0);
+          }}
+          className="bg-red-600 px-6 py-3 rounded-xl"
+        >
+          <Text className="text-white font-bold">Reintentar</Text>
+        </Pressable>
       </View>
     );
   }
