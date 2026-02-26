@@ -115,36 +115,83 @@ const TrainingDayChip = memo(({ userId }: { userId: string | undefined }) => {
   const [exercises, setExercises] = useState<TrainingExercise[]>([]);
   const [modalVisible, setModalVisible] = useState(false);
   const [loadingExercises, setLoadingExercises] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
 
-  // Fetch training days on mount
+  // Fetch training days (called on mount + when refreshKey changes)
+  const fetchTrainingDays = useCallback(async () => {
+    if (!userId) return;
+    try {
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('training_current_day, training_frequency, training_routine_names')
+        .eq('id', userId)
+        .single();
+
+      if (!profile || !profile.training_frequency) return;
+
+      const freq = profile.training_frequency;
+      const names = profile.training_routine_names || {};
+      const days = Array.from({ length: freq }, (_, i) => ({
+        name: names[String(i)] || `DÍA ${i + 1}`,
+        index: i,
+      }));
+
+      setTrainingDays(days);
+      const current = profile.training_current_day || 0;
+      setCurrentDayIdx(current);
+      setSelectedDayIdx(current);
+    } catch (e) {
+      console.error('TrainingChip fetch error:', e);
+    }
+  }, [userId]);
+
+  // Initial fetch + refetch on refreshKey
+  useEffect(() => {
+    fetchTrainingDays();
+  }, [fetchTrainingDays, refreshKey]);
+
+  // Subscribe to Supabase realtime changes on profiles and user_exercise_config
   useEffect(() => {
     if (!userId) return;
-    (async () => {
-      try {
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('training_current_day, training_frequency, training_routine_names')
-          .eq('id', userId)
-          .single();
 
-        if (!profile || !profile.training_frequency) return;
+    const channel = supabase
+      .channel('training-chip-sync')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'profiles',
+          filter: `id=eq.${userId}`,
+        },
+        () => {
+          // Profile changed (frequency, routine names, current day)
+          setRefreshKey((k) => k + 1);
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'user_exercise_config',
+          filter: `user_id=eq.${userId}`,
+        },
+        () => {
+          // Exercises changed (added, removed, reordered, config changed)
+          // Reload exercises for the currently selected day
+          if (modalVisible) {
+            loadDayExercises(selectedDayIdx);
+          }
+          setRefreshKey((k) => k + 1);
+        }
+      )
+      .subscribe();
 
-        const freq = profile.training_frequency;
-        const names = profile.training_routine_names || {};
-        const days = Array.from({ length: freq }, (_, i) => ({
-          name: names[String(i)] || `DÍA ${i + 1}`,
-          index: i,
-        }));
-
-        setTrainingDays(days);
-        const current = profile.training_current_day || 0;
-        setCurrentDayIdx(current);
-        setSelectedDayIdx(current);
-      } catch (e) {
-        console.error('TrainingChip fetch error:', e);
-      }
-    })();
-  }, [userId]);
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [userId, modalVisible, selectedDayIdx]);
 
   // Load exercises for a day
   const loadDayExercises = useCallback(
@@ -209,21 +256,38 @@ const TrainingDayChip = memo(({ userId }: { userId: string | undefined }) => {
     [userId]
   );
 
-  // Open modal and load current day exercises
+  // Open modal and load current day exercises (always fresh)
   const handleOpenModal = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    fetchTrainingDays(); // Refresh day names in case they changed
     setModalVisible(true);
     loadDayExercises(selectedDayIdx);
-  }, [selectedDayIdx, loadDayExercises]);
+  }, [selectedDayIdx, loadDayExercises, fetchTrainingDays]);
 
-  // Select a day inside the modal
+  // Select a day inside the modal → save as current day to Supabase
   const handleSelectDay = useCallback(
-    (dayIdx: number) => {
+    async (dayIdx: number) => {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       setSelectedDayIdx(dayIdx);
+      setCurrentDayIdx(dayIdx); // Update locally immediately
       loadDayExercises(dayIdx);
+
+      // Persist to Supabase so GYM module picks it up
+      if (userId) {
+        try {
+          await supabase
+            .from('profiles')
+            .update({
+              training_current_day: dayIdx,
+              training_last_access: new Date().toISOString(),
+            })
+            .eq('id', userId);
+        } catch (e) {
+          console.error('Save training day error:', e);
+        }
+      }
     },
-    [loadDayExercises]
+    [loadDayExercises, userId]
   );
 
   if (trainingDays.length === 0) return null;
@@ -239,9 +303,7 @@ const TrainingDayChip = memo(({ userId }: { userId: string | undefined }) => {
         activeOpacity={0.7}
         className="self-end mt-1 flex-row items-center rounded-full px-3 py-1.5"
         style={{
-          backgroundColor: isCurrentDay
-            ? 'rgba(147, 51, 234, 0.15)'
-            : 'rgba(255, 255, 255, 0.06)',
+          backgroundColor: isCurrentDay ? 'rgba(147, 51, 234, 0.15)' : 'rgba(255, 255, 255, 0.06)',
           borderWidth: 1,
           borderColor: isCurrentDay ? '#9333ea' : 'rgba(255, 255, 255, 0.12)',
           maxWidth: 220,
