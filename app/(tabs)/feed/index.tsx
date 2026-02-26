@@ -12,8 +12,6 @@ import {
   AppState,
   Platform,
   Modal,
-  PanResponder,
-  GestureResponderEvent,
 } from 'react-native';
 import { PWAGuard } from '../../../components/auth/PWAGuard';
 import { Alert } from '../../../lib/alert';
@@ -33,15 +31,12 @@ import {
   PlusCircle,
   CheckCircle,
   Dumbbell,
-  ChevronLeft,
-  ChevronRight,
   X,
 } from 'lucide-react-native';
 import * as Haptics from '../../../lib/haptics';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { Audio } from 'expo-av';
 import { LinearGradient } from 'expo-linear-gradient';
-import Animated, { useSharedValue, withSpring, useAnimatedStyle } from 'react-native-reanimated';
 import { supabase } from '../../../lib/supabase';
 import { useUserRoleContext } from '../../../context/UserRoleContext';
 import { useHank } from '../../../context/HankContext';
@@ -110,8 +105,6 @@ const SERIES_COLORS: Record<string, { bg: string; text: string; label: string }>
   INTENSITY: { bg: '#450a0a', text: '#f87171', label: 'I' },
 };
 
-const SWIPE_DAY_THRESHOLD = 40;
-
 // ============================================================================
 // TRAINING DAY CHIP COMPONENT
 // ============================================================================
@@ -122,14 +115,6 @@ const TrainingDayChip = memo(({ userId }: { userId: string | undefined }) => {
   const [exercises, setExercises] = useState<TrainingExercise[]>([]);
   const [modalVisible, setModalVisible] = useState(false);
   const [loadingExercises, setLoadingExercises] = useState(false);
-  const chipTranslateX = useSharedValue(0);
-  const startPosRef = useRef({ x: 0, y: 0 });
-  const gestureHandledRef = useRef(false);
-  const trainingDaysRef = useRef(trainingDays);
-  trainingDaysRef.current = trainingDays;
-  const selectedDayIdxRef = useRef(selectedDayIdx);
-  selectedDayIdxRef.current = selectedDayIdx;
-  const loadDayExercisesRef = useRef<(dayIdx: number) => void>(() => {});
 
   // Fetch training days on mount
   useEffect(() => {
@@ -224,55 +209,22 @@ const TrainingDayChip = memo(({ userId }: { userId: string | undefined }) => {
     [userId]
   );
 
-  // Keep ref updated
-  useEffect(() => {
-    loadDayExercisesRef.current = loadDayExercises;
-  });
+  // Open modal and load current day exercises
+  const handleOpenModal = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setModalVisible(true);
+    loadDayExercises(selectedDayIdx);
+  }, [selectedDayIdx, loadDayExercises]);
 
-  // Swipe pan responder for day change
-  const chipPan = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: (_, gs) => Math.abs(gs.dx) > 8,
-      onPanResponderGrant: (evt: GestureResponderEvent) => {
-        startPosRef.current = { x: evt.nativeEvent.pageX, y: evt.nativeEvent.pageY };
-        gestureHandledRef.current = false;
-      },
-      onPanResponderMove: (evt: GestureResponderEvent) => {
-        const dx = evt.nativeEvent.pageX - startPosRef.current.x;
-        chipTranslateX.value = Math.max(-50, Math.min(50, dx * 0.6));
-      },
-      onPanResponderRelease: (evt: GestureResponderEvent) => {
-        const dx = evt.nativeEvent.pageX - startPosRef.current.x;
-        chipTranslateX.value = withSpring(0, { damping: 15 });
-
-        if (gestureHandledRef.current) return;
-        const days = trainingDaysRef.current;
-        if (days.length === 0) return;
-
-        if (dx < -SWIPE_DAY_THRESHOLD) {
-          // Swipe left → next day
-          gestureHandledRef.current = true;
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-          setSelectedDayIdx((prev) => (prev + 1 >= days.length ? 0 : prev + 1));
-        } else if (dx > SWIPE_DAY_THRESHOLD) {
-          // Swipe right → prev day
-          gestureHandledRef.current = true;
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-          setSelectedDayIdx((prev) => (prev - 1 < 0 ? days.length - 1 : prev - 1));
-        } else {
-          // Tap → open modal
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-          loadDayExercisesRef.current(selectedDayIdxRef.current);
-          setModalVisible(true);
-        }
-      },
-    })
-  ).current;
-
-  const chipAnimStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: chipTranslateX.value }],
-  }));
+  // Select a day inside the modal
+  const handleSelectDay = useCallback(
+    (dayIdx: number) => {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      setSelectedDayIdx(dayIdx);
+      loadDayExercises(dayIdx);
+    },
+    [loadDayExercises]
+  );
 
   if (trainingDays.length === 0) return null;
 
@@ -281,76 +233,67 @@ const TrainingDayChip = memo(({ userId }: { userId: string | undefined }) => {
 
   return (
     <>
-      {/* Purple training chip */}
-      <Animated.View style={chipAnimStyle} className="self-end mt-1">
-        <View
-          {...chipPan.panHandlers}
-          className="flex-row items-center rounded-full px-3 py-1.5"
-          style={{
-            backgroundColor: isCurrentDay
-              ? 'rgba(147, 51, 234, 0.15)'
-              : 'rgba(255, 255, 255, 0.06)',
-            borderWidth: 1,
-            borderColor: isCurrentDay ? '#9333ea' : 'rgba(255, 255, 255, 0.12)',
-            maxWidth: 220,
-          }}
+      {/* Purple training chip - simple press to open */}
+      <TouchableOpacity
+        onPress={handleOpenModal}
+        activeOpacity={0.7}
+        className="self-end mt-1 flex-row items-center rounded-full px-3 py-1.5"
+        style={{
+          backgroundColor: isCurrentDay
+            ? 'rgba(147, 51, 234, 0.15)'
+            : 'rgba(255, 255, 255, 0.06)',
+          borderWidth: 1,
+          borderColor: isCurrentDay ? '#9333ea' : 'rgba(255, 255, 255, 0.12)',
+          maxWidth: 220,
+        }}
+      >
+        <Dumbbell size={12} color={isCurrentDay ? '#a855f7' : '#71717a'} />
+        <Text
+          numberOfLines={1}
+          className={`ml-1.5 text-xs font-bold ${
+            isCurrentDay ? 'text-purple-400' : 'text-zinc-500'
+          }`}
         >
-          <ChevronLeft size={10} color={isCurrentDay ? '#a855f7' : '#52525b'} />
-          <Dumbbell size={12} color={isCurrentDay ? '#a855f7' : '#71717a'} />
-          <Text
-            numberOfLines={1}
-            className={`ml-1.5 mr-0.5 text-xs font-bold ${
-              isCurrentDay ? 'text-purple-400' : 'text-zinc-500'
-            }`}
-          >
-            {day?.name || 'REST'}
-          </Text>
-          <ChevronRight size={10} color={isCurrentDay ? '#a855f7' : '#52525b'} />
-        </View>
-      </Animated.View>
+          {day?.name || 'REST'}
+        </Text>
+      </TouchableOpacity>
 
       {/* Exercises Modal */}
       <Modal
         visible={modalVisible}
         transparent
         animationType="fade"
+        statusBarTranslucent
         onRequestClose={() => setModalVisible(false)}
       >
-        <TouchableOpacity
-          activeOpacity={1}
-          onPress={() => setModalVisible(false)}
-          className="flex-1 justify-center items-center"
-          style={{ backgroundColor: 'rgba(0,0,0,0.7)' }}
-        >
+        <View className="flex-1" style={{ backgroundColor: 'rgba(0,0,0,0.75)' }}>
+          {/* Backdrop press to close */}
           <TouchableOpacity
             activeOpacity={1}
-            onPress={() => {}}
-            className="rounded-2xl overflow-hidden"
+            onPress={() => setModalVisible(false)}
+            className="flex-1"
+          />
+
+          {/* Modal content - anchored to center-bottom area */}
+          <View
+            className="mx-4 mb-8 rounded-2xl overflow-hidden"
             style={{
-              backgroundColor: 'rgba(24, 24, 27, 0.95)',
+              backgroundColor: 'rgba(24, 24, 27, 0.96)',
               borderWidth: 1,
               borderColor: 'rgba(147, 51, 234, 0.3)',
-              maxHeight: '75%',
-              width: '90%',
+              maxHeight: '70%',
             }}
           >
             {/* Modal Header */}
-            <View className="flex-row items-center justify-between px-4 pt-4 pb-3">
-              <View className="flex-row items-center flex-1">
+            <View className="flex-row items-center justify-between px-4 pt-4 pb-2">
+              <View className="flex-row items-center">
                 <View
                   className="w-8 h-8 rounded-lg items-center justify-center mr-3"
                   style={{ backgroundColor: 'rgba(147, 51, 234, 0.2)' }}
                 >
                   <Dumbbell size={16} color="#a855f7" />
                 </View>
-                <View className="flex-1">
-                  <Text className="text-white font-bold text-base" numberOfLines={1}>
-                    {day?.name}
-                  </Text>
-                  <Text className="text-zinc-500 text-xs font-mono">
-                    DÍA {selectedDayIdx + 1} • {exercises.length} ejercicios
-                  </Text>
-                </View>
+                <Text className="text-white font-bold text-base">ENTRENAMIENTO</Text>
               </View>
               <TouchableOpacity
                 onPress={() => setModalVisible(false)}
@@ -359,6 +302,63 @@ const TrainingDayChip = memo(({ userId }: { userId: string | undefined }) => {
               >
                 <X size={16} color="#71717a" />
               </TouchableOpacity>
+            </View>
+
+            {/* Day selector chips - horizontal scroll */}
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              className="px-4 py-2"
+              contentContainerStyle={{ gap: 8 }}
+            >
+              {trainingDays.map((d) => {
+                const isSelected = d.index === selectedDayIdx;
+                const isCurrent = d.index === currentDayIdx;
+                return (
+                  <TouchableOpacity
+                    key={d.index}
+                    onPress={() => handleSelectDay(d.index)}
+                    activeOpacity={0.7}
+                    className="rounded-full px-3 py-1.5 flex-row items-center"
+                    style={{
+                      backgroundColor: isSelected
+                        ? 'rgba(147, 51, 234, 0.25)'
+                        : 'rgba(255, 255, 255, 0.06)',
+                      borderWidth: 1,
+                      borderColor: isSelected
+                        ? '#9333ea'
+                        : isCurrent
+                          ? 'rgba(147, 51, 234, 0.3)'
+                          : 'rgba(255, 255, 255, 0.08)',
+                    }}
+                  >
+                    {isCurrent && (
+                      <View
+                        className="w-1.5 h-1.5 rounded-full mr-1.5"
+                        style={{ backgroundColor: '#a855f7' }}
+                      />
+                    )}
+                    <Text
+                      numberOfLines={1}
+                      className="text-xs font-bold"
+                      style={{
+                        color: isSelected ? '#c084fc' : isCurrent ? '#a855f7' : '#71717a',
+                        maxWidth: 120,
+                      }}
+                    >
+                      {d.name}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+
+            {/* Day info subtitle */}
+            <View className="px-4 pb-2">
+              <Text className="text-zinc-500 text-xs font-mono">
+                DÍA {selectedDayIdx + 1} • {exercises.length} ejercicios
+                {selectedDayIdx === currentDayIdx ? ' • HOY' : ''}
+              </Text>
             </View>
 
             {/* Divider */}
@@ -427,7 +427,10 @@ const TrainingDayChip = memo(({ userId }: { userId: string | undefined }) => {
                                 >
                                   {color.label}
                                 </Text>
-                                <Text className="font-mono" style={{ color: color.text, fontSize: 9 }}>
+                                <Text
+                                  className="font-mono"
+                                  style={{ color: color.text, fontSize: 9 }}
+                                >
                                   {s.reps}r{s.weight ? ` ${s.weight}kg` : ''}
                                 </Text>
                               </View>
@@ -441,8 +444,8 @@ const TrainingDayChip = memo(({ userId }: { userId: string | undefined }) => {
                 <View className="h-4" />
               </ScrollView>
             )}
-          </TouchableOpacity>
-        </TouchableOpacity>
+          </View>
+        </View>
       </Modal>
     </>
   );
