@@ -1,7 +1,7 @@
 // ============================================================================
-// ADD OPTION MODAL - Modal para añadir un nuevo platillo a una comida
-// Análisis inteligente automático (siempre activo)
-// Campos manuales de gramos y porciones con conversión IA
+// ADD OPTION MODAL - Modal para añadir un nuevo platillo (opción) a una comida
+// Solo pide nombres de ingredientes — las cantidades se calculan automáticamente
+// según los macros de la comida principal
 // ============================================================================
 
 import React, { useState, useEffect, useRef } from 'react';
@@ -20,21 +20,12 @@ import {
 import Animated, { useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from '../../lib/haptics';
-import {
-  X,
-  Plus,
-  Trash2,
-  AlertTriangle,
-  CheckCircle,
-  Sparkles,
-  Scale,
-  Layers,
-} from 'lucide-react-native';
+import { Plus, Trash2, AlertTriangle, CheckCircle, Sparkles } from 'lucide-react-native';
 import {
   analyzeIngredientsSmart,
   IngredientAnalysis,
 } from '../../services/hank/ingredientAnalyzer';
-import { calculateMealWithUserMacros, convertGramsPortions } from '../../services/hank/nutrition';
+import { calculateMealWithUserMacros } from '../../services/hank/nutrition';
 
 // ============================================================================
 // TYPES
@@ -87,7 +78,6 @@ export const AddOptionModal: React.FC<AddOptionModalProps> = ({
   const [isSaving, setIsSaving] = useState(false);
   const [analysis, setAnalysis] = useState<IngredientAnalysis | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [isConverting, setIsConverting] = useState(false);
 
   // ===== ANIMACIONES FLUIDAS =====
   const translateY = useSharedValue(0);
@@ -172,9 +162,9 @@ export const AddOptionModal: React.FC<AddOptionModalProps> = ({
     }
   };
 
-  const updateIngredient = (index: number, field: keyof Ingredient, value: string) => {
+  const updateIngredientName = (index: number, value: string) => {
     const newIngs = [...ingredients];
-    newIngs[index] = { ...newIngs[index], [field]: value };
+    newIngs[index] = { ...newIngs[index], name: value };
     setIngredients(newIngs);
   };
 
@@ -191,40 +181,11 @@ export const AddOptionModal: React.FC<AddOptionModalProps> = ({
     try {
       let finalIngredients = validIngredients;
 
-      // Primero: conversión gramos ↔ porciones si falta alguno
-      const needsConversion = finalIngredients.some(
-        (ing) =>
-          (ing.quantity.trim() && !(ing.portion || '').trim()) ||
-          (!(ing.quantity || '').trim() && (ing.portion || '').trim())
-      );
-
-      if (needsConversion) {
-        setIsConverting(true);
-        try {
-          const converted = await convertGramsPortions(
-            finalIngredients.map((ing) => ({
-              name: ing.name,
-              quantity: ing.quantity?.trim() || undefined,
-              portion: ing.portion?.trim() || undefined,
-            }))
-          );
-          finalIngredients = converted.map((c, idx) => ({
-            ...finalIngredients[idx],
-            name: c.name,
-            quantity: c.quantity,
-            portion: c.portion,
-          }));
-        } catch (error) {
-          console.error('Error convirtiendo:', error);
-        } finally {
-          setIsConverting(false);
-        }
-      }
-
-      // Luego: usar IA para calcular gramos con macros objetivo
+      // Las cantidades se calculan automáticamente según los macros de la comida principal
+      // El usuario solo ingresó nombres de ingredientes (sin cantidad ni porción)
       if (targetMacros) {
         try {
-          console.log('🎯 Calculando con macros objetivo:', targetMacros);
+          console.log('🎯 Calculando cantidades con macros de comida principal:', targetMacros);
           const calculated = await calculateMealWithUserMacros(finalIngredients, targetMacros);
           finalIngredients = calculated.map((ing) => ({
             id: ing.id,
@@ -235,13 +196,11 @@ export const AddOptionModal: React.FC<AddOptionModalProps> = ({
           }));
         } catch (error) {
           console.error('Error calculating macros with target:', error);
-          // Fallback a onCalculateMacros si falla
           if (onCalculateMacros) {
             finalIngredients = await onCalculateMacros(finalIngredients);
           }
         }
       } else if (onCalculateMacros) {
-        // Si no hay targetMacros, usar cálculo genérico
         try {
           finalIngredients = await onCalculateMacros(finalIngredients);
         } catch (error) {
@@ -415,13 +374,14 @@ export const AddOptionModal: React.FC<AddOptionModalProps> = ({
                 </View>
               )}
 
-              {/* Ingredients */}
+              {/* Ingredients - Solo nombre, sin campos de cantidad */}
               <Text className="text-zinc-400 text-xs font-bold mb-2 uppercase">Ingredientes</Text>
 
-              {/* Info: conversión automática */}
+              {/* Info: cantidades automáticas según macros */}
               <View className="bg-purple-500/10 border border-purple-500/20 rounded-xl p-3 mb-3">
                 <Text className="text-purple-300 text-xs">
-                  💡 Ingresa gramos O porciones — la IA calcula el otro al guardar
+                  🤖 Solo agrega los ingredientes — Hank calculará automáticamente las cantidades
+                  según los macros de esta comida
                 </Text>
               </View>
 
@@ -440,49 +400,12 @@ export const AddOptionModal: React.FC<AddOptionModalProps> = ({
                   </View>
                   <TextInput
                     value={ing.name}
-                    onChangeText={(v) => updateIngredient(i, 'name', v)}
+                    onChangeText={(v) => updateIngredientName(i, v)}
                     placeholder="Nombre (ej. Pollo a la plancha)"
                     placeholderTextColor="#666"
-                    className="bg-transparent border-b border-zinc-700 text-white py-2 mb-3"
+                    className="bg-transparent border-b border-zinc-700 text-white py-2"
                   />
-
-                  {/* Campos de Gramos y Porciones */}
-                  <View className="flex-row gap-3">
-                    {/* Gramos */}
-                    <View className="flex-1">
-                      <View className="flex-row items-center gap-1.5 mb-1">
-                        <Scale size={12} color="#3B82F6" />
-                        <Text className="text-zinc-500 text-[10px] font-bold uppercase">
-                          Gramos
-                        </Text>
-                      </View>
-                      <TextInput
-                        value={ing.quantity}
-                        onChangeText={(v) => updateIngredient(i, 'quantity', v)}
-                        placeholder="ej. 200g"
-                        placeholderTextColor="#555"
-                        keyboardType="default"
-                        className="bg-zinc-800/60 border border-zinc-700/50 rounded-lg text-white text-sm px-3 py-2 font-mono"
-                      />
-                    </View>
-
-                    {/* Porciones */}
-                    <View className="flex-1">
-                      <View className="flex-row items-center gap-1.5 mb-1">
-                        <Layers size={12} color="#A855F7" />
-                        <Text className="text-zinc-500 text-[10px] font-bold uppercase">
-                          Porciones
-                        </Text>
-                      </View>
-                      <TextInput
-                        value={ing.portion || ''}
-                        onChangeText={(v) => updateIngredient(i, 'portion', v)}
-                        placeholder="ej. 2 tazas"
-                        placeholderTextColor="#555"
-                        className="bg-zinc-800/60 border border-zinc-700/50 rounded-lg text-white text-sm px-3 py-2 font-mono"
-                      />
-                    </View>
-                  </View>
+                  {/* Sin campos de gramos/porciones — se calculan según macros de la comida principal */}
                 </View>
               ))}
 
@@ -500,24 +423,24 @@ export const AddOptionModal: React.FC<AddOptionModalProps> = ({
               {/* Save Button */}
               <Pressable
                 onPress={handleSave}
-                disabled={isSaving || isConverting}
+                disabled={isSaving}
                 className={`w-full py-4 rounded-xl ${
-                  isSaving || isConverting ? 'bg-zinc-600' : 'bg-savage-red active:bg-red-700'
+                  isSaving ? 'bg-zinc-600' : 'bg-savage-red active:bg-red-700'
                 }`}
                 style={{
                   marginBottom: Math.max(insets.bottom, 16) + 8,
                   shadowColor: '#DC2626',
                   shadowOffset: { width: 0, height: 4 },
-                  shadowOpacity: isSaving || isConverting ? 0 : 0.4,
+                  shadowOpacity: isSaving ? 0 : 0.4,
                   shadowRadius: 8,
-                  elevation: isSaving || isConverting ? 0 : 5,
+                  elevation: isSaving ? 0 : 5,
                 }}
               >
-                {isSaving || isConverting ? (
+                {isSaving ? (
                   <View className="flex-row items-center justify-center gap-2">
                     <ActivityIndicator size="small" color="#FFF" />
                     <Text className="text-white font-bold text-center text-base">
-                      {isConverting ? 'Calculando...' : 'Guardando...'}
+                      Calculando cantidades...
                     </Text>
                   </View>
                 ) : (

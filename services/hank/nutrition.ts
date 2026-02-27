@@ -1175,6 +1175,106 @@ Responde SOLO JSON:
 }
 
 // ============================================================================
+// CALCULATE NUTRITION FROM FIXED QUANTITIES (modo manual)
+// Calcula macros/nutritionInfo SIN cambiar las cantidades del usuario
+// ============================================================================
+export async function calculateNutritionFromQuantities(
+  ingredients: Ingredient[]
+): Promise<CalculatedIngredient[]> {
+  const results: CalculatedIngredient[] = [];
+  const needsAI: { index: number; ing: Ingredient }[] = [];
+
+  for (let i = 0; i < ingredients.length; i++) {
+    const ing = ingredients[i];
+    const data = findNutritionData(ing.name);
+    const gramsNum = parseGramsValue(ing.quantity || '', data?.portionSize);
+
+    if (data && gramsNum > 0) {
+      // Cálculo local: macros proporcionales a los gramos del usuario
+      const protein = Math.round((gramsNum / 100) * data.protein);
+      const carbs = Math.round((gramsNum / 100) * data.carbs);
+      const fat = Math.round((gramsNum / 100) * data.fat);
+      const calories = Math.round((gramsNum / 100) * data.calories);
+      const portion =
+        ing.portion || calculatePortionDescription(gramsNum, data.portionSize, data.portionName);
+
+      results.push({
+        ...ing,
+        quantity: ing.quantity,
+        portion,
+        nutritionInfo: { protein, carbs, fat, calories, suggestedGrams: gramsNum },
+      });
+    } else {
+      // No está en la BD local o no tiene gramos válidos → IA
+      needsAI.push({ index: i, ing });
+      results.push({ ...ing }); // placeholder
+    }
+  }
+
+  // Para ingredientes desconocidos, usar Gemini en modo "solo calcular macros"
+  if (needsAI.length > 0 && GEMINI_API_KEY) {
+    try {
+      const prompt = `Eres HANK, nutricionista deportivo. Calcula los macros EXACTOS para estos ingredientes CON LAS CANTIDADES INDICADAS.
+IMPORTANTE: NO cambies las cantidades. Solo calcula los macros para la cantidad que el usuario indicó.
+
+INGREDIENTES:
+${needsAI
+  .map(
+    ({ ing }, idx) =>
+      `${idx + 1}. ${ing.name}${ing.quantity ? ` - ${ing.quantity}` : ''}${ing.portion ? ` (${ing.portion})` : ''}`
+  )
+  .join('\n')}
+
+Responde SOLO JSON:
+{"ingredients": [{"name": "...", "grams": 200, "portion": "~1 porción", "calories": 250, "protein": 35, "carbs": 0, "fat": 8}]}`;
+
+      const response = await fetch(`${GEMINI_API_URL}?key=${GEMINI_API_KEY}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ role: 'user', parts: [{ text: prompt }] }],
+          generationConfig: { temperature: 0.1, maxOutputTokens: 1024 },
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        const jsonMatch = text.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]);
+          const aiIngredients = parsed.ingredients || [];
+
+          for (let j = 0; j < needsAI.length; j++) {
+            const { index, ing } = needsAI[j];
+            const aiResult = aiIngredients[j];
+            if (aiResult) {
+              const grams = aiResult.grams || parseGramsValue(ing.quantity || '') || 100;
+              results[index] = {
+                ...ing,
+                quantity: ing.quantity || `${grams}g`, // Preservar cantidad original
+                portion: ing.portion || aiResult.portion || '~1 porción',
+                nutritionInfo: {
+                  protein: aiResult.protein || 0,
+                  carbs: aiResult.carbs || 0,
+                  fat: aiResult.fat || 0,
+                  calories: aiResult.calories || 0,
+                  suggestedGrams: grams,
+                },
+              };
+            }
+          }
+        }
+      }
+    } catch (error) {
+      console.error('calculateNutritionFromQuantities AI error:', error);
+    }
+  }
+
+  return results;
+}
+
+// ============================================================================
 // RECALCULATE ALL MEALS FOR NEW MEAL COUNT
 // Recalcula todas las comidas cuando cambia la cantidad de comidas
 // ============================================================================
@@ -1388,16 +1488,6 @@ export async function convertGramsPortions(
     const hasGrams = !!(ing.quantity && ing.quantity.trim());
     const hasPortion = !!(ing.portion && ing.portion.trim());
 
-    // Si tiene ambos, devolver tal cual
-    if (hasGrams && hasPortion) {
-      results.push({
-        name: ing.name,
-        quantity: ing.quantity!.trim(),
-        portion: ing.portion!.trim(),
-      });
-      continue;
-    }
-
     // Si no tiene ninguno, marcar para IA con valor default
     if (!hasGrams && !hasPortion) {
       needsAI.push({ index: i, ingredient: ing });
@@ -1405,13 +1495,13 @@ export async function convertGramsPortions(
       continue;
     }
 
-    // Intentar conversión local
+    // Intentar conversión local (siempre recalcular el lado complementario)
     const nutritionData = findNutritionData(ing.name);
 
     if (nutritionData) {
-      if (hasGrams && !hasPortion) {
-        // Tiene gramos → calcular porción
-        const gramsNum = parseGramsValue(ing.quantity!);
+      if (hasGrams) {
+        // Tiene gramos → recalcular porción desde gramos
+        const gramsNum = parseGramsValue(ing.quantity!, nutritionData.portionSize);
         if (gramsNum > 0) {
           const portionDesc = calculatePortionDescription(
             gramsNum,
@@ -1420,13 +1510,14 @@ export async function convertGramsPortions(
           );
           results.push({
             name: ing.name,
-            quantity: ing.quantity!.trim(),
+            quantity: `${gramsNum}g`,
             portion: portionDesc,
           });
           continue;
         }
-      } else if (hasPortion && !hasGrams) {
-        // Tiene porción → calcular gramos
+      }
+      if (hasPortion && !hasGrams) {
+        // Solo tiene porción → calcular gramos
         const portionNum = parsePortionValue(ing.portion!);
         if (portionNum > 0) {
           const grams = Math.round(portionNum * nutritionData.portionSize);
@@ -1493,9 +1584,54 @@ export async function convertGramsPortions(
 }
 
 /** Extrae el valor numérico de gramos de un string como "200g", "200 g", "200gr", "200 gramos" */
-function parseGramsValue(value: string): number {
-  const match = value.match(/(\d+(?:\.\d+)?)\s*(?:g|gr|gramos)?/i);
-  return match ? parseFloat(match[1]) : 0;
+/**
+ * Parsea un string de cantidad y devuelve gramos.
+ * - "200g", "200 gr", "200 gramos" → 200
+ * - "5 huevos enteros", "2 pechugas" → detecta piezas y devuelve { pieces, grams: 0 }
+ * - "1 taza", "2 cucharadas" → detecta medida y devuelve { pieces, grams: 0 }
+ */
+function parseGramsValue(value: string, portionSize?: number): number {
+  if (!value || !value.trim()) return 0;
+  const cleaned = value.replace(/^~/, '').trim().toLowerCase();
+
+  // Patrón explícito de gramos: "200g", "200 gr", "200 gramos", "200"
+  const gramsMatch = cleaned.match(/(\d+(?:\.\d+)?)\s*(?:g|gr|gramos|kg)\b/i);
+  if (gramsMatch) {
+    const num = parseFloat(gramsMatch[1]);
+    if (cleaned.includes('kg')) return num * 1000;
+    return num;
+  }
+
+  // Palabras que indican unidades/piezas/porciones (NO gramos)
+  const unitKeywords =
+    /(?:huevo|pechuga|filete|rebanada|pieza|unidad|tortilla|pan|banana|banano|plátano|manzana|naranja|taza|cucharada|cucharadita|porción|porcion|scoop|slice|piece|cup|tbsp|tsp|entero|entera|enteros|enteras|trozo|rodaja|lata|sobre)s?/i;
+
+  // Si contiene palabras de unidad, extraer el número como piezas
+  if (unitKeywords.test(cleaned)) {
+    const numMatch = cleaned.match(/(\d+(?:\.\d+)?)/);
+    if (numMatch && portionSize && portionSize > 0) {
+      return parseFloat(numMatch[1]) * portionSize;
+    }
+    // Sin portionSize, no podemos convertir → devolver 0 para que vaya a IA
+    return 0;
+  }
+
+  // Si solo es un número sin unidad ("200") → asumir gramos
+  const plainNum = cleaned.match(/^(\d+(?:\.\d+)?)$/);
+  if (plainNum) return parseFloat(plainNum[1]);
+
+  // Último intento: extraer cualquier número
+  const anyNum = cleaned.match(/(\d+(?:\.\d+)?)/);
+  if (anyNum) {
+    // Si tiene portionSize y el número es bajo (< 30), probablemente son piezas
+    const num = parseFloat(anyNum[1]);
+    if (portionSize && portionSize > 0 && num < 30) {
+      return num * portionSize;
+    }
+    return num;
+  }
+
+  return 0;
 }
 
 /** Extrae el valor numérico de porciones de un string como "2 tazas", "1.5 pechugas", "~2 piezas" */

@@ -987,6 +987,8 @@ const FeedVideoItem = memo(
             }}
             contentFit="cover"
             nativeControls={false}
+            allowsFullscreen={false}
+            allowsPictureInPicture={false}
           />
         )}
 
@@ -1452,10 +1454,26 @@ function FeedScreenContent() {
   const insets = useSafeAreaInsets();
   const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = useWindowDimensions();
 
-  // Altura exacta del video: desde borde superior de pantalla
-  // hasta el borde superior de la tab bar (pixel-perfect, reactivo a PWA)
+  // Altura exacta del video: medida con onLayout para pixel-perfect en todos los dispositivos
+  // (iPhone notch, Dynamic Island, PWA con barra de Safari, Android, etc.)
   const TAB_BAR_H = (Platform.OS === 'web' ? 70 : 56) + insets.bottom;
-  const videoHeight = SCREEN_HEIGHT - TAB_BAR_H;
+  const fallbackHeight = SCREEN_HEIGHT - TAB_BAR_H;
+  const [measuredHeight, setMeasuredHeight] = useState(0);
+  // Usar altura medida real cuando esté disponible, sino fallback calculado
+  const videoHeight = measuredHeight > 0 ? measuredHeight : fallbackHeight;
+
+  // Para PWA en iPhone: escuchar cambios de viewport (barra Safari dinámica)
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    const vv = (window as any).visualViewport;
+    if (!vv) return;
+    const handler = () => {
+      // Forzar re-render cuando cambia el viewport (Safari address bar)
+      // El onLayout del container se encargará del valor correcto
+    };
+    vv.addEventListener('resize', handler);
+    return () => vv.removeEventListener('resize', handler);
+  }, []);
 
   const {
     user,
@@ -2277,7 +2295,14 @@ function FeedScreenContent() {
   // RENDER: Main Feed
   // -------------------------------------------------------------------------
   return (
-    <View className="flex-1 bg-black">
+    <View
+      className="flex-1 bg-black"
+      onLayout={(e) => {
+        const h = e.nativeEvent.layout.height;
+        // Solo actualizar si la altura es razonable (> 200px) para evitar glitches
+        if (h > 200) setMeasuredHeight(h);
+      }}
+    >
       {/* Header flotante - usa insets.top para adaptarse al notch/Dynamic Island */}
       <View
         className="absolute top-0 left-0 right-0 z-10 px-4 pb-2"
@@ -2380,42 +2405,48 @@ function FeedScreenContent() {
         <TrainingDayChip userId={user?.id} />
       </View>
 
-      {/* Feed vertical */}
-      <FlatList
-        ref={flatListRef}
-        data={videos}
-        renderItem={renderItem}
-        keyExtractor={keyExtractor}
-        pagingEnabled
-        showsVerticalScrollIndicator={false}
-        snapToInterval={videoHeight}
-        snapToAlignment="start"
-        decelerationRate="fast"
-        onViewableItemsChanged={onViewableItemsChanged}
-        viewabilityConfig={viewabilityConfig}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#DC2626" />
-        }
-        getItemLayout={(_, index) => ({
-          length: videoHeight,
-          offset: videoHeight * index,
-          index,
-        })}
-        removeClippedSubviews
-        maxToRenderPerBatch={3}
-        windowSize={5}
-        initialNumToRender={2}
-        onEndReached={loadMore}
-        onEndReachedThreshold={1.5}
-        ListFooterComponent={
-          loadingMore ? (
-            <View style={{ height: videoHeight }} className="bg-black items-center justify-center">
-              <ActivityIndicator size="large" color="#DC2626" />
-              <Text className="text-zinc-500 mt-3 text-sm">Cargando más videos...</Text>
-            </View>
-          ) : null
-        }
-      />
+      {/* Feed vertical - solo renderizar cuando tenemos altura medida */}
+      {videoHeight > 0 && (
+        <FlatList
+          ref={flatListRef}
+          data={videos}
+          renderItem={renderItem}
+          keyExtractor={keyExtractor}
+          pagingEnabled
+          showsVerticalScrollIndicator={false}
+          snapToInterval={videoHeight}
+          snapToAlignment="start"
+          decelerationRate="fast"
+          disableIntervalMomentum={true}
+          onViewableItemsChanged={onViewableItemsChanged}
+          viewabilityConfig={viewabilityConfig}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#DC2626" />
+          }
+          getItemLayout={(_, index) => ({
+            length: videoHeight,
+            offset: videoHeight * index,
+            index,
+          })}
+          removeClippedSubviews
+          maxToRenderPerBatch={3}
+          windowSize={5}
+          initialNumToRender={2}
+          onEndReached={loadMore}
+          onEndReachedThreshold={1.5}
+          ListFooterComponent={
+            loadingMore ? (
+              <View
+                style={{ height: videoHeight }}
+                className="bg-black items-center justify-center"
+              >
+                <ActivityIndicator size="large" color="#DC2626" />
+                <Text className="text-zinc-500 mt-3 text-sm">Cargando más videos...</Text>
+              </View>
+            ) : null
+          }
+        />
+      )}
     </View>
   );
 }

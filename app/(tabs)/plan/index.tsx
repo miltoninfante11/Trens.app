@@ -31,6 +31,8 @@ import {
   calculateUserDailyMacros,
   recalculateAllMealsForNewCount,
   calculateMealWithUserMacros,
+  calculateNutritionFromQuantities,
+  convertGramsPortions,
 } from '../../../services/hank/nutrition';
 
 // Import sport-specific screens
@@ -1186,28 +1188,10 @@ function PlanScreen() {
               .eq('id', newMeals[i].id);
           }
 
-          // Recalcular macros o limpiar si no hay comidas
-          if (newMeals.length > 0) {
-            const mealIds = newMeals.map((m) => m.id);
-            await recalculateAllMealsAfterChange(newMeals.length, mealIds);
-          } else {
-            // Si no quedan comidas, limpiar cached_daily_macros
-            const {
-              data: { user },
-            } = await supabase.auth.getUser();
-            if (user) {
-              await supabase
-                .from('user_profiles')
-                .update({
-                  cached_daily_macros: null,
-                  cached_macros_meal_count: 0,
-                  cached_macros_updated_at: new Date().toISOString(),
-                })
-                .eq('user_id', user.id);
-              console.log('🗑️ SYNC: Macros limpiados (sin comidas)');
-            }
-            await fetchData();
-          }
+          // Recalcular macros diarios sumando las comidas restantes (bottom-up)
+          // NO tocamos cantidades de otras comidas
+          await recalculateDailyMacrosFromMeals();
+          await fetchData();
         },
       },
     ]);
@@ -1307,6 +1291,120 @@ function PlanScreen() {
       setMealMacros(dailyMacros.perMeal || null);
     } catch (error) {
       console.error('Error updating cached daily macros:', error);
+    }
+  };
+
+  // ============================================================================
+  // RECALCULAR MACROS DIARIOS DESDE COMIDAS REALES (bottom-up)
+  // Suma la nutritionInfo de todos los ingredientes de todas las comidas.
+  // NO modifica cantidades ni porciones — solo calcula los totales reales.
+  // ============================================================================
+  const recalculateDailyMacrosFromMeals = async () => {
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) return;
+
+      // Obtener TODAS las comidas del usuario con ingredientes JSONB
+      const { data: allMeals } = await supabase
+        .from('meals')
+        .select('id, ingredients, selected_option, meal_options(id, ingredients, is_selected)')
+        .eq('user_id', user.id);
+
+      if (!allMeals || allMeals.length === 0) {
+        // Sin comidas: limpiar macros
+        setDailyMacroTotals(null);
+        setMealMacros(null);
+        await supabase
+          .from('user_profiles')
+          .update({
+            cached_daily_macros: null,
+            cached_macros_meal_count: 0,
+            cached_macros_updated_at: new Date().toISOString(),
+          })
+          .eq('user_id', user.id);
+        console.log('🗑️ SYNC: Macros limpiados (sin comidas)');
+        return;
+      }
+
+      // Sumar nutritionInfo de la opción seleccionada de cada comida
+      let totalCal = 0,
+        totalPro = 0,
+        totalCarbs = 0,
+        totalFat = 0;
+      let hasAnyNutrition = false;
+
+      for (const meal of allMeals) {
+        // Determinar los ingredientes de la opción seleccionada
+        let activeIngredients: any[] = meal.ingredients || [];
+
+        // Si hay opciones (meal_options), usar la seleccionada
+        const options = (meal as any).meal_options;
+        if (options && options.length > 0) {
+          const selectedOpt = options.find((o: any) => o.is_selected);
+          if (selectedOpt && selectedOpt.ingredients) {
+            activeIngredients = selectedOpt.ingredients;
+          }
+        }
+
+        // Sumar nutritionInfo de cada ingrediente
+        for (const ing of activeIngredients) {
+          if (ing.nutritionInfo) {
+            hasAnyNutrition = true;
+            totalCal += ing.nutritionInfo.calories || 0;
+            totalPro += ing.nutritionInfo.protein || 0;
+            totalCarbs += ing.nutritionInfo.carbs || 0;
+            totalFat += ing.nutritionInfo.fat || 0;
+          }
+        }
+      }
+
+      if (!hasAnyNutrition) {
+        console.log('⚠️ Ninguna comida tiene nutritionInfo, no se puede recalcular');
+        return;
+      }
+
+      const realDailyTotals = {
+        calories: Math.round(totalCal),
+        protein: Math.round(totalPro),
+        carbs: Math.round(totalCarbs),
+        fat: Math.round(totalFat),
+      };
+
+      const mealCount = allMeals.length;
+      const perMealAvg = {
+        calories: Math.round(totalCal / mealCount),
+        protein: Math.round(totalPro / mealCount),
+        carbs: Math.round(totalCarbs / mealCount),
+        fat: Math.round(totalFat / mealCount),
+      };
+
+      // Actualizar estado local
+      setDailyMacroTotals(realDailyTotals);
+      setMealMacros(perMealAvg);
+
+      // Guardar en Supabase para sincronización
+      const cachedMacros = {
+        totalCalories: realDailyTotals.calories,
+        totalProtein: realDailyTotals.protein,
+        totalCarbs: realDailyTotals.carbs,
+        totalFat: realDailyTotals.fat,
+        perMeal: perMealAvg,
+      };
+
+      await supabase
+        .from('user_profiles')
+        .update({
+          cached_daily_macros: cachedMacros,
+          cached_macros_meal_count: mealCount,
+          cached_macros_updated_at: new Date().toISOString(),
+        })
+        .eq('user_id', user.id);
+
+      console.log('📊 SYNC: Macros diarios recalculados desde comidas reales:', realDailyTotals);
+    } catch (error) {
+      console.error('❌ Error recalculando macros desde comidas:', error);
     }
   };
 
@@ -1417,12 +1515,53 @@ function PlanScreen() {
   const handleSaveIngredients = async (
     mealId: string,
     _optionId: string, // Ya no usamos optionId, trabajamos con JSONB
-    ingredients: Ingredient[]
+    ingredients: Ingredient[],
+    _editModes?: string[] // Optional: editModes from modal (not used directly, modal already cleans fields)
   ) => {
     isInternalUpdate.current = true;
     try {
-      // Actualizar ingredientes directamente en el campo JSONB (preservar nutritionInfo)
-      const ingredientsToSave = ingredients.map((ing) => ({
+      // PASO 1: Sincronizar gramos ↔ porciones (SIEMPRE, no solo cuando falta uno)
+      let synced = ingredients;
+      try {
+        const converted = await convertGramsPortions(
+          ingredients.map((ing) => ({
+            name: ing.name,
+            quantity: ing.quantity?.trim() || undefined,
+            portion: ing.portion?.trim() || undefined,
+          }))
+        );
+        synced = converted.map((c, i) => ({
+          ...ingredients[i],
+          name: c.name,
+          quantity: c.quantity || ingredients[i].quantity || '~100g',
+          portion: c.portion || ingredients[i].portion || '',
+        }));
+      } catch (convError) {
+        console.warn('Error sincronizando gramos/porciones:', convError);
+      }
+
+      // PASO 2: Calcular nutritionInfo desde las cantidades sincronizadas
+      let finalIngredients = synced;
+      try {
+        const ingredientsWithIds = synced.map((ing, i) => ({
+          id: ing.id || `edit-${i}`,
+          name: ing.name,
+          quantity: ing.quantity || '~100g',
+          portion: ing.portion || '',
+        }));
+        const calculated = await calculateNutritionFromQuantities(ingredientsWithIds);
+        finalIngredients = calculated.map((cal, i) => ({
+          ...synced[i],
+          quantity: cal.quantity || synced[i].quantity, // Usar gramos recalculados
+          portion: cal.portion || synced[i].portion || '',
+          nutritionInfo: cal.nutritionInfo || synced[i].nutritionInfo,
+        }));
+      } catch (calcError) {
+        console.warn('Error calculando nutrición:', calcError);
+      }
+
+      // PASO 3: Guardar ingredientes con gramos, porciones y nutritionInfo actualizados
+      const ingredientsToSave = finalIngredients.map((ing) => ({
         name: ing.name,
         quantity: ing.quantity || '~100g',
         portion: ing.portion || '',
@@ -1436,19 +1575,74 @@ function PlanScreen() {
 
       if (error) throw error;
 
-      // Invalidar cache de macros para forzar recálculo si cambiaron ingredientes
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (user) {
-        await supabase
-          .from('user_profiles')
-          .update({ cached_macros_updated_at: null })
-          .eq('user_id', user.id);
+      // PASO 4: Recalcular alternativas (meal_options) con los nuevos macros de esta comida
+      try {
+        const newMealMacros = finalIngredients.reduce(
+          (acc, ing) => {
+            if (ing.nutritionInfo) {
+              acc.calories += ing.nutritionInfo.calories || 0;
+              acc.protein += ing.nutritionInfo.protein || 0;
+              acc.carbs += ing.nutritionInfo.carbs || 0;
+              acc.fat += ing.nutritionInfo.fat || 0;
+            }
+            return acc;
+          },
+          { calories: 0, protein: 0, carbs: 0, fat: 0 }
+        );
+
+        // Solo recalcular si tenemos macros válidos
+        if (newMealMacros.calories > 0) {
+          const { data: options } = await supabase
+            .from('meal_options')
+            .select('id, ingredients')
+            .eq('meal_id', mealId);
+
+          if (options && options.length > 0) {
+            console.log(
+              `🔄 Recalculando ${options.length} alternativas con nuevos macros:`,
+              newMealMacros
+            );
+            for (const opt of options) {
+              const optIngredients = (opt.ingredients as any[]) || [];
+              if (optIngredients.length === 0) continue;
+
+              try {
+                const recalced = await calculateMealWithUserMacros(
+                  optIngredients.map((ing: any, idx: number) => ({
+                    id: `opt-${idx}`,
+                    name: ing.name,
+                    quantity: ing.quantity || '',
+                    portion: ing.portion || '',
+                  })),
+                  newMealMacros
+                );
+
+                const optIngredientsToSave = recalced.map((ing) => ({
+                  name: ing.name,
+                  quantity: ing.quantity,
+                  portion: ing.portion || '',
+                  ...(ing.nutritionInfo ? { nutritionInfo: ing.nutritionInfo } : {}),
+                }));
+
+                await supabase
+                  .from('meal_options')
+                  .update({ ingredients: optIngredientsToSave })
+                  .eq('id', opt.id);
+              } catch (optError) {
+                console.warn(`Error recalculando alternativa ${opt.id}:`, optError);
+              }
+            }
+          }
+        }
+      } catch (optionsError) {
+        console.warn('Error recalculando alternativas:', optionsError);
       }
 
-      // Refresh data
-      fetchData();
+      // PASO 5: Recalcular macros diarios sumando TODAS las comidas reales (bottom-up)
+      await recalculateDailyMacrosFromMeals();
+
+      // Refresh data para actualizar la UI
+      await fetchData();
     } catch (error) {
       console.error('Error saving ingredients:', error);
       Alert.alert('Error', 'No se pudieron guardar los cambios');
@@ -1491,8 +1685,7 @@ function PlanScreen() {
 
   const handleAddMeal = async (
     ingredients: { name: string; quantity: string; portion: string }[],
-    time: string,
-    useHankAI: boolean
+    time: string
   ) => {
     isInternalUpdate.current = true;
     // Guard: Verificar si puede guardar
@@ -1510,15 +1703,13 @@ function PlanScreen() {
       // Formatear hora correctamente (acepta "7", "07", "7:30", "07:30")
       let formattedTime = time.trim();
       if (!formattedTime.includes(':')) {
-        // Solo hora, agregar :00
         formattedTime = formattedTime.padStart(2, '0') + ':00';
       } else {
-        // Tiene :, asegurar formato HH:MM
         const [hours, minutes] = formattedTime.split(':');
         formattedTime = hours.padStart(2, '0') + ':' + (minutes || '00').padStart(2, '0');
       }
 
-      // Calcular macros con IA si está activado
+      // Calcular nutritionInfo SIN cambiar cantidades del usuario
       let finalIngredients: {
         name: string;
         quantity: string;
@@ -1531,67 +1722,25 @@ function PlanScreen() {
           suggestedGrams?: number;
         };
       }[] = ingredients;
-      if (useHankAI) {
-        // Mostrar indicador de ajuste de macros
-        setIsAdjustingMacros(true);
-        try {
-          const ingredientsWithIds = ingredients.map((ing, i) => ({
-            id: `temp-${i}`,
-            name: ing.name,
-            quantity: ing.quantity || '',
-            portion: ing.portion || '',
-          }));
 
-          // Calcular targetMacros para la nueva comida
-          const newMealCount = meals.length + 1;
-          let targetMacrosForNewMeal = newMealMacros;
+      setIsAdjustingMacros(true);
+      try {
+        const ingredientsWithIds = ingredients.map((ing, i) => ({
+          id: `temp-${i}`,
+          name: ing.name,
+          quantity: ing.quantity || '',
+          portion: ing.portion || '',
+        }));
 
-          // Si no hay macros precalculados, usar mealMacros existente ajustado
-          if (!targetMacrosForNewMeal && mealMacros) {
-            // Ajustar macros para nueva cantidad de comidas
-            const factor = meals.length / newMealCount;
-            targetMacrosForNewMeal = {
-              calories: Math.round(mealMacros.calories * factor),
-              protein: Math.round(mealMacros.protein * factor),
-              carbs: Math.round(mealMacros.carbs * factor),
-              fat: Math.round(mealMacros.fat * factor),
-            };
-          }
-
-          // Si aún no hay macros pero tenemos los totales diarios, calcular por comida
-          if (!targetMacrosForNewMeal && dailyMacroTotals) {
-            targetMacrosForNewMeal = {
-              calories: Math.round(dailyMacroTotals.calories / newMealCount),
-              protein: Math.round(dailyMacroTotals.protein / newMealCount),
-              carbs: Math.round(dailyMacroTotals.carbs / newMealCount),
-              fat: Math.round(dailyMacroTotals.fat / newMealCount),
-            };
-          }
-
-          // Usar calculateMealWithUserMacros si hay targetMacros
-          if (targetMacrosForNewMeal) {
-            const calculated = await calculateMealWithUserMacros(
-              ingredientsWithIds,
-              targetMacrosForNewMeal
-            );
-            finalIngredients = calculated.map((ing) => ({
-              name: ing.name,
-              quantity: ing.quantity,
-              portion: ing.portion || '',
-              nutritionInfo: ing.nutritionInfo,
-            }));
-          } else {
-            const calculated = await calculateMacrosWithAI(ingredientsWithIds);
-            finalIngredients = calculated.map((ing) => ({
-              name: ing.name,
-              quantity: ing.quantity,
-              portion: ing.portion || '',
-              nutritionInfo: ing.nutritionInfo,
-            }));
-          }
-        } catch (aiError) {
-          console.warn('Error calculando macros con IA, usando valores por defecto:', aiError);
-        }
+        const calculated = await calculateNutritionFromQuantities(ingredientsWithIds);
+        finalIngredients = calculated.map((ing) => ({
+          name: ing.name,
+          quantity: ing.quantity, // Preservar cantidad original del usuario
+          portion: ing.portion || '',
+          nutritionInfo: ing.nutritionInfo,
+        }));
+      } catch (error) {
+        console.warn('Error calculando nutrición, guardando sin nutritionInfo:', error);
       }
 
       // Calcular posición (última + 1) y nombre inteligente
@@ -1619,28 +1768,14 @@ function PlanScreen() {
         throw mealError;
       }
 
-      // Obtener IDs de todas las comidas (incluyendo la nueva)
-      const { data: allMealsData } = await supabase
-        .from('meals')
-        .select('id')
-        .eq('user_id', user.id);
-
-      const allMealIds = allMealsData?.map((m) => m.id) || [];
-
-      // Recalcular macros de TODAS las comidas (nuevas cantidades para N comidas)
-      if (allMealIds.length > 1) {
-        console.log(`🔄 Recalculando ${allMealIds.length} comidas con nuevos macros objetivo...`);
-        await recalculateAllMealsAfterChange(allMealIds.length, allMealIds);
-      } else {
-        // Primera comida: solo actualizar cached_daily_macros
-        await updateCachedDailyMacros(1);
-        await fetchData();
-      }
+      // Recalcular macros diarios sumando TODAS las comidas reales (bottom-up)
+      // NO tocamos cantidades de otras comidas
+      await recalculateDailyMacrosFromMeals();
+      await fetchData();
     } catch (error) {
       console.error('Error adding meal:', error);
       Alert.alert('Error', 'No se pudo agregar la comida');
     } finally {
-      // Siempre limpiar el estado de ajuste
       setIsAdjustingMacros(false);
     }
   };
@@ -1756,8 +1891,8 @@ function PlanScreen() {
     const mealIndex = meals.findIndex((m) => m.id === mealId);
     const displayName = meal.name || getSmartMealName(mealIndex, meals.length);
 
-    // Usar targetMacros de la comida o mealMacros del estado (ya calculado)
-    const macros = meal.targetMacros || mealMacros;
+    // PRIORIDAD: actualMacros (macros reales calculados) > targetMacros > mealMacros
+    const macros = meal.actualMacros || meal.targetMacros || mealMacros;
 
     setAddOptionMealId(mealId);
     setAddOptionMealName(displayName);

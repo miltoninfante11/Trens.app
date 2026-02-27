@@ -1,7 +1,7 @@
 // ============================================================================
 // EDIT MEAL MODAL - Modal para editar comidas existentes
 // Análisis inteligente automático (siempre activo)
-// Campos manuales de gramos y porciones con conversión IA
+// Campos exclusivos: editas gramos O porciones, el otro se auto-calcula
 // Estilo Savage Mode con cierre fluido y vibración
 // ============================================================================
 
@@ -30,12 +30,13 @@ import {
   Sparkles,
   Scale,
   Layers,
+  Lock,
+  Unlock,
 } from 'lucide-react-native';
 import {
   analyzeIngredientsSmart,
   IngredientAnalysis,
 } from '../../services/hank/ingredientAnalyzer';
-import { convertGramsPortions } from '../../services/hank/nutrition';
 
 // ============================================================================
 // TYPES
@@ -73,11 +74,19 @@ interface Meal {
   };
 }
 
+// Modo de edición por ingrediente: qué campo es el source of truth
+export type EditMode = 'quantity' | 'portion';
+
 interface EditMealModalProps {
   visible: boolean;
   meal: Meal | null;
   onClose: () => void;
-  onSave: (mealId: string, optionId: string, ingredients: Ingredient[]) => Promise<void>;
+  onSave: (
+    mealId: string,
+    optionId: string,
+    ingredients: Ingredient[],
+    editModes?: EditMode[]
+  ) => Promise<void>;
   onCalculateMacros?: (
     ingredients: Ingredient[],
     targetMacros?: { calories: number; protein: number; carbs: number; fat: number }
@@ -85,13 +94,33 @@ interface EditMealModalProps {
 }
 
 // ============================================================================
-// HELPER
+// HELPERS
 // ============================================================================
 const formatTimeToAMPM = (time24: string): string => {
   const [h, m] = time24.split(':').map((s) => parseInt(s, 10));
   const period = h >= 12 ? 'PM' : 'AM';
   const hour12 = h % 12 || 12;
   return `${hour12}:${m.toString().padStart(2, '0')} ${period}`;
+};
+
+/** Detecta si un valor de quantity está en formato gramos explícito */
+const isGramsFormat = (value: string): boolean => {
+  if (!value || !value.trim()) return false;
+  return /^\d+(\.\d+)?\s*(?:g|gr|gramos|kg)?\s*$/i.test(value.trim());
+};
+
+/** Detecta automáticamente el editMode según los valores existentes */
+const detectEditMode = (ing: Ingredient): EditMode => {
+  const qty = (ing.quantity || '').trim();
+  const por = (ing.portion || '').trim();
+  // Si quantity es solo números o tiene "g/gr/gramos" → fue gramos
+  if (qty && isGramsFormat(qty)) return 'quantity';
+  // Si tiene porción → source fue porción
+  if (por) return 'portion';
+  // Si quantity tiene texto tipo porciones (ej "4 huevos") → source fue porción
+  if (qty && !isGramsFormat(qty)) return 'portion';
+  // Default: porciones (más natural para el usuario)
+  return 'portion';
 };
 
 // ============================================================================
@@ -106,10 +135,10 @@ export const EditMealModal: React.FC<EditMealModalProps> = ({
 }) => {
   const insets = useSafeAreaInsets();
   const [ingredients, setIngredients] = useState<Ingredient[]>([]);
+  const [editModes, setEditModes] = useState<EditMode[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [analysis, setAnalysis] = useState<IngredientAnalysis | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [isConverting, setIsConverting] = useState(false);
 
   // Animated value para el desplazamiento del panel
   const translateY = useSharedValue(0);
@@ -120,7 +149,6 @@ export const EditMealModal: React.FC<EditMealModalProps> = ({
   useEffect(() => {
     if (visible) {
       translateY.value = 0;
-      // Vibración cuando el modal termina de abrir
       const timer = setTimeout(() => {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       }, 300);
@@ -160,7 +188,10 @@ export const EditMealModal: React.FC<EditMealModalProps> = ({
   useEffect(() => {
     if (meal && meal.options.length > 0) {
       const currentOption = meal.options[meal.selectedOption] || meal.options[0];
-      setIngredients(currentOption.ingredients.map((ing) => ({ ...ing })));
+      const ings = currentOption.ingredients.map((ing) => ({ ...ing }));
+      setIngredients(ings);
+      // Detectar editMode automáticamente para cada ingrediente
+      setEditModes(ings.map((ing) => detectEditMode(ing)));
       setAnalysis(null);
     }
   }, [meal]);
@@ -196,12 +227,14 @@ export const EditMealModal: React.FC<EditMealModalProps> = ({
       ...ingredients,
       { id: `new-${Date.now()}`, name: '', quantity: '', portion: '' },
     ]);
+    setEditModes([...editModes, 'portion']);
   };
 
   const removeIngredient = (index: number) => {
     if (ingredients.length > 1) {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       setIngredients(ingredients.filter((_, i) => i !== index));
+      setEditModes(editModes.filter((_, i) => i !== index));
     }
   };
 
@@ -209,6 +242,13 @@ export const EditMealModal: React.FC<EditMealModalProps> = ({
     const newIngs = [...ingredients];
     newIngs[index] = { ...newIngs[index], [field]: value };
     setIngredients(newIngs);
+  };
+
+  const toggleEditMode = (index: number) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    const newModes = [...editModes];
+    newModes[index] = newModes[index] === 'quantity' ? 'portion' : 'quantity';
+    setEditModes(newModes);
   };
 
   const handleSave = async () => {
@@ -224,50 +264,30 @@ export const EditMealModal: React.FC<EditMealModalProps> = ({
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
     try {
-      let finalIngredients = validIngredients;
+      // Preparar ingredientes: el campo activo es source, el otro se limpia
+      // para que handleSaveIngredients sepa qué dirección recalcular
+      const finalIngredients = validIngredients.map((ing, i) => {
+        const mode = editModes[i] || 'portion';
 
-      // Primero: conversión gramos ↔ porciones si falta alguno
-      const needsConversion = finalIngredients.some(
-        (ing) =>
-          (ing.quantity.trim() && !(ing.portion || '').trim()) ||
-          (!(ing.quantity || '').trim() && (ing.portion || '').trim())
-      );
-
-      if (needsConversion) {
-        setIsConverting(true);
-        try {
-          const converted = await convertGramsPortions(
-            finalIngredients.map((ing) => ({
-              name: ing.name,
-              quantity: ing.quantity?.trim() || undefined,
-              portion: ing.portion?.trim() || undefined,
-            }))
-          );
-          finalIngredients = converted.map((c, idx) => ({
-            ...finalIngredients[idx],
-            name: c.name,
-            quantity: c.quantity,
-            portion: c.portion,
-          }));
-        } catch (error) {
-          console.error('Error convirtiendo:', error);
-        } finally {
-          setIsConverting(false);
+        if (mode === 'quantity') {
+          // Gramos es el source → limpiar porción para que se recalcule
+          return { ...ing, portion: '' };
+        } else {
+          // Porciones es el source
+          const portionValue = (ing.portion || '').trim();
+          const quantityValue = (ing.quantity || '').trim();
+          // Si la porción está en el campo quantity (ej: "4 huevos")
+          if (!portionValue && quantityValue && !isGramsFormat(quantityValue)) {
+            return { ...ing, quantity: '', portion: quantityValue };
+          }
+          // Limpiar gramos para que se recalcule
+          return { ...ing, quantity: '' };
         }
-      }
-
-      // Luego: usar IA para calcular macros
-      if (onCalculateMacros) {
-        try {
-          finalIngredients = await onCalculateMacros(finalIngredients, meal?.targetMacros);
-          setIngredients(finalIngredients);
-        } catch (error) {
-          console.error('Error calculating macros:', error);
-        }
-      }
+      });
 
       const currentOption = meal.options[meal.selectedOption] || meal.options[0];
-      await onSave(meal.id, currentOption.id, finalIngredients);
+      const validModes = editModes.slice(0, validIngredients.length);
+      await onSave(meal.id, currentOption.id, finalIngredients, validModes);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       onClose();
     } catch (error) {
@@ -358,7 +378,7 @@ export const EditMealModal: React.FC<EditMealModalProps> = ({
             </View>
 
             <ScrollView className="p-4" showsVerticalScrollIndicator={false}>
-              {/* Analysis Alert - Siempre visible cuando hay análisis */}
+              {/* Analysis Alert */}
               {analysis && (
                 <View
                   className={`p-3 rounded-xl mb-4 border ${
@@ -399,14 +419,12 @@ export const EditMealModal: React.FC<EditMealModalProps> = ({
                     </Text>
                   </View>
 
-                  {/* Macro fit message */}
                   {analysis.macroFitMessage && (
                     <Text className="text-zinc-400 text-xs mt-1">
                       🎯 {analysis.macroFitMessage}
                     </Text>
                   )}
 
-                  {/* Macro indicators en línea */}
                   {!analysis.isBalanced && !isAnalyzing && (
                     <View className="flex-row gap-3 mt-2">
                       <View className="flex-row items-center gap-1">
@@ -436,7 +454,6 @@ export const EditMealModal: React.FC<EditMealModalProps> = ({
                     </View>
                   )}
 
-                  {/* Sugerencia (máximo 1) */}
                   {analysis.suggestions.length > 0 && !analysis.isBalanced && (
                     <Text className="text-yellow-400/70 text-xs mt-1">
                       → {analysis.suggestions[0]}
@@ -448,73 +465,129 @@ export const EditMealModal: React.FC<EditMealModalProps> = ({
               {/* Ingredients */}
               <Text className="text-zinc-400 text-xs font-bold mb-2 uppercase">Ingredientes</Text>
 
-              {/* Info: conversión automática */}
+              {/* Info: modo de edición exclusivo */}
               <View className="bg-purple-500/10 border border-purple-500/20 rounded-xl p-3 mb-3">
                 <Text className="text-purple-300 text-xs">
-                  💡 Ingresa gramos O porciones — la IA calcula el otro al guardar
+                  ✏️ Edita un campo y el otro se calculará automáticamente al guardar. Toca el
+                  candado para cambiar qué campo editas.
                 </Text>
               </View>
 
-              {ingredients.map((ing, i) => (
-                <View
-                  key={ing.id}
-                  className="bg-zinc-900/80 p-4 rounded-xl border border-zinc-800 mb-3"
-                >
-                  <View className="flex-row justify-between items-center mb-2">
-                    <Text className="text-zinc-500 text-xs">Ingrediente {i + 1}</Text>
-                    {ingredients.length > 1 && (
-                      <Pressable onPress={() => removeIngredient(i)}>
-                        <Trash2 size={16} color="#EF4444" />
-                      </Pressable>
-                    )}
-                  </View>
-                  <TextInput
-                    value={ing.name}
-                    onChangeText={(v) => updateIngredient(i, 'name', v)}
-                    placeholder="Nombre (ej. Pollo a la plancha)"
-                    placeholderTextColor="#666"
-                    className="bg-transparent border-b border-zinc-700 text-white py-2 mb-3"
-                  />
+              {ingredients.map((ing, i) => {
+                const mode = editModes[i] || 'portion';
+                const isQtyActive = mode === 'quantity';
 
-                  {/* Campos de Gramos y Porciones */}
-                  <View className="flex-row gap-3">
-                    {/* Gramos */}
-                    <View className="flex-1">
-                      <View className="flex-row items-center gap-1.5 mb-1">
-                        <Scale size={12} color="#3B82F6" />
-                        <Text className="text-zinc-500 text-[10px] font-bold uppercase">
-                          Gramos
-                        </Text>
-                      </View>
-                      <TextInput
-                        value={ing.quantity}
-                        onChangeText={(v) => updateIngredient(i, 'quantity', v)}
-                        placeholder="ej. 200g"
-                        placeholderTextColor="#555"
-                        keyboardType="default"
-                        className="bg-zinc-800/60 border border-zinc-700/50 rounded-lg text-white text-sm px-3 py-2 font-mono"
-                      />
+                return (
+                  <View
+                    key={ing.id}
+                    className="bg-zinc-900/80 p-4 rounded-xl border border-zinc-800 mb-3"
+                  >
+                    <View className="flex-row justify-between items-center mb-2">
+                      <Text className="text-zinc-500 text-xs">Ingrediente {i + 1}</Text>
+                      {ingredients.length > 1 && (
+                        <Pressable onPress={() => removeIngredient(i)}>
+                          <Trash2 size={16} color="#EF4444" />
+                        </Pressable>
+                      )}
                     </View>
+                    <TextInput
+                      value={ing.name}
+                      onChangeText={(v) => updateIngredient(i, 'name', v)}
+                      placeholder="Nombre (ej. Pollo a la plancha)"
+                      placeholderTextColor="#666"
+                      className="bg-transparent border-b border-zinc-700 text-white py-2 mb-3"
+                    />
 
-                    {/* Porciones */}
-                    <View className="flex-1">
-                      <View className="flex-row items-center gap-1.5 mb-1">
-                        <Layers size={12} color="#A855F7" />
-                        <Text className="text-zinc-500 text-[10px] font-bold uppercase">
-                          Porciones
-                        </Text>
+                    {/* Campos exclusivos: solo uno editable a la vez */}
+                    <View className="flex-row gap-3">
+                      {/* GRAMOS */}
+                      <View className="flex-1">
+                        <Pressable
+                          onPress={() => {
+                            if (!isQtyActive) toggleEditMode(i);
+                          }}
+                          className="flex-row items-center gap-1.5 mb-1"
+                        >
+                          <Scale size={12} color={isQtyActive ? '#3B82F6' : '#52525b'} />
+                          <Text
+                            className={`text-[10px] font-bold uppercase ${isQtyActive ? 'text-blue-400' : 'text-zinc-600'}`}
+                          >
+                            Gramos
+                          </Text>
+                          {isQtyActive ? (
+                            <Unlock size={10} color="#3B82F6" />
+                          ) : (
+                            <Lock size={10} color="#52525b" />
+                          )}
+                        </Pressable>
+
+                        {isQtyActive ? (
+                          <TextInput
+                            value={ing.quantity}
+                            onChangeText={(v) => updateIngredient(i, 'quantity', v)}
+                            placeholder="ej. 200g"
+                            placeholderTextColor="#555"
+                            keyboardType="default"
+                            className="bg-zinc-800/60 border border-blue-500/40 rounded-lg text-white text-sm px-3 py-2 font-mono"
+                          />
+                        ) : (
+                          <Pressable
+                            onPress={() => toggleEditMode(i)}
+                            className="bg-zinc-800/30 border border-zinc-700/30 rounded-lg px-3 py-2"
+                            style={{ opacity: 0.5 }}
+                          >
+                            <Text className="text-zinc-500 text-sm font-mono">
+                              {ing.quantity || '— auto —'}
+                            </Text>
+                          </Pressable>
+                        )}
                       </View>
-                      <TextInput
-                        value={ing.portion || ''}
-                        onChangeText={(v) => updateIngredient(i, 'portion', v)}
-                        placeholder="ej. 2 tazas"
-                        placeholderTextColor="#555"
-                        className="bg-zinc-800/60 border border-zinc-700/50 rounded-lg text-white text-sm px-3 py-2 font-mono"
-                      />
+
+                      {/* PORCIONES */}
+                      <View className="flex-1">
+                        <Pressable
+                          onPress={() => {
+                            if (isQtyActive) toggleEditMode(i);
+                          }}
+                          className="flex-row items-center gap-1.5 mb-1"
+                        >
+                          <Layers size={12} color={!isQtyActive ? '#A855F7' : '#52525b'} />
+                          <Text
+                            className={`text-[10px] font-bold uppercase ${!isQtyActive ? 'text-purple-400' : 'text-zinc-600'}`}
+                          >
+                            Porciones
+                          </Text>
+                          {!isQtyActive ? (
+                            <Unlock size={10} color="#A855F7" />
+                          ) : (
+                            <Lock size={10} color="#52525b" />
+                          )}
+                        </Pressable>
+
+                        {!isQtyActive ? (
+                          <TextInput
+                            value={ing.portion || ''}
+                            onChangeText={(v) => updateIngredient(i, 'portion', v)}
+                            placeholder="ej. 4 huevos"
+                            placeholderTextColor="#555"
+                            className="bg-zinc-800/60 border border-purple-500/40 rounded-lg text-white text-sm px-3 py-2 font-mono"
+                          />
+                        ) : (
+                          <Pressable
+                            onPress={() => toggleEditMode(i)}
+                            className="bg-zinc-800/30 border border-zinc-700/30 rounded-lg px-3 py-2"
+                            style={{ opacity: 0.5 }}
+                          >
+                            <Text className="text-zinc-500 text-sm font-mono">
+                              {ing.portion || '— auto —'}
+                            </Text>
+                          </Pressable>
+                        )}
+                      </View>
                     </View>
                   </View>
-                </View>
-              ))}
+                );
+              })}
 
               <Pressable
                 onPress={addIngredient}
@@ -528,24 +601,24 @@ export const EditMealModal: React.FC<EditMealModalProps> = ({
 
               <Pressable
                 onPress={handleSave}
-                disabled={isSaving || isConverting}
+                disabled={isSaving}
                 className={`w-full py-4 rounded-xl ${
-                  isSaving || isConverting ? 'bg-zinc-600' : 'bg-purple-500 active:bg-purple-600'
+                  isSaving ? 'bg-zinc-600' : 'bg-purple-500 active:bg-purple-600'
                 }`}
                 style={{
                   marginBottom: Math.max(insets.bottom, 16) + 8,
                   shadowColor: '#A855F7',
                   shadowOffset: { width: 0, height: 4 },
-                  shadowOpacity: isSaving || isConverting ? 0 : 0.3,
+                  shadowOpacity: isSaving ? 0 : 0.3,
                   shadowRadius: 8,
-                  elevation: isSaving || isConverting ? 0 : 5,
+                  elevation: isSaving ? 0 : 5,
                 }}
               >
-                {isSaving || isConverting ? (
+                {isSaving ? (
                   <View className="flex-row items-center justify-center gap-2">
                     <ActivityIndicator size="small" color="#fff" />
                     <Text className="text-white font-bold text-center text-base">
-                      {isConverting ? 'Calculando...' : 'Guardando...'}
+                      Calculando y guardando...
                     </Text>
                   </View>
                 ) : (
