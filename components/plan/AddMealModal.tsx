@@ -662,9 +662,7 @@ export const AddMealModal: React.FC<AddMealModalProps> = ({
                 {isSaving ? (
                   <View className="flex-row items-center justify-center gap-2">
                     <ActivityIndicator size="small" color="#fff" />
-                    <Text className="text-white font-bold text-center text-base">
-                      Guardando...
-                    </Text>
+                    <Text className="text-white font-bold text-center text-base">Guardando...</Text>
                   </View>
                 ) : (
                   <Text className="text-white font-bold text-center text-lg">GUARDAR COMIDA</Text>

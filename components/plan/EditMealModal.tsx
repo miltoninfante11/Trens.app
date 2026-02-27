@@ -140,6 +140,9 @@ export const EditMealModal: React.FC<EditMealModalProps> = ({
   const [analysis, setAnalysis] = useState<IngredientAnalysis | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
 
+  // Detectar si estamos editando una alternativa (no la opción principal)
+  const isAlternative = meal ? meal.selectedOption > 0 : false;
+
   // Animated value para el desplazamiento del panel
   const translateY = useSharedValue(0);
 
@@ -465,13 +468,26 @@ export const EditMealModal: React.FC<EditMealModalProps> = ({
               {/* Ingredients */}
               <Text className="text-zinc-400 text-xs font-bold mb-2 uppercase">Ingredientes</Text>
 
-              {/* Info: modo de edición exclusivo */}
-              <View className="bg-purple-500/10 border border-purple-500/20 rounded-xl p-3 mb-3">
-                <Text className="text-purple-300 text-xs">
-                  ✏️ Edita un campo y el otro se calculará automáticamente al guardar. Toca el
-                  candado para cambiar qué campo editas.
-                </Text>
-              </View>
+              {/* Info banner - diferente para alternativa vs principal */}
+              {isAlternative ? (
+                <View className="bg-yellow-500/10 border border-yellow-500/20 rounded-xl p-3 mb-3">
+                  <View className="flex-row items-center gap-2 mb-1">
+                    <Lock size={12} color="#EAB308" />
+                    <Text className="text-yellow-400 text-xs font-bold">Alternativa</Text>
+                  </View>
+                  <Text className="text-yellow-300/70 text-xs">
+                    Las cantidades se calculan automáticamente según los macros del platillo
+                    principal. Solo puedes cambiar los ingredientes.
+                  </Text>
+                </View>
+              ) : (
+                <View className="bg-purple-500/10 border border-purple-500/20 rounded-xl p-3 mb-3">
+                  <Text className="text-purple-300 text-xs">
+                    ✏️ Edita un campo y el otro se calculará automáticamente al guardar. Toca el
+                    candado para cambiar qué campo editas.
+                  </Text>
+                </View>
+              )}
 
               {ingredients.map((ing, i) => {
                 const mode = editModes[i] || 'portion';
@@ -484,7 +500,7 @@ export const EditMealModal: React.FC<EditMealModalProps> = ({
                   >
                     <View className="flex-row justify-between items-center mb-2">
                       <Text className="text-zinc-500 text-xs">Ingrediente {i + 1}</Text>
-                      {ingredients.length > 1 && (
+                      {ingredients.length > 1 && !isAlternative && (
                         <Pressable onPress={() => removeIngredient(i)}>
                           <Trash2 size={16} color="#EF4444" />
                         </Pressable>
@@ -496,109 +512,163 @@ export const EditMealModal: React.FC<EditMealModalProps> = ({
                       placeholder="Nombre (ej. Pollo a la plancha)"
                       placeholderTextColor="#666"
                       className="bg-transparent border-b border-zinc-700 text-white py-2 mb-3"
+                      editable={!isAlternative}
                     />
 
-                    {/* Campos exclusivos: solo uno editable a la vez */}
-                    <View className="flex-row gap-3">
-                      {/* GRAMOS */}
-                      <View className="flex-1">
-                        <Pressable
-                          onPress={() => {
-                            if (!isQtyActive) toggleEditMode(i);
-                          }}
-                          className="flex-row items-center gap-1.5 mb-1"
-                        >
-                          <Scale size={12} color={isQtyActive ? '#3B82F6' : '#52525b'} />
-                          <Text
-                            className={`text-[10px] font-bold uppercase ${isQtyActive ? 'text-blue-400' : 'text-zinc-600'}`}
+                    {/* Alternativa: campos de solo lectura */}
+                    {isAlternative ? (
+                      <View className="flex-row gap-3">
+                        <View className="flex-1">
+                          <View className="flex-row items-center gap-1.5 mb-1">
+                            <Scale size={12} color="#52525b" />
+                            <Text className="text-zinc-600 text-[10px] font-bold uppercase">
+                              Gramos
+                            </Text>
+                            <Lock size={10} color="#52525b" />
+                          </View>
+                          <View
+                            className="bg-zinc-800/30 border border-zinc-700/30 rounded-lg px-3 py-2"
+                            style={{ opacity: 0.5 }}
                           >
-                            Gramos
-                          </Text>
+                            <Text className="text-zinc-400 text-sm font-mono">
+                              {ing.quantity || '—'}
+                            </Text>
+                          </View>
+                        </View>
+                        <View className="flex-1">
+                          <View className="flex-row items-center gap-1.5 mb-1">
+                            <Layers size={12} color="#52525b" />
+                            <Text className="text-zinc-600 text-[10px] font-bold uppercase">
+                              Porciones
+                            </Text>
+                            <Lock size={10} color="#52525b" />
+                          </View>
+                          <View
+                            className="bg-zinc-800/30 border border-zinc-700/30 rounded-lg px-3 py-2"
+                            style={{ opacity: 0.5 }}
+                          >
+                            <Text className="text-zinc-400 text-sm font-mono">
+                              {ing.portion || '—'}
+                            </Text>
+                          </View>
+                        </View>
+                      </View>
+                    ) : (
+                      /* Comida principal: campos exclusivos editables */
+                      <View className="flex-row gap-3">
+                        {/* GRAMOS */}
+                        <View className="flex-1">
+                          <Pressable
+                            onPress={() => {
+                              if (!isQtyActive) toggleEditMode(i);
+                            }}
+                            className="flex-row items-center gap-1.5 mb-1"
+                          >
+                            <Scale size={12} color={isQtyActive ? '#3B82F6' : '#52525b'} />
+                            <Text
+                              className={`text-[10px] font-bold uppercase ${isQtyActive ? 'text-blue-400' : 'text-zinc-600'}`}
+                            >
+                              Gramos
+                            </Text>
+                            {isQtyActive ? (
+                              <Unlock size={10} color="#3B82F6" />
+                            ) : (
+                              <Lock size={10} color="#52525b" />
+                            )}
+                          </Pressable>
+
                           {isQtyActive ? (
-                            <Unlock size={10} color="#3B82F6" />
+                            <TextInput
+                              value={ing.quantity}
+                              onChangeText={(v) => updateIngredient(i, 'quantity', v)}
+                              placeholder="ej. 200g"
+                              placeholderTextColor="#555"
+                              keyboardType="default"
+                              className="bg-zinc-800/60 border border-blue-500/40 rounded-lg text-white text-sm px-3 py-2 font-mono"
+                            />
                           ) : (
-                            <Lock size={10} color="#52525b" />
+                            <Pressable
+                              onPress={() => toggleEditMode(i)}
+                              className="bg-zinc-800/30 border border-zinc-700/30 rounded-lg px-3 py-2"
+                              style={{ opacity: 0.5 }}
+                            >
+                              <Text className="text-zinc-500 text-sm font-mono">
+                                {ing.quantity || '— auto —'}
+                              </Text>
+                            </Pressable>
                           )}
-                        </Pressable>
+                        </View>
 
-                        {isQtyActive ? (
-                          <TextInput
-                            value={ing.quantity}
-                            onChangeText={(v) => updateIngredient(i, 'quantity', v)}
-                            placeholder="ej. 200g"
-                            placeholderTextColor="#555"
-                            keyboardType="default"
-                            className="bg-zinc-800/60 border border-blue-500/40 rounded-lg text-white text-sm px-3 py-2 font-mono"
-                          />
-                        ) : (
+                        {/* PORCIONES */}
+                        <View className="flex-1">
                           <Pressable
-                            onPress={() => toggleEditMode(i)}
-                            className="bg-zinc-800/30 border border-zinc-700/30 rounded-lg px-3 py-2"
-                            style={{ opacity: 0.5 }}
+                            onPress={() => {
+                              if (isQtyActive) toggleEditMode(i);
+                            }}
+                            className="flex-row items-center gap-1.5 mb-1"
                           >
-                            <Text className="text-zinc-500 text-sm font-mono">
-                              {ing.quantity || '— auto —'}
+                            <Layers size={12} color={!isQtyActive ? '#A855F7' : '#52525b'} />
+                            <Text
+                              className={`text-[10px] font-bold uppercase ${!isQtyActive ? 'text-purple-400' : 'text-zinc-600'}`}
+                            >
+                              Porciones
                             </Text>
+                            {!isQtyActive ? (
+                              <Unlock size={10} color="#A855F7" />
+                            ) : (
+                              <Lock size={10} color="#52525b" />
+                            )}
                           </Pressable>
-                        )}
-                      </View>
 
-                      {/* PORCIONES */}
-                      <View className="flex-1">
-                        <Pressable
-                          onPress={() => {
-                            if (isQtyActive) toggleEditMode(i);
-                          }}
-                          className="flex-row items-center gap-1.5 mb-1"
-                        >
-                          <Layers size={12} color={!isQtyActive ? '#A855F7' : '#52525b'} />
-                          <Text
-                            className={`text-[10px] font-bold uppercase ${!isQtyActive ? 'text-purple-400' : 'text-zinc-600'}`}
-                          >
-                            Porciones
-                          </Text>
                           {!isQtyActive ? (
-                            <Unlock size={10} color="#A855F7" />
+                            <TextInput
+                              value={ing.portion || ''}
+                              onChangeText={(v) => updateIngredient(i, 'portion', v)}
+                              placeholder="ej. 4 huevos"
+                              placeholderTextColor="#555"
+                              className="bg-zinc-800/60 border border-purple-500/40 rounded-lg text-white text-sm px-3 py-2 font-mono"
+                            />
                           ) : (
-                            <Lock size={10} color="#52525b" />
+                            <Pressable
+                              onPress={() => toggleEditMode(i)}
+                              className="bg-zinc-800/30 border border-zinc-700/30 rounded-lg px-3 py-2"
+                              style={{ opacity: 0.5 }}
+                            >
+                              <Text className="text-zinc-500 text-sm font-mono">
+                                {ing.portion || '— auto —'}
+                              </Text>
+                            </Pressable>
                           )}
-                        </Pressable>
-
-                        {!isQtyActive ? (
-                          <TextInput
-                            value={ing.portion || ''}
-                            onChangeText={(v) => updateIngredient(i, 'portion', v)}
-                            placeholder="ej. 4 huevos"
-                            placeholderTextColor="#555"
-                            className="bg-zinc-800/60 border border-purple-500/40 rounded-lg text-white text-sm px-3 py-2 font-mono"
-                          />
-                        ) : (
-                          <Pressable
-                            onPress={() => toggleEditMode(i)}
-                            className="bg-zinc-800/30 border border-zinc-700/30 rounded-lg px-3 py-2"
-                            style={{ opacity: 0.5 }}
-                          >
-                            <Text className="text-zinc-500 text-sm font-mono">
-                              {ing.portion || '— auto —'}
-                            </Text>
-                          </Pressable>
-                        )}
+                        </View>
                       </View>
-                    </View>
+                    )}
                   </View>
                 );
               })}
 
-              <Pressable
-                onPress={addIngredient}
-                className="w-full py-3 border border-dashed border-zinc-600 rounded-xl mb-6 active:border-purple-500 active:bg-purple-500/5"
-              >
-                <View className="flex-row items-center justify-center gap-2">
-                  <Plus size={18} color="#A855F7" />
-                  <Text className="text-zinc-400 font-medium">Añadir ingrediente</Text>
-                </View>
-              </Pressable>
+              {/* Solo mostrar botón de añadir ingrediente para comida principal */}
+              {!isAlternative && (
+                <Pressable
+                  onPress={addIngredient}
+                  className="w-full py-3 border border-dashed border-zinc-600 rounded-xl mb-6 active:border-purple-500 active:bg-purple-500/5"
+                >
+                  <View className="flex-row items-center justify-center gap-2">
+                    <Plus size={18} color="#A855F7" />
+                    <Text className="text-zinc-400 font-medium">Añadir ingrediente</Text>
+                  </View>
+                </Pressable>
+              )}
 
+              {/* Para alternativas: solo botón de cerrar, no guardar */}
+              {isAlternative ? (
+                <Pressable
+                  onPress={onClose}
+                  className="w-full py-4 rounded-xl bg-zinc-800 active:bg-zinc-700 mb-6"
+                  style={{ marginBottom: Math.max(insets.bottom, 16) + 8 }}
+                >
+                  <Text className="text-zinc-300 font-bold text-center text-lg">CERRAR</Text>
+                </Pressable>
+              ) : (
               <Pressable
                 onPress={handleSave}
                 disabled={isSaving}
@@ -625,6 +695,7 @@ export const EditMealModal: React.FC<EditMealModalProps> = ({
                   <Text className="text-white font-bold text-center text-lg">GUARDAR CAMBIOS</Text>
                 )}
               </Pressable>
+              )}
             </ScrollView>
           </Animated.View>
         </View>
