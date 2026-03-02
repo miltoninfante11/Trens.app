@@ -1603,22 +1603,15 @@ class SpotifyService {
       console.log('🔥 Spotify warmUp: Dispositivos encontrados:', devices.length);
 
       if (devices.length === 0) {
-        console.log('🔥 Spotify warmUp: No hay dispositivos - intentando técnica de despertar...');
+        console.log('🔥 Spotify warmUp: No hay dispositivos - verificando estado...');
 
-        // Técnica de despertar: hacer una llamada "silenciosa" para activar
+        // Solo verificar estado, NUNCA abrir Spotify con deep link automáticamente
+        // Los deep links solo deben usarse cuando el usuario explícitamente quiere reproducir
         const state = await this.getPlaybackState();
 
         if (state?.hasActiveDevice) {
           console.log('🔥 Spotify warmUp: ✅ Dispositivo activo detectado post-estado');
           this.isWarmedUp = true;
-          return true;
-        }
-
-        // Técnica 2: Deep link para despertar la app de Spotify
-        console.log('🔥 Spotify warmUp: Intentando deep link wake...');
-        const woke = await this.wakeWithDeepLink();
-        if (woke) {
-          console.log('🔥 Spotify warmUp: ✅ Despertado via deep link');
           return true;
         }
 

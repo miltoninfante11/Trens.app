@@ -38,6 +38,8 @@ import {
   Zap,
   Plus,
   Star,
+  Play,
+  Dna,
 } from 'lucide-react-native';
 import * as Haptics from '../../lib/haptics';
 import { Alert } from '../../lib/alert';
@@ -115,6 +117,10 @@ export default function AccountModal({
   const [editPhone, setEditPhone] = useState('');
   const [isSavingPersonal, setIsSavingPersonal] = useState(false);
 
+  // Default module preference
+  const [defaultModule, setDefaultModule] = useState<'feed' | 'adn'>('feed');
+  const [isSavingModule, setIsSavingModule] = useState(false);
+
   // -------------------------------------------------------------------------
   // RESET ON OPEN
   // -------------------------------------------------------------------------
@@ -128,6 +134,19 @@ export default function AccountModal({
       setShowNewPassword(false);
       setEditPhone(user?.phone || '');
       setShowAddForm(false);
+      // Load default module preference
+      if (user) {
+        supabase
+          .from('user_profiles')
+          .select('default_module')
+          .eq('user_id', user.id)
+          .maybeSingle()
+          .then(({ data }) => {
+            if (data?.default_module) {
+              setDefaultModule(data.default_module as 'feed' | 'adn');
+            }
+          });
+      }
     }
   }, [visible, profile, user]);
 
@@ -413,6 +432,30 @@ export default function AccountModal({
   };
 
   // -------------------------------------------------------------------------
+  // DEFAULT MODULE
+  // -------------------------------------------------------------------------
+  const toggleDefaultModule = async (value: 'feed' | 'adn') => {
+    if (!user || isSavingModule) return;
+    setIsSavingModule(true);
+    const previous = defaultModule;
+    setDefaultModule(value); // Optimistic update
+    try {
+      const { error } = await supabase
+        .from('user_profiles')
+        .update({ default_module: value })
+        .eq('user_id', user.id);
+
+      if (error) throw error;
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (err: any) {
+      setDefaultModule(previous); // Rollback
+      Alert.alert('Error', 'No se pudo guardar la preferencia.');
+    } finally {
+      setIsSavingModule(false);
+    }
+  };
+
+  // -------------------------------------------------------------------------
   // LOGOUT
   // -------------------------------------------------------------------------
   const handleLogout = () => {
@@ -574,6 +617,91 @@ export default function AccountModal({
           sublabel="Actualiza tu contraseña"
           onPress={() => goTo('password')}
         />
+      </View>
+
+      {/* Default Module Selector */}
+      <View className="mt-6 mb-2">
+        <Text className="text-xs text-zinc-500 uppercase tracking-widest font-bold mb-3">
+          MÓDULO PREDETERMINADO
+        </Text>
+        <Text className="text-zinc-600 text-xs mb-3">
+          Elige qué módulo se abre al iniciar la app
+        </Text>
+        <View className="bg-zinc-800/40 rounded-2xl border border-zinc-800/60 overflow-hidden">
+          {/* TRENS (Feed) Option */}
+          <TouchableOpacity
+            onPress={() => toggleDefaultModule('feed')}
+            className={`flex-row items-center gap-4 p-4 ${
+              defaultModule === 'feed' ? 'bg-red-600/10' : ''
+            }`}
+            activeOpacity={0.7}
+            disabled={isSavingModule}
+          >
+            <View
+              className={`w-10 h-10 rounded-xl items-center justify-center ${
+                defaultModule === 'feed' ? 'bg-red-600/20' : 'bg-zinc-800'
+              }`}
+            >
+              <Play
+                size={20}
+                color={defaultModule === 'feed' ? '#DC2626' : '#71717A'}
+                fill={defaultModule === 'feed' ? '#DC2626' : 'transparent'}
+              />
+            </View>
+            <View className="flex-1">
+              <Text
+                className={`font-bold ${defaultModule === 'feed' ? 'text-white' : 'text-zinc-400'}`}
+              >
+                TRENS
+              </Text>
+              <Text className="text-zinc-500 text-xs mt-0.5">Feed de videos</Text>
+            </View>
+            <View
+              className={`w-6 h-6 rounded-full border-2 items-center justify-center ${
+                defaultModule === 'feed' ? 'border-red-600 bg-red-600' : 'border-zinc-600'
+              }`}
+            >
+              {defaultModule === 'feed' && <CheckCircle size={14} color="#fff" />}
+            </View>
+          </TouchableOpacity>
+
+          {/* Divider */}
+          <View className="h-px bg-zinc-700/30 mx-4" />
+
+          {/* ADN Option */}
+          <TouchableOpacity
+            onPress={() => toggleDefaultModule('adn')}
+            className={`flex-row items-center gap-4 p-4 ${
+              defaultModule === 'adn' ? 'bg-red-600/10' : ''
+            }`}
+            activeOpacity={0.7}
+            disabled={isSavingModule}
+          >
+            <View
+              className={`w-10 h-10 rounded-xl items-center justify-center ${
+                defaultModule === 'adn' ? 'bg-red-600/20' : 'bg-zinc-800'
+              }`}
+            >
+              <Dna size={20} color={defaultModule === 'adn' ? '#DC2626' : '#71717A'} />
+            </View>
+            <View className="flex-1">
+              <Text
+                className={`font-bold ${defaultModule === 'adn' ? 'text-white' : 'text-zinc-400'}`}
+              >
+                ADN
+              </Text>
+              <Text className="text-zinc-500 text-xs mt-0.5">Perfil atlético</Text>
+            </View>
+            <View
+              className={`w-6 h-6 rounded-full border-2 items-center justify-center ${
+                defaultModule === 'adn' ? 'border-red-600 bg-red-600' : 'border-zinc-600'
+              }`}
+            >
+              {defaultModule === 'adn' && <CheckCircle size={14} color="#fff" />}
+            </View>
+          </TouchableOpacity>
+        </View>
+        {isSavingModule && <ActivityIndicator color="#DC2626" size="small" className="mt-2" />}
       </View>
 
       {/* Footer Actions */}

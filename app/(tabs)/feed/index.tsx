@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef, memo } from 'react';
+import React, { useState, useEffect, useCallback, useRef, memo, useMemo } from 'react';
 import {
   View,
   Text,
@@ -12,7 +12,7 @@ import {
   useWindowDimensions,
   AppState,
   Platform,
-  Modal,
+  PanResponder,
 } from 'react-native';
 import { PWAGuard } from '../../../components/auth/PWAGuard';
 import { Alert } from '../../../lib/alert';
@@ -116,9 +116,9 @@ const SERIES_COLORS: Record<string, { bg: string; text: string; label: string }>
 };
 
 // ============================================================================
-// TRAINING DAY CHIP COMPONENT
+// TRAINING DAY HOOK — extracted from TrainingDayChip for flexible rendering
 // ============================================================================
-const TrainingDayChip = memo(({ userId }: { userId: string | undefined }) => {
+function useTrainingDay(userId: string | undefined) {
   const [trainingDays, setTrainingDays] = useState<{ name: string; index: number }[]>([]);
   const [currentDayIdx, setCurrentDayIdx] = useState(0);
   const [selectedDayIdx, setSelectedDayIdx] = useState(0);
@@ -130,7 +130,7 @@ const TrainingDayChip = memo(({ userId }: { userId: string | undefined }) => {
   const [cardWidths, setCardWidths] = useState<Record<string, number>>({});
   const scrollTimeoutRefs = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
-  // Fetch training days (called on mount + when refreshKey changes)
+  // Fetch training days
   const fetchTrainingDays = useCallback(async () => {
     if (!userId) return;
     try {
@@ -163,7 +163,7 @@ const TrainingDayChip = memo(({ userId }: { userId: string | undefined }) => {
     fetchTrainingDays();
   }, [fetchTrainingDays, refreshKey]);
 
-  // Subscribe to Supabase realtime changes on profiles and user_exercise_config
+  // Subscribe to Supabase realtime
   useEffect(() => {
     if (!userId) return;
 
@@ -178,7 +178,6 @@ const TrainingDayChip = memo(({ userId }: { userId: string | undefined }) => {
           filter: `id=eq.${userId}`,
         },
         () => {
-          // Profile changed (frequency, routine names, current day)
           setRefreshKey((k) => k + 1);
         }
       )
@@ -191,8 +190,6 @@ const TrainingDayChip = memo(({ userId }: { userId: string | undefined }) => {
           filter: `user_id=eq.${userId}`,
         },
         () => {
-          // Exercises changed (added, removed, reordered, config changed)
-          // Reload exercises for the currently selected day
           if (modalVisible) {
             loadDayExercises(selectedDayIdx);
           }
@@ -221,7 +218,6 @@ const TrainingDayChip = memo(({ userId }: { userId: string | undefined }) => {
           .eq('user_id', userId)
           .order('display_order', { ascending: true });
 
-        // Load persistent media
         const exerciseIds = configs?.map((c: any) => c.exercise_id) || [];
         let mediaMap: Record<string, string> = {};
         if (exerciseIds.length > 0) {
@@ -235,7 +231,6 @@ const TrainingDayChip = memo(({ userId }: { userId: string | undefined }) => {
           });
         }
 
-        // Collect all alternative IDs across all exercises for this day
         const filteredConfigs = (configs || []).filter((c: any) =>
           c.training_days?.includes(dayIdx)
         );
@@ -247,7 +242,6 @@ const TrainingDayChip = memo(({ userId }: { userId: string | undefined }) => {
           });
         });
 
-        // Fetch alternative exercise details in one batch
         let altMap: Record<string, { name: string; image_url: string }> = {};
         if (allAltIds.length > 0) {
           const { data: altData } = await supabase
@@ -255,7 +249,6 @@ const TrainingDayChip = memo(({ userId }: { userId: string | undefined }) => {
             .select('id, name, thumbnail_url, default_media_url')
             .in('id', allAltIds);
 
-          // Also check for user custom media on alternatives
           const { data: altConfigs } = await supabase
             .from('user_exercise_config')
             .select('exercise_id, custom_media_url')
@@ -268,7 +261,6 @@ const TrainingDayChip = memo(({ userId }: { userId: string | undefined }) => {
             if (ac.custom_media_url) altCustomMedia[ac.exercise_id] = ac.custom_media_url;
           });
 
-          // Also check user_exercise_media for persistent media
           const { data: altMedia } = await supabase
             .from('user_exercise_media')
             .select('exercise_id, custom_media_url')
@@ -331,24 +323,28 @@ const TrainingDayChip = memo(({ userId }: { userId: string | undefined }) => {
     [userId]
   );
 
-  // Open modal and load current day exercises (always fresh)
+  // Eager load exercises for thumbnail strip on mount + when day changes
+  useEffect(() => {
+    if (userId && trainingDays.length > 0) {
+      loadDayExercises(currentDayIdx);
+    }
+  }, [userId, currentDayIdx, trainingDays.length]);
+
   const handleOpenModal = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    fetchTrainingDays(); // Refresh day names in case they changed
+    fetchTrainingDays();
     setModalVisible(true);
     loadDayExercises(selectedDayIdx);
   }, [selectedDayIdx, loadDayExercises, fetchTrainingDays]);
 
-  // Select a day inside the modal → save as current day to Supabase
   const handleSelectDay = useCallback(
     async (dayIdx: number) => {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       setSelectedDayIdx(dayIdx);
-      setCurrentDayIdx(dayIdx); // Update locally immediately
-      setActiveAlternatives({}); // Reset alternative scroll positions
+      setCurrentDayIdx(dayIdx);
+      setActiveAlternatives({});
       loadDayExercises(dayIdx);
 
-      // Persist to Supabase so GYM module picks it up
       if (userId) {
         try {
           await supabase
@@ -366,394 +362,37 @@ const TrainingDayChip = memo(({ userId }: { userId: string | undefined }) => {
     [loadDayExercises, userId]
   );
 
-  if (trainingDays.length === 0) return null;
+  // Refresh everything (call on tab focus)
+  const refresh = useCallback(() => {
+    fetchTrainingDays();
+    if (userId && trainingDays.length > 0) {
+      loadDayExercises(currentDayIdx);
+    }
+  }, [fetchTrainingDays, loadDayExercises, userId, trainingDays.length, currentDayIdx]);
 
   const day = trainingDays[selectedDayIdx];
   const isCurrentDay = selectedDayIdx === currentDayIdx;
 
-  return (
-    <>
-      {/* Purple training chip - simple press to open */}
-      <TouchableOpacity
-        onPress={handleOpenModal}
-        activeOpacity={0.7}
-        className="self-end mt-1 flex-row items-center rounded-full px-3 py-1.5"
-        style={{
-          backgroundColor: isCurrentDay ? 'rgba(147, 51, 234, 0.15)' : 'rgba(255, 255, 255, 0.06)',
-          borderWidth: 1,
-          borderColor: isCurrentDay ? '#9333ea' : 'rgba(255, 255, 255, 0.12)',
-          maxWidth: 220,
-        }}
-      >
-        <Dumbbell size={12} color={isCurrentDay ? '#a855f7' : '#71717a'} />
-        <Text
-          numberOfLines={1}
-          className={`ml-1.5 text-xs font-bold ${
-            isCurrentDay ? 'text-purple-400' : 'text-zinc-500'
-          }`}
-        >
-          {day?.name || 'REST'}
-        </Text>
-      </TouchableOpacity>
-
-      {/* Exercises Modal */}
-      <Modal
-        visible={modalVisible}
-        transparent
-        animationType="fade"
-        statusBarTranslucent
-        onRequestClose={() => setModalVisible(false)}
-      >
-        <View className="flex-1" style={{ backgroundColor: 'rgba(0,0,0,0.75)' }}>
-          {/* Backdrop press to close */}
-          <TouchableOpacity
-            activeOpacity={1}
-            onPress={() => setModalVisible(false)}
-            className="flex-1"
-          />
-
-          {/* Modal content - anchored to center-bottom area */}
-          <View
-            className="mx-4 mb-8 rounded-2xl overflow-hidden"
-            style={{
-              backgroundColor: 'rgba(24, 24, 27, 0.96)',
-              borderWidth: 1,
-              borderColor: 'rgba(147, 51, 234, 0.3)',
-              maxHeight: '70%',
-            }}
-          >
-            {/* Modal Header */}
-            <View className="flex-row items-center justify-between px-4 pt-4 pb-2">
-              <View className="flex-row items-center">
-                <View
-                  className="w-8 h-8 rounded-lg items-center justify-center mr-3"
-                  style={{ backgroundColor: 'rgba(147, 51, 234, 0.2)' }}
-                >
-                  <Dumbbell size={16} color="#a855f7" />
-                </View>
-                <Text className="text-white font-bold text-base">ENTRENAMIENTO</Text>
-              </View>
-              <TouchableOpacity
-                onPress={() => setModalVisible(false)}
-                className="w-8 h-8 rounded-full items-center justify-center"
-                style={{ backgroundColor: 'rgba(255,255,255,0.08)' }}
-              >
-                <X size={16} color="#71717a" />
-              </TouchableOpacity>
-            </View>
-
-            {/* Day selector chips - horizontal scroll */}
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              className="px-4 py-2"
-              contentContainerStyle={{ gap: 8 }}
-            >
-              {trainingDays.map((d) => {
-                const isSelected = d.index === selectedDayIdx;
-                const isCurrent = d.index === currentDayIdx;
-                return (
-                  <TouchableOpacity
-                    key={d.index}
-                    onPress={() => handleSelectDay(d.index)}
-                    activeOpacity={0.7}
-                    className="rounded-full px-3 py-1.5 flex-row items-center"
-                    style={{
-                      backgroundColor: isSelected
-                        ? 'rgba(147, 51, 234, 0.25)'
-                        : 'rgba(255, 255, 255, 0.06)',
-                      borderWidth: 1,
-                      borderColor: isSelected
-                        ? '#9333ea'
-                        : isCurrent
-                          ? 'rgba(147, 51, 234, 0.3)'
-                          : 'rgba(255, 255, 255, 0.08)',
-                    }}
-                  >
-                    {isCurrent && (
-                      <View
-                        className="w-1.5 h-1.5 rounded-full mr-1.5"
-                        style={{ backgroundColor: '#a855f7' }}
-                      />
-                    )}
-                    <Text
-                      numberOfLines={1}
-                      className="text-xs font-bold"
-                      style={{
-                        color: isSelected ? '#c084fc' : isCurrent ? '#a855f7' : '#71717a',
-                        maxWidth: 120,
-                      }}
-                    >
-                      {d.name}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
-
-            {/* Day info subtitle */}
-            <View className="px-4 pb-2">
-              <Text className="text-zinc-500 text-xs font-mono">
-                DÍA {selectedDayIdx + 1} • {exercises.length} ejercicios
-                {selectedDayIdx === currentDayIdx ? ' • HOY' : ''}
-              </Text>
-            </View>
-
-            {/* Divider */}
-            <View className="h-px mx-4" style={{ backgroundColor: 'rgba(147, 51, 234, 0.15)' }} />
-
-            {/* Exercises list */}
-            {loadingExercises ? (
-              <View className="py-12 items-center">
-                <ActivityIndicator size="small" color="#a855f7" />
-              </View>
-            ) : exercises.length === 0 ? (
-              <View className="py-12 items-center">
-                <Dumbbell size={32} color="#3f3f46" />
-                <Text className="text-zinc-500 text-sm mt-3">Sin ejercicios asignados</Text>
-              </View>
-            ) : (
-              <ScrollView className="px-4 py-3" showsVerticalScrollIndicator={false}>
-                {exercises.map((ex, idx) => {
-                  // Build variations array: main + alternatives
-                  const allVariations = [
-                    { id: ex.exercise_id, name: ex.name, image_url: ex.image_url, isMain: true },
-                    ...ex.alternatives.map((alt) => ({
-                      id: alt.id,
-                      name: alt.name,
-                      image_url: alt.image_url,
-                      isMain: false,
-                    })),
-                  ];
-                  const hasAlternatives = allVariations.length > 1;
-                  const activeAltIdx = activeAlternatives[ex.id] || 0;
-                  const safeIdx = Math.min(activeAltIdx, allVariations.length - 1);
-                  const currentVariation = allVariations[safeIdx];
-
-                  return (
-                    <View
-                      key={ex.id}
-                      className="mb-3 rounded-xl overflow-hidden"
-                      style={{
-                        backgroundColor: 'rgba(255, 255, 255, 0.04)',
-                        borderWidth: 1,
-                        borderColor: hasAlternatives
-                          ? 'rgba(251, 146, 60, 0.15)'
-                          : 'rgba(255, 255, 255, 0.06)',
-                      }}
-                    >
-                      {/* Horizontal scroll for alternatives */}
-                      {hasAlternatives ? (
-                        <View
-                          onLayout={(e) => {
-                            const w = e.nativeEvent.layout.width;
-                            if (w > 0) {
-                              setCardWidths((prev) => {
-                                if (prev[ex.id] === w) return prev;
-                                return { ...prev, [ex.id]: w };
-                              });
-                            }
-                          }}
-                        >
-                          <ScrollView
-                            horizontal
-                            pagingEnabled
-                            showsHorizontalScrollIndicator={false}
-                            scrollEventThrottle={16}
-                            onScroll={(event) => {
-                              const w =
-                                cardWidths[ex.id] || event.nativeEvent.layoutMeasurement.width;
-                              if (w <= 0) return;
-                              const newIdx = Math.round(event.nativeEvent.contentOffset.x / w);
-                              // Debounce to avoid rapid state updates
-                              if (scrollTimeoutRefs.current[ex.id]) {
-                                clearTimeout(scrollTimeoutRefs.current[ex.id]);
-                              }
-                              scrollTimeoutRefs.current[ex.id] = setTimeout(() => {
-                                setActiveAlternatives((prev) => {
-                                  const current = prev[ex.id] || 0;
-                                  if (current === newIdx) return prev;
-                                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                                  return { ...prev, [ex.id]: newIdx };
-                                });
-                              }, 50);
-                            }}
-                          >
-                            {allVariations.map((variation) => (
-                              <View
-                                key={variation.id}
-                                className="flex-row items-center"
-                                style={{ width: cardWidths[ex.id] || '100%' }}
-                              >
-                                {/* Thumbnail */}
-                                <View className="w-16 h-16">
-                                  {variation.image_url ? (
-                                    <Image
-                                      source={{ uri: variation.image_url }}
-                                      className="w-full h-full"
-                                      contentFit="cover"
-                                    />
-                                  ) : (
-                                    <View className="w-full h-full bg-zinc-800 items-center justify-center">
-                                      <Dumbbell size={20} color="#3f3f46" />
-                                    </View>
-                                  )}
-                                </View>
-
-                                {/* Exercise info */}
-                                <View className="flex-1 px-3 py-2">
-                                  <View className="flex-row items-center">
-                                    <Text
-                                      className="text-white font-bold text-sm flex-1"
-                                      numberOfLines={1}
-                                    >
-                                      {idx + 1}. {variation.name}
-                                    </Text>
-                                  </View>
-
-                                  {!variation.isMain && (
-                                    <View className="flex-row items-center mt-0.5">
-                                      <View className="w-1.5 h-1.5 bg-orange-400 rounded-full mr-1" />
-                                      <Text
-                                        className="font-bold uppercase"
-                                        style={{
-                                          color: '#fb923c',
-                                          fontSize: 8,
-                                          letterSpacing: 1,
-                                        }}
-                                      >
-                                        Alternativa
-                                      </Text>
-                                    </View>
-                                  )}
-
-                                  {/* Sets summary */}
-                                  <Text className="text-zinc-500 text-xs font-mono mt-0.5">
-                                    {ex.sets}
-                                  </Text>
-
-                                  {/* Series pills */}
-                                  {ex.series.length > 0 && (
-                                    <View className="flex-row flex-wrap mt-1.5 gap-1">
-                                      {ex.series.map((s, sIdx) => {
-                                        const color =
-                                          SERIES_COLORS[s.type] || SERIES_COLORS.EFECTIVA;
-                                        return (
-                                          <View
-                                            key={sIdx}
-                                            className="flex-row items-center rounded-md px-1.5 py-0.5"
-                                            style={{ backgroundColor: color.bg }}
-                                          >
-                                            <Text
-                                              className="font-bold mr-0.5"
-                                              style={{ color: color.text, fontSize: 9 }}
-                                            >
-                                              {color.label}
-                                            </Text>
-                                            <Text
-                                              className="font-mono"
-                                              style={{ color: color.text, fontSize: 9 }}
-                                            >
-                                              {s.reps}r{s.weight ? ` ${s.weight}kg` : ''}
-                                            </Text>
-                                          </View>
-                                        );
-                                      })}
-                                    </View>
-                                  )}
-                                </View>
-                              </View>
-                            ))}
-                          </ScrollView>
-
-                          {/* Dot indicators */}
-                          <View className="flex-row items-center justify-center py-1.5 gap-1">
-                            {allVariations.map((_, dotIdx) => (
-                              <View
-                                key={dotIdx}
-                                className="rounded-full"
-                                style={{
-                                  width: dotIdx === safeIdx ? 16 : 5,
-                                  height: 5,
-                                  backgroundColor:
-                                    dotIdx === safeIdx ? '#fb923c' : 'rgba(255, 255, 255, 0.2)',
-                                }}
-                              />
-                            ))}
-                          </View>
-                        </View>
-                      ) : (
-                        /* Single exercise - no alternatives */
-                        <View className="flex-row items-center">
-                          {/* Thumbnail */}
-                          <View className="w-16 h-16">
-                            {ex.image_url ? (
-                              <Image
-                                source={{ uri: ex.image_url }}
-                                className="w-full h-full"
-                                contentFit="cover"
-                              />
-                            ) : (
-                              <View className="w-full h-full bg-zinc-800 items-center justify-center">
-                                <Dumbbell size={20} color="#3f3f46" />
-                              </View>
-                            )}
-                          </View>
-
-                          {/* Exercise info */}
-                          <View className="flex-1 px-3 py-2">
-                            <Text className="text-white font-bold text-sm" numberOfLines={1}>
-                              {idx + 1}. {ex.name}
-                            </Text>
-
-                            {/* Sets summary */}
-                            <Text className="text-zinc-500 text-xs font-mono mt-0.5">
-                              {ex.sets}
-                            </Text>
-
-                            {/* Series pills */}
-                            {ex.series.length > 0 && (
-                              <View className="flex-row flex-wrap mt-1.5 gap-1">
-                                {ex.series.map((s, sIdx) => {
-                                  const color = SERIES_COLORS[s.type] || SERIES_COLORS.EFECTIVA;
-                                  return (
-                                    <View
-                                      key={sIdx}
-                                      className="flex-row items-center rounded-md px-1.5 py-0.5"
-                                      style={{ backgroundColor: color.bg }}
-                                    >
-                                      <Text
-                                        className="font-bold mr-0.5"
-                                        style={{ color: color.text, fontSize: 9 }}
-                                      >
-                                        {color.label}
-                                      </Text>
-                                      <Text
-                                        className="font-mono"
-                                        style={{ color: color.text, fontSize: 9 }}
-                                      >
-                                        {s.reps}r{s.weight ? ` ${s.weight}kg` : ''}
-                                      </Text>
-                                    </View>
-                                  );
-                                })}
-                              </View>
-                            )}
-                          </View>
-                        </View>
-                      )}
-                    </View>
-                  );
-                })}
-                <View className="h-4" />
-              </ScrollView>
-            )}
-          </View>
-        </View>
-      </Modal>
-    </>
-  );
-});
+  return {
+    trainingDays,
+    currentDayIdx,
+    selectedDayIdx,
+    exercises,
+    modalVisible,
+    setModalVisible,
+    loadingExercises,
+    activeAlternatives,
+    setActiveAlternatives,
+    cardWidths,
+    setCardWidths,
+    scrollTimeoutRefs,
+    refresh,
+    day,
+    isCurrentDay,
+    handleOpenModal,
+    handleSelectDay,
+  };
+}
 
 // ============================================================================
 // DIMENSIONS - Se calculan dinámicamente en cada componente con hooks
@@ -1484,6 +1123,26 @@ function FeedScreenContent() {
   } = useUserRoleContext();
   const { setScreenContext } = useHank();
 
+  // Training day data (hook extracted from TrainingDayChip)
+  const training = useTrainingDay(user?.id);
+  const [showThumbnails, setShowThumbnails] = useState(false);
+  const [showDaySelector, setShowDaySelector] = useState(false);
+
+  // PanResponder that captures horizontal gestures on the exercise cards area
+  // to prevent the parent tab-swipe PanResponder from stealing them
+  const exerciseCardsPanBlocker = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponderCapture: () => false,
+      onMoveShouldSetPanResponderCapture: (_evt, gs) => {
+        // Capture horizontal gestures to block parent swipe
+        return Math.abs(gs.dx) > 4 && Math.abs(gs.dx) > Math.abs(gs.dy);
+      },
+      onPanResponderMove: () => {},
+      onPanResponderRelease: () => {},
+      onPanResponderTerminate: () => {},
+    })
+  ).current;
+
   const PAGE_SIZE = 15;
   const [videos, setVideos] = useState<FeedVideo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1701,6 +1360,9 @@ function FeedScreenContent() {
     useCallback(() => {
       // Al entrar al Feed, marcar como enfocado (resume video playback)
       setIsFeedFocused(true);
+
+      // Refrescar datos de entrenamiento (por si cambió en GYM)
+      training?.refresh();
 
       // Sincronizar contexto con HANK
       setScreenContext({
@@ -2310,7 +1972,57 @@ function FeedScreenContent() {
       >
         <LinearGradient colors={['rgba(0,0,0,0.8)', 'transparent']} className="absolute inset-0" />
         <View className="flex-row items-center justify-between">
-          <Text className="text-white text-xl font-bold tracking-wider">TRENS</Text>
+          {/* Training Day Chip — toggle thumbnails strip or open day selector */}
+          {training && training.trainingDays.length > 0 ? (
+            <Pressable
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                if (training.exercises.length === 0) {
+                  // día vacío → toggle day selector
+                  setShowDaySelector((prev) => !prev);
+                  setShowThumbnails(false);
+                } else {
+                  setShowThumbnails((prev) => !prev);
+                  setShowDaySelector(false);
+                }
+              }}
+              onLongPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+                setShowDaySelector((prev) => !prev);
+                setShowThumbnails(false);
+              }}
+              delayLongPress={400}
+              className="flex-row items-center rounded-full px-3 py-1.5"
+              style={{
+                backgroundColor:
+                  showThumbnails || showDaySelector
+                    ? 'rgba(147, 51, 234, 0.2)'
+                    : training.isCurrentDay
+                      ? 'rgba(147, 51, 234, 0.15)'
+                      : 'rgba(255, 255, 255, 0.06)',
+                borderWidth: 1,
+                borderColor:
+                  showThumbnails || showDaySelector
+                    ? '#a855f7'
+                    : training.isCurrentDay
+                      ? '#9333ea'
+                      : 'rgba(255, 255, 255, 0.12)',
+                maxWidth: 180,
+              }}
+            >
+              <Dumbbell size={12} color={training.isCurrentDay ? '#a855f7' : '#71717a'} />
+              <Text
+                numberOfLines={1}
+                className={`ml-1.5 text-xs font-bold ${
+                  training.isCurrentDay ? 'text-purple-400' : 'text-zinc-500'
+                }`}
+              >
+                {training.day?.name || 'REST'}
+              </Text>
+            </Pressable>
+          ) : (
+            <Text className="text-white text-xl font-bold tracking-wider">TRENS</Text>
+          )}
           <View className="flex-row items-center gap-2">
             {/* Toggle Autoscroll */}
             <TouchableOpacity
@@ -2364,12 +2076,9 @@ function FeedScreenContent() {
         {(() => {
           const activeVideo = videos[activeIndex];
           const assignedUri = activeVideo?.spotify?.trackUri;
-          // If playing the same track assigned to the video, show just "Spotify" (no track name)
           const isSameAsAssigned =
             (nowPlayingTrack && assignedUri && nowPlayingTrack.trackUri === assignedUri) ||
             (spotifyPlayingFromFeed && currentPlayingTrackUri === assignedUri);
-
-          // nowPlayingTrack is non-null only when Spotify is actively playing
           const isPlaying = !!nowPlayingTrack && !isSameAsAssigned;
 
           return (
@@ -2400,10 +2109,587 @@ function FeedScreenContent() {
             </TouchableOpacity>
           );
         })()}
-
-        {/* Training Day chip */}
-        <TrainingDayChip userId={user?.id} />
       </View>
+
+      {/* Inline Exercise Cards — positioned between header and bottom overlay */}
+      {showThumbnails && training && training.exercises.length > 0 && (
+        <View
+          className="absolute left-4 z-10"
+          style={{
+            top: Math.max(insets.top, 20) + 8 + 44 + 36 + 8,
+            right: 72,
+            bottom: 140,
+          }}
+          pointerEvents="box-none"
+          {...exerciseCardsPanBlocker.panHandlers}
+        >
+          <View
+            className="rounded-2xl overflow-hidden flex-1"
+            style={{
+              backgroundColor: 'rgba(0, 0, 0, 0.7)',
+              borderWidth: 1,
+              borderColor: 'rgba(147, 51, 234, 0.2)',
+            }}
+          >
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={{ paddingHorizontal: 10, paddingVertical: 8 }}
+              nestedScrollEnabled
+            >
+              {training.exercises.map((ex, idx) => {
+                const allVariations = [
+                  { id: ex.exercise_id, name: ex.name, image_url: ex.image_url, isMain: true },
+                  ...ex.alternatives.map((alt) => ({
+                    id: alt.id,
+                    name: alt.name,
+                    image_url: alt.image_url,
+                    isMain: false,
+                  })),
+                ];
+                const hasAlternatives = allVariations.length > 1;
+                const activeAltIdx = training.activeAlternatives[ex.id] || 0;
+                const safeIdx = Math.min(activeAltIdx, allVariations.length - 1);
+
+                return (
+                  <View
+                    key={ex.id}
+                    className="mb-2 rounded-xl overflow-hidden"
+                    style={{
+                      backgroundColor: 'rgba(24, 24, 27, 0.85)',
+                      borderWidth: 1,
+                      borderColor: hasAlternatives
+                        ? 'rgba(251, 146, 60, 0.2)'
+                        : 'rgba(147, 51, 234, 0.15)',
+                    }}
+                  >
+                    {hasAlternatives ? (
+                      <View
+                        onLayout={(e) => {
+                          const w = e.nativeEvent.layout.width;
+                          if (w > 0) {
+                            training.setCardWidths((prev) => {
+                              if (prev[ex.id] === w) return prev;
+                              return { ...prev, [ex.id]: w };
+                            });
+                          }
+                        }}
+                      >
+                        <ScrollView
+                          horizontal
+                          pagingEnabled
+                          showsHorizontalScrollIndicator={false}
+                          scrollEventThrottle={16}
+                          onScroll={(event) => {
+                            const w =
+                              training.cardWidths[ex.id] ||
+                              event.nativeEvent.layoutMeasurement.width;
+                            if (w <= 0) return;
+                            const newIdx = Math.round(event.nativeEvent.contentOffset.x / w);
+                            if (training.scrollTimeoutRefs.current[ex.id]) {
+                              clearTimeout(training.scrollTimeoutRefs.current[ex.id]);
+                            }
+                            training.scrollTimeoutRefs.current[ex.id] = setTimeout(() => {
+                              training.setActiveAlternatives((prev) => {
+                                const current = prev[ex.id] || 0;
+                                if (current === newIdx) return prev;
+                                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                                return { ...prev, [ex.id]: newIdx };
+                              });
+                            }, 50);
+                          }}
+                        >
+                          {allVariations.map((variation) => (
+                            <View
+                              key={variation.id}
+                              className="flex-row items-center"
+                              style={{ width: training.cardWidths[ex.id] || '100%' }}
+                            >
+                              <View
+                                className="rounded-l-xl overflow-hidden"
+                                style={{ width: 56, height: 56 }}
+                              >
+                                {variation.image_url ? (
+                                  <Image
+                                    source={{ uri: variation.image_url }}
+                                    style={{ width: 56, height: 56 }}
+                                    contentFit="cover"
+                                  />
+                                ) : (
+                                  <View className="w-full h-full bg-zinc-800/80 items-center justify-center">
+                                    <Dumbbell size={18} color="#3f3f46" />
+                                  </View>
+                                )}
+                              </View>
+                              <View className="flex-1 px-3 py-1.5">
+                                <Text className="text-white font-bold text-xs" numberOfLines={1}>
+                                  {idx + 1}. {variation.name}
+                                </Text>
+                                {!variation.isMain && (
+                                  <View className="flex-row items-center mt-0.5">
+                                    <View className="w-1 h-1 bg-orange-400 rounded-full mr-1" />
+                                    <Text
+                                      className="font-bold uppercase"
+                                      style={{ color: '#fb923c', fontSize: 7, letterSpacing: 0.8 }}
+                                    >
+                                      ALT
+                                    </Text>
+                                  </View>
+                                )}
+                                {ex.series.length > 0 && (
+                                  <View className="flex-row flex-wrap mt-1 gap-0.5">
+                                    {ex.series.slice(0, 5).map((s, sIdx) => {
+                                      const color = SERIES_COLORS[s.type] || SERIES_COLORS.EFECTIVA;
+                                      return (
+                                        <View
+                                          key={sIdx}
+                                          className="flex-row items-center rounded px-1 py-px"
+                                          style={{ backgroundColor: color.bg }}
+                                        >
+                                          <Text
+                                            className="font-bold"
+                                            style={{ color: color.text, fontSize: 8 }}
+                                          >
+                                            {color.label}
+                                          </Text>
+                                          <Text
+                                            className="font-mono ml-0.5"
+                                            style={{ color: color.text, fontSize: 8 }}
+                                          >
+                                            {s.reps}r
+                                          </Text>
+                                        </View>
+                                      );
+                                    })}
+                                    {ex.series.length > 5 && (
+                                      <Text style={{ color: '#71717a', fontSize: 8 }}>
+                                        +{ex.series.length - 5}
+                                      </Text>
+                                    )}
+                                  </View>
+                                )}
+                              </View>
+                            </View>
+                          ))}
+                        </ScrollView>
+                        <View className="flex-row items-center justify-center py-1 gap-1">
+                          {allVariations.map((_, dotIdx) => (
+                            <View
+                              key={dotIdx}
+                              className="rounded-full"
+                              style={{
+                                width: dotIdx === safeIdx ? 14 : 4,
+                                height: 4,
+                                backgroundColor:
+                                  dotIdx === safeIdx ? '#fb923c' : 'rgba(255, 255, 255, 0.2)',
+                              }}
+                            />
+                          ))}
+                        </View>
+                      </View>
+                    ) : (
+                      <View className="flex-row items-center">
+                        <View
+                          className="rounded-l-xl overflow-hidden"
+                          style={{ width: 56, height: 56 }}
+                        >
+                          {ex.image_url ? (
+                            <Image
+                              source={{ uri: ex.image_url }}
+                              style={{ width: 56, height: 56 }}
+                              contentFit="cover"
+                            />
+                          ) : (
+                            <View className="w-full h-full bg-zinc-800/80 items-center justify-center">
+                              <Dumbbell size={18} color="#3f3f46" />
+                            </View>
+                          )}
+                        </View>
+                        <View className="flex-1 px-3 py-1.5">
+                          <Text className="text-white font-bold text-xs" numberOfLines={1}>
+                            {idx + 1}. {ex.name}
+                          </Text>
+                          {ex.series.length > 0 && (
+                            <View className="flex-row flex-wrap mt-1 gap-0.5">
+                              {ex.series.slice(0, 5).map((s, sIdx) => {
+                                const color = SERIES_COLORS[s.type] || SERIES_COLORS.EFECTIVA;
+                                return (
+                                  <View
+                                    key={sIdx}
+                                    className="flex-row items-center rounded px-1 py-px"
+                                    style={{ backgroundColor: color.bg }}
+                                  >
+                                    <Text
+                                      className="font-bold"
+                                      style={{ color: color.text, fontSize: 8 }}
+                                    >
+                                      {color.label}
+                                    </Text>
+                                    <Text
+                                      className="font-mono ml-0.5"
+                                      style={{ color: color.text, fontSize: 8 }}
+                                    >
+                                      {s.reps}r
+                                    </Text>
+                                  </View>
+                                );
+                              })}
+                              {ex.series.length > 5 && (
+                                <Text style={{ color: '#71717a', fontSize: 8 }}>
+                                  +{ex.series.length - 5}
+                                </Text>
+                              )}
+                            </View>
+                          )}
+                        </View>
+                      </View>
+                    )}
+                  </View>
+                );
+              })}
+            </ScrollView>
+          </View>
+        </View>
+      )}
+
+      {/* Inline Day Selector — same position as exercise cards */}
+      {showDaySelector && training && training.trainingDays.length > 0 && (
+        <View
+          className="absolute left-4 z-10"
+          style={{
+            top: Math.max(insets.top, 20) + 8 + 44 + 36 + 8,
+            right: 72,
+            bottom: 140,
+          }}
+          pointerEvents="box-none"
+          {...exerciseCardsPanBlocker.panHandlers}
+        >
+          <View
+            className="rounded-2xl overflow-hidden"
+            style={{
+              backgroundColor: 'rgba(0, 0, 0, 0.85)',
+              borderWidth: 1,
+              borderColor: 'rgba(147, 51, 234, 0.3)',
+              maxHeight: '100%',
+            }}
+          >
+            {/* Header */}
+            <View className="flex-row items-center justify-between px-3 pt-3 pb-1.5">
+              <View className="flex-row items-center">
+                <View
+                  className="w-6 h-6 rounded-md items-center justify-center mr-2"
+                  style={{ backgroundColor: 'rgba(147, 51, 234, 0.2)' }}
+                >
+                  <Dumbbell size={12} color="#a855f7" />
+                </View>
+                <Text className="text-white font-bold text-xs">SELECCIONAR DÍA</Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => setShowDaySelector(false)}
+                className="w-6 h-6 rounded-full items-center justify-center"
+                style={{ backgroundColor: 'rgba(255,255,255,0.08)' }}
+              >
+                <X size={12} color="#71717a" />
+              </TouchableOpacity>
+            </View>
+
+            {/* Day selector chips — horizontal scroll */}
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ gap: 6, paddingHorizontal: 12, alignItems: 'center' }}
+              style={{ height: 36, flexGrow: 0 }}
+            >
+              {training.trainingDays.map((d) => {
+                const isSelected = d.index === training.selectedDayIdx;
+                const isCurrent = d.index === training.currentDayIdx;
+                return (
+                  <TouchableOpacity
+                    key={d.index}
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      training.handleSelectDay(d.index);
+                    }}
+                    activeOpacity={0.7}
+                    className="rounded-full px-2.5 py-1 flex-row items-center"
+                    style={{
+                      backgroundColor: isSelected
+                        ? 'rgba(147, 51, 234, 0.25)'
+                        : 'rgba(255, 255, 255, 0.06)',
+                      borderWidth: 1,
+                      borderColor: isSelected
+                        ? '#9333ea'
+                        : isCurrent
+                          ? 'rgba(147, 51, 234, 0.3)'
+                          : 'rgba(255, 255, 255, 0.08)',
+                    }}
+                  >
+                    {isCurrent && (
+                      <View
+                        className="w-1.5 h-1.5 rounded-full mr-1"
+                        style={{ backgroundColor: '#a855f7' }}
+                      />
+                    )}
+                    <Text
+                      numberOfLines={1}
+                      className="text-xs font-bold"
+                      style={{
+                        color: isSelected ? '#c084fc' : isCurrent ? '#a855f7' : '#71717a',
+                        maxWidth: 100,
+                      }}
+                    >
+                      {d.name}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+
+            {/* Day info */}
+            <View className="px-3 pb-1.5">
+              <Text className="text-zinc-500 font-mono" style={{ fontSize: 9 }}>
+                DÍA {training.selectedDayIdx + 1} • {training.exercises.length} ejercicios
+                {training.selectedDayIdx === training.currentDayIdx ? ' • HOY' : ''}
+              </Text>
+            </View>
+
+            <View className="h-px mx-3" style={{ backgroundColor: 'rgba(147, 51, 234, 0.15)' }} />
+
+            {/* Exercises list */}
+            {training.loadingExercises ? (
+              <View className="py-8 items-center">
+                <ActivityIndicator size="small" color="#a855f7" />
+              </View>
+            ) : training.exercises.length === 0 ? (
+              <View className="py-8 items-center">
+                <Dumbbell size={24} color="#3f3f46" />
+                <Text className="text-zinc-500 text-xs mt-2">Sin ejercicios asignados</Text>
+              </View>
+            ) : (
+              <ScrollView
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={{ paddingHorizontal: 10, paddingVertical: 6 }}
+                nestedScrollEnabled
+              >
+                {training.exercises.map((ex, idx) => {
+                  const allVariations = [
+                    { id: ex.exercise_id, name: ex.name, image_url: ex.image_url, isMain: true },
+                    ...ex.alternatives.map((alt) => ({
+                      id: alt.id,
+                      name: alt.name,
+                      image_url: alt.image_url,
+                      isMain: false,
+                    })),
+                  ];
+                  const hasAlternatives = allVariations.length > 1;
+                  const activeAltIdx = training.activeAlternatives[ex.id] || 0;
+                  const safeIdx = Math.min(activeAltIdx, allVariations.length - 1);
+
+                  return (
+                    <View
+                      key={ex.id}
+                      className="mb-2 rounded-xl overflow-hidden"
+                      style={{
+                        backgroundColor: 'rgba(24, 24, 27, 0.85)',
+                        borderWidth: 1,
+                        borderColor: hasAlternatives
+                          ? 'rgba(251, 146, 60, 0.2)'
+                          : 'rgba(147, 51, 234, 0.15)',
+                      }}
+                    >
+                      {hasAlternatives ? (
+                        <View
+                          onLayout={(e) => {
+                            const w = e.nativeEvent.layout.width;
+                            if (w > 0) {
+                              training.setCardWidths((prev) => {
+                                if (prev[ex.id] === w) return prev;
+                                return { ...prev, [ex.id]: w };
+                              });
+                            }
+                          }}
+                        >
+                          <ScrollView
+                            horizontal
+                            pagingEnabled
+                            showsHorizontalScrollIndicator={false}
+                            scrollEventThrottle={16}
+                            onScroll={(event) => {
+                              const w =
+                                training.cardWidths[ex.id] ||
+                                event.nativeEvent.layoutMeasurement.width;
+                              if (w <= 0) return;
+                              const newIdx = Math.round(event.nativeEvent.contentOffset.x / w);
+                              if (training.scrollTimeoutRefs.current[ex.id]) {
+                                clearTimeout(training.scrollTimeoutRefs.current[ex.id]);
+                              }
+                              training.scrollTimeoutRefs.current[ex.id] = setTimeout(() => {
+                                training.setActiveAlternatives((prev) => {
+                                  const current = prev[ex.id] || 0;
+                                  if (current === newIdx) return prev;
+                                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                                  return { ...prev, [ex.id]: newIdx };
+                                });
+                              }, 50);
+                            }}
+                          >
+                            {allVariations.map((variation) => (
+                              <View
+                                key={variation.id}
+                                className="flex-row items-center"
+                                style={{ width: training.cardWidths[ex.id] || '100%' }}
+                              >
+                                <View
+                                  className="rounded-l-xl overflow-hidden"
+                                  style={{ width: 56, height: 56 }}
+                                >
+                                  {variation.image_url ? (
+                                    <Image
+                                      source={{ uri: variation.image_url }}
+                                      style={{ width: 56, height: 56 }}
+                                      contentFit="cover"
+                                    />
+                                  ) : (
+                                    <View className="w-full h-full bg-zinc-800/80 items-center justify-center">
+                                      <Dumbbell size={18} color="#3f3f46" />
+                                    </View>
+                                  )}
+                                </View>
+                                <View className="flex-1 px-3 py-1.5">
+                                  <Text className="text-white font-bold text-xs" numberOfLines={1}>
+                                    {idx + 1}. {variation.name}
+                                  </Text>
+                                  {!variation.isMain && (
+                                    <View className="flex-row items-center mt-0.5">
+                                      <View className="w-1 h-1 bg-orange-400 rounded-full mr-1" />
+                                      <Text
+                                        className="font-bold uppercase"
+                                        style={{
+                                          color: '#fb923c',
+                                          fontSize: 7,
+                                          letterSpacing: 0.8,
+                                        }}
+                                      >
+                                        ALT
+                                      </Text>
+                                    </View>
+                                  )}
+                                  {ex.series.length > 0 && (
+                                    <View className="flex-row flex-wrap mt-1 gap-0.5">
+                                      {ex.series.slice(0, 5).map((s, sIdx) => {
+                                        const color =
+                                          SERIES_COLORS[s.type] || SERIES_COLORS.EFECTIVA;
+                                        return (
+                                          <View
+                                            key={sIdx}
+                                            className="flex-row items-center rounded px-1 py-px"
+                                            style={{ backgroundColor: color.bg }}
+                                          >
+                                            <Text
+                                              className="font-bold"
+                                              style={{ color: color.text, fontSize: 8 }}
+                                            >
+                                              {color.label}
+                                            </Text>
+                                            <Text
+                                              className="font-mono ml-0.5"
+                                              style={{ color: color.text, fontSize: 8 }}
+                                            >
+                                              {s.reps}r
+                                            </Text>
+                                          </View>
+                                        );
+                                      })}
+                                      {ex.series.length > 5 && (
+                                        <Text style={{ color: '#71717a', fontSize: 8 }}>
+                                          +{ex.series.length - 5}
+                                        </Text>
+                                      )}
+                                    </View>
+                                  )}
+                                </View>
+                              </View>
+                            ))}
+                          </ScrollView>
+                          <View className="flex-row items-center justify-center py-1 gap-1">
+                            {allVariations.map((_, dotIdx) => (
+                              <View
+                                key={dotIdx}
+                                className="rounded-full"
+                                style={{
+                                  width: dotIdx === safeIdx ? 14 : 4,
+                                  height: 4,
+                                  backgroundColor:
+                                    dotIdx === safeIdx ? '#fb923c' : 'rgba(255, 255, 255, 0.2)',
+                                }}
+                              />
+                            ))}
+                          </View>
+                        </View>
+                      ) : (
+                        <View className="flex-row items-center">
+                          <View
+                            className="rounded-l-xl overflow-hidden"
+                            style={{ width: 56, height: 56 }}
+                          >
+                            {ex.image_url ? (
+                              <Image
+                                source={{ uri: ex.image_url }}
+                                style={{ width: 56, height: 56 }}
+                                contentFit="cover"
+                              />
+                            ) : (
+                              <View className="w-full h-full bg-zinc-800/80 items-center justify-center">
+                                <Dumbbell size={18} color="#3f3f46" />
+                              </View>
+                            )}
+                          </View>
+                          <View className="flex-1 px-3 py-1.5">
+                            <Text className="text-white font-bold text-xs" numberOfLines={1}>
+                              {idx + 1}. {ex.name}
+                            </Text>
+                            {ex.series.length > 0 && (
+                              <View className="flex-row flex-wrap mt-1 gap-0.5">
+                                {ex.series.slice(0, 5).map((s, sIdx) => {
+                                  const color = SERIES_COLORS[s.type] || SERIES_COLORS.EFECTIVA;
+                                  return (
+                                    <View
+                                      key={sIdx}
+                                      className="flex-row items-center rounded px-1 py-px"
+                                      style={{ backgroundColor: color.bg }}
+                                    >
+                                      <Text
+                                        className="font-bold"
+                                        style={{ color: color.text, fontSize: 8 }}
+                                      >
+                                        {color.label}
+                                      </Text>
+                                      <Text
+                                        className="font-mono ml-0.5"
+                                        style={{ color: color.text, fontSize: 8 }}
+                                      >
+                                        {s.reps}r
+                                      </Text>
+                                    </View>
+                                  );
+                                })}
+                                {ex.series.length > 5 && (
+                                  <Text style={{ color: '#71717a', fontSize: 8 }}>
+                                    +{ex.series.length - 5}
+                                  </Text>
+                                )}
+                              </View>
+                            )}
+                          </View>
+                        </View>
+                      )}
+                    </View>
+                  );
+                })}
+              </ScrollView>
+            )}
+          </View>
+        </View>
+      )}
 
       {/* Feed vertical - solo renderizar cuando tenemos altura medida */}
       {videoHeight > 0 && (

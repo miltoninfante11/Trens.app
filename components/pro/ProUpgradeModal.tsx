@@ -114,7 +114,7 @@ export function ProUpgradeModal({ visible, onClose, feature = 'camera' }: ProUpg
           <View className="bg-zinc-900/50 rounded-2xl p-4 mb-6">
             <View className="flex-row items-center mb-3">
               <View className="w-2 h-2 bg-savage-red rounded-full mr-3" />
-              <Text className="text-white text-sm">Cámara PRO con filtros</Text>
+              <Text className="text-white text-sm">Cámara PRO con editor</Text>
             </View>
             <View className="flex-row items-center mb-3">
               <View className="w-2 h-2 bg-savage-red rounded-full mr-3" />

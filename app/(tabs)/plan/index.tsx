@@ -1502,143 +1502,196 @@ function PlanScreen() {
   };
 
   // Editar comida (abre modal)
-  const handleEditMeal = (mealId: string) => {
+  const handleEditMeal = (mealId: string, optionIndex?: number) => {
     const meal = meals.find((m) => m.id === mealId);
     if (meal) {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      setEditingMeal(meal);
+      // Si se especificó un índice de opción, usarlo; sino usar el seleccionado
+      const mealWithOption =
+        optionIndex !== undefined ? { ...meal, selectedOption: optionIndex } : meal;
+      setEditingMeal(mealWithOption);
       setShowEditMeal(true);
     }
   };
 
   // Guardar cambios de ingredientes (usando JSONB directo)
+  // Soporta tanto comida principal (meals) como alternativas (meal_options)
   const handleSaveIngredients = async (
     mealId: string,
-    _optionId: string, // Ya no usamos optionId, trabajamos con JSONB
+    optionId: string, // 'main-{id}' para principal, UUID real para alternativas
     ingredients: Ingredient[],
-    _editModes?: string[] // Optional: editModes from modal (not used directly, modal already cleans fields)
+    _editModes?: string[]
   ) => {
     isInternalUpdate.current = true;
-    try {
-      // PASO 1: Sincronizar gramos ↔ porciones (SIEMPRE, no solo cuando falta uno)
-      let synced = ingredients;
-      try {
-        const converted = await convertGramsPortions(
-          ingredients.map((ing) => ({
-            name: ing.name,
-            quantity: ing.quantity?.trim() || undefined,
-            portion: ing.portion?.trim() || undefined,
-          }))
-        );
-        synced = converted.map((c, i) => ({
-          ...ingredients[i],
-          name: c.name,
-          quantity: c.quantity || ingredients[i].quantity || '~100g',
-          portion: c.portion || ingredients[i].portion || '',
-        }));
-      } catch (convError) {
-        console.warn('Error sincronizando gramos/porciones:', convError);
-      }
+    const isAlternative = !optionId.startsWith('main-');
 
-      // PASO 2: Calcular nutritionInfo desde las cantidades sincronizadas
-      let finalIngredients = synced;
-      try {
-        const ingredientsWithIds = synced.map((ing, i) => ({
-          id: ing.id || `edit-${i}`,
+    try {
+      if (isAlternative) {
+        // ═══════════════════════════════════════════════════════════════
+        // FLUJO ALTERNATIVA: Recalcular cantidades según macros de la comida principal
+        // ═══════════════════════════════════════════════════════════════
+
+        // Obtener macros actuales de la comida principal
+        const meal = meals.find((m) => m.id === mealId);
+        const mainMacros = meal?.actualMacros || meal?.targetMacros;
+
+        if (!mainMacros || mainMacros.calories <= 0) {
+          Alert.alert('Error', 'No se encontraron macros de la comida principal para recalcular');
+          return;
+        }
+
+        console.log('🔄 Guardando alternativa con recálculo de macros:', mainMacros);
+
+        // Recalcular cantidades de los ingredientes para que coincidan con los macros de la principal
+        const recalced = await calculateMealWithUserMacros(
+          ingredients.map((ing, idx) => ({
+            id: ing.id || `alt-${idx}`,
+            name: ing.name,
+            quantity: ing.quantity || '',
+            portion: ing.portion || '',
+          })),
+          mainMacros
+        );
+
+        const ingredientsToSave = recalced.map((ing) => ({
           name: ing.name,
           quantity: ing.quantity || '~100g',
           portion: ing.portion || '',
+          ...(ing.nutritionInfo ? { nutritionInfo: ing.nutritionInfo } : {}),
         }));
-        const calculated = await calculateNutritionFromQuantities(ingredientsWithIds);
-        finalIngredients = calculated.map((cal, i) => ({
-          ...synced[i],
-          quantity: cal.quantity || synced[i].quantity, // Usar gramos recalculados
-          portion: cal.portion || synced[i].portion || '',
-          nutritionInfo: cal.nutritionInfo || synced[i].nutritionInfo,
+
+        const { error } = await supabase
+          .from('meal_options')
+          .update({ ingredients: ingredientsToSave })
+          .eq('id', optionId);
+
+        if (error) throw error;
+
+        console.log('✅ Alternativa guardada con cantidades recalculadas');
+      } else {
+        // ═══════════════════════════════════════════════════════════════
+        // FLUJO COMIDA PRINCIPAL: Sincronizar, calcular y guardar
+        // ═══════════════════════════════════════════════════════════════
+
+        // PASO 1: Sincronizar gramos ↔ porciones
+        let synced = ingredients;
+        try {
+          const converted = await convertGramsPortions(
+            ingredients.map((ing) => ({
+              name: ing.name,
+              quantity: ing.quantity?.trim() || undefined,
+              portion: ing.portion?.trim() || undefined,
+            }))
+          );
+          synced = converted.map((c, i) => ({
+            ...ingredients[i],
+            name: c.name,
+            quantity: c.quantity || ingredients[i].quantity || '~100g',
+            portion: c.portion || ingredients[i].portion || '',
+          }));
+        } catch (convError) {
+          console.warn('Error sincronizando gramos/porciones:', convError);
+        }
+
+        // PASO 2: Calcular nutritionInfo desde las cantidades sincronizadas
+        let finalIngredients = synced;
+        try {
+          const ingredientsWithIds = synced.map((ing, i) => ({
+            id: ing.id || `edit-${i}`,
+            name: ing.name,
+            quantity: ing.quantity || '~100g',
+            portion: ing.portion || '',
+          }));
+          const calculated = await calculateNutritionFromQuantities(ingredientsWithIds);
+          finalIngredients = calculated.map((cal, i) => ({
+            ...synced[i],
+            quantity: cal.quantity || synced[i].quantity,
+            portion: cal.portion || synced[i].portion || '',
+            nutritionInfo: cal.nutritionInfo || synced[i].nutritionInfo,
+          }));
+        } catch (calcError) {
+          console.warn('Error calculando nutrición:', calcError);
+        }
+
+        // PASO 3: Guardar ingredientes
+        const ingredientsToSave = finalIngredients.map((ing) => ({
+          name: ing.name,
+          quantity: ing.quantity || '~100g',
+          portion: ing.portion || '',
+          ...(ing.nutritionInfo ? { nutritionInfo: ing.nutritionInfo } : {}),
         }));
-      } catch (calcError) {
-        console.warn('Error calculando nutrición:', calcError);
-      }
 
-      // PASO 3: Guardar ingredientes con gramos, porciones y nutritionInfo actualizados
-      const ingredientsToSave = finalIngredients.map((ing) => ({
-        name: ing.name,
-        quantity: ing.quantity || '~100g',
-        portion: ing.portion || '',
-        ...(ing.nutritionInfo ? { nutritionInfo: ing.nutritionInfo } : {}),
-      }));
+        const { error } = await supabase
+          .from('meals')
+          .update({ ingredients: ingredientsToSave })
+          .eq('id', mealId);
 
-      const { error } = await supabase
-        .from('meals')
-        .update({ ingredients: ingredientsToSave })
-        .eq('id', mealId);
+        if (error) throw error;
 
-      if (error) throw error;
+        // PASO 4: Recalcular alternativas (meal_options) con los nuevos macros
+        try {
+          const newMealMacros = finalIngredients.reduce(
+            (acc, ing) => {
+              if (ing.nutritionInfo) {
+                acc.calories += ing.nutritionInfo.calories || 0;
+                acc.protein += ing.nutritionInfo.protein || 0;
+                acc.carbs += ing.nutritionInfo.carbs || 0;
+                acc.fat += ing.nutritionInfo.fat || 0;
+              }
+              return acc;
+            },
+            { calories: 0, protein: 0, carbs: 0, fat: 0 }
+          );
 
-      // PASO 4: Recalcular alternativas (meal_options) con los nuevos macros de esta comida
-      try {
-        const newMealMacros = finalIngredients.reduce(
-          (acc, ing) => {
-            if (ing.nutritionInfo) {
-              acc.calories += ing.nutritionInfo.calories || 0;
-              acc.protein += ing.nutritionInfo.protein || 0;
-              acc.carbs += ing.nutritionInfo.carbs || 0;
-              acc.fat += ing.nutritionInfo.fat || 0;
-            }
-            return acc;
-          },
-          { calories: 0, protein: 0, carbs: 0, fat: 0 }
-        );
+          if (newMealMacros.calories > 0) {
+            const { data: options } = await supabase
+              .from('meal_options')
+              .select('id, ingredients')
+              .eq('meal_id', mealId);
 
-        // Solo recalcular si tenemos macros válidos
-        if (newMealMacros.calories > 0) {
-          const { data: options } = await supabase
-            .from('meal_options')
-            .select('id, ingredients')
-            .eq('meal_id', mealId);
+            if (options && options.length > 0) {
+              console.log(
+                `🔄 Recalculando ${options.length} alternativas con nuevos macros:`,
+                newMealMacros
+              );
+              for (const opt of options) {
+                const optIngredients = (opt.ingredients as any[]) || [];
+                if (optIngredients.length === 0) continue;
 
-          if (options && options.length > 0) {
-            console.log(
-              `🔄 Recalculando ${options.length} alternativas con nuevos macros:`,
-              newMealMacros
-            );
-            for (const opt of options) {
-              const optIngredients = (opt.ingredients as any[]) || [];
-              if (optIngredients.length === 0) continue;
+                try {
+                  const recalced = await calculateMealWithUserMacros(
+                    optIngredients.map((ing: any, idx: number) => ({
+                      id: `opt-${idx}`,
+                      name: ing.name,
+                      quantity: ing.quantity || '',
+                      portion: ing.portion || '',
+                    })),
+                    newMealMacros
+                  );
 
-              try {
-                const recalced = await calculateMealWithUserMacros(
-                  optIngredients.map((ing: any, idx: number) => ({
-                    id: `opt-${idx}`,
+                  const optIngredientsToSave = recalced.map((ing) => ({
                     name: ing.name,
-                    quantity: ing.quantity || '',
+                    quantity: ing.quantity,
                     portion: ing.portion || '',
-                  })),
-                  newMealMacros
-                );
+                    ...(ing.nutritionInfo ? { nutritionInfo: ing.nutritionInfo } : {}),
+                  }));
 
-                const optIngredientsToSave = recalced.map((ing) => ({
-                  name: ing.name,
-                  quantity: ing.quantity,
-                  portion: ing.portion || '',
-                  ...(ing.nutritionInfo ? { nutritionInfo: ing.nutritionInfo } : {}),
-                }));
-
-                await supabase
-                  .from('meal_options')
-                  .update({ ingredients: optIngredientsToSave })
-                  .eq('id', opt.id);
-              } catch (optError) {
-                console.warn(`Error recalculando alternativa ${opt.id}:`, optError);
+                  await supabase
+                    .from('meal_options')
+                    .update({ ingredients: optIngredientsToSave })
+                    .eq('id', opt.id);
+                } catch (optError) {
+                  console.warn(`Error recalculando alternativa ${opt.id}:`, optError);
+                }
               }
             }
           }
+        } catch (optionsError) {
+          console.warn('Error recalculando alternativas:', optionsError);
         }
-      } catch (optionsError) {
-        console.warn('Error recalculando alternativas:', optionsError);
       }
 
-      // PASO 5: Recalcular macros diarios sumando TODAS las comidas reales (bottom-up)
+      // Recalcular macros diarios sumando TODAS las comidas reales (bottom-up)
       await recalculateDailyMacrosFromMeals();
 
       // Refresh data para actualizar la UI

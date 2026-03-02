@@ -109,17 +109,8 @@ const isGramsFormat = (value: string): boolean => {
   return /^\d+(\.\d+)?\s*(?:g|gr|gramos|kg)?\s*$/i.test(value.trim());
 };
 
-/** Detecta automáticamente el editMode según los valores existentes */
-const detectEditMode = (ing: Ingredient): EditMode => {
-  const qty = (ing.quantity || '').trim();
-  const por = (ing.portion || '').trim();
-  // Si quantity es solo números o tiene "g/gr/gramos" → fue gramos
-  if (qty && isGramsFormat(qty)) return 'quantity';
-  // Si tiene porción → source fue porción
-  if (por) return 'portion';
-  // Si quantity tiene texto tipo porciones (ej "4 huevos") → source fue porción
-  if (qty && !isGramsFormat(qty)) return 'portion';
-  // Default: porciones (más natural para el usuario)
+/** Siempre inicia en modo porciones (más natural para el usuario) */
+const detectEditMode = (_ing: Ingredient): EditMode => {
   return 'portion';
 };
 
@@ -477,7 +468,7 @@ export const EditMealModal: React.FC<EditMealModalProps> = ({
                   </View>
                   <Text className="text-yellow-300/70 text-xs">
                     Las cantidades se calculan automáticamente según los macros del platillo
-                    principal. Solo puedes cambiar los ingredientes.
+                    principal. Puedes cambiar los ingredientes y se recalcularán las cantidades.
                   </Text>
                 </View>
               ) : (
@@ -500,7 +491,7 @@ export const EditMealModal: React.FC<EditMealModalProps> = ({
                   >
                     <View className="flex-row justify-between items-center mb-2">
                       <Text className="text-zinc-500 text-xs">Ingrediente {i + 1}</Text>
-                      {ingredients.length > 1 && !isAlternative && (
+                      {ingredients.length > 1 && (
                         <Pressable onPress={() => removeIngredient(i)}>
                           <Trash2 size={16} color="#EF4444" />
                         </Pressable>
@@ -512,7 +503,6 @@ export const EditMealModal: React.FC<EditMealModalProps> = ({
                       placeholder="Nombre (ej. Pollo a la plancha)"
                       placeholderTextColor="#666"
                       className="bg-transparent border-b border-zinc-700 text-white py-2 mb-3"
-                      editable={!isAlternative}
                     />
 
                     {/* Alternativa: campos de solo lectura */}
@@ -646,29 +636,17 @@ export const EditMealModal: React.FC<EditMealModalProps> = ({
                 );
               })}
 
-              {/* Solo mostrar botón de añadir ingrediente para comida principal */}
-              {!isAlternative && (
-                <Pressable
-                  onPress={addIngredient}
-                  className="w-full py-3 border border-dashed border-zinc-600 rounded-xl mb-6 active:border-purple-500 active:bg-purple-500/5"
-                >
-                  <View className="flex-row items-center justify-center gap-2">
-                    <Plus size={18} color="#A855F7" />
-                    <Text className="text-zinc-400 font-medium">Añadir ingrediente</Text>
-                  </View>
-                </Pressable>
-              )}
+              {/* Botón de añadir ingrediente */}
+              <Pressable
+                onPress={addIngredient}
+                className="w-full py-3 border border-dashed border-zinc-600 rounded-xl mb-6 active:border-purple-500 active:bg-purple-500/5"
+              >
+                <View className="flex-row items-center justify-center gap-2">
+                  <Plus size={18} color="#A855F7" />
+                  <Text className="text-zinc-400 font-medium">Añadir ingrediente</Text>
+                </View>
+              </Pressable>
 
-              {/* Para alternativas: solo botón de cerrar, no guardar */}
-              {isAlternative ? (
-                <Pressable
-                  onPress={onClose}
-                  className="w-full py-4 rounded-xl bg-zinc-800 active:bg-zinc-700 mb-6"
-                  style={{ marginBottom: Math.max(insets.bottom, 16) + 8 }}
-                >
-                  <Text className="text-zinc-300 font-bold text-center text-lg">CERRAR</Text>
-                </Pressable>
-              ) : (
               <Pressable
                 onPress={handleSave}
                 disabled={isSaving}
@@ -688,14 +666,15 @@ export const EditMealModal: React.FC<EditMealModalProps> = ({
                   <View className="flex-row items-center justify-center gap-2">
                     <ActivityIndicator size="small" color="#fff" />
                     <Text className="text-white font-bold text-center text-base">
-                      Calculando y guardando...
+                      {isAlternative ? 'Recalculando cantidades...' : 'Calculando y guardando...'}
                     </Text>
                   </View>
                 ) : (
-                  <Text className="text-white font-bold text-center text-lg">GUARDAR CAMBIOS</Text>
+                  <Text className="text-white font-bold text-center text-lg">
+                    {isAlternative ? 'GUARDAR INGREDIENTES' : 'GUARDAR CAMBIOS'}
+                  </Text>
                 )}
               </Pressable>
-              )}
             </ScrollView>
           </Animated.View>
         </View>

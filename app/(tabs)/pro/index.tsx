@@ -56,7 +56,7 @@ import { ProUpgradeModal } from '../../../components/pro/ProUpgradeModal';
 import { ProMediaEditor, MediaData, SpotifyMetadata } from '../../../components/pro/ProMediaEditor';
 import { PRNotificationModal } from '../../../components/pro/PRNotificationModal';
 import { ShareSuccessModal } from '../../../components/pro/ShareSuccessModal';
-import { FilterType } from '../../../components/pro/filters';
+
 import spotify from '../../../services/spotify/spotify';
 import cloudflareStream from '../../../services/cloudflare/stream';
 import cloudflareR2 from '../../../services/cloudflare/r2';
@@ -706,7 +706,7 @@ function ProScreenContent() {
     weightKg: number | null;
     reps: number | null;
     caption: string | null;
-    filter: FilterType;
+    filter: string;
     showOverlay: boolean;
   }) => {
     console.log('🔥 handleEditorSave called with data:', JSON.stringify(data, null, 2));
@@ -1178,6 +1178,7 @@ function ProScreenContent() {
             spotifyMetadata={spotifyMetadata}
             spotifyConnected={spotifyConnected}
             exerciseName={proContext.type === 'tactical' ? proContext.exerciseName : null}
+            isTactical={proContext.type === 'tactical'}
             onClose={discardMedia}
             onSave={handleEditorSave}
             saving={saving}
@@ -1438,6 +1439,7 @@ function ProScreenContent() {
           spotifyMetadata={spotifyMetadata}
           spotifyConnected={spotifyConnected}
           exerciseName={proContext.type === 'tactical' ? proContext.exerciseName : null}
+          isTactical={proContext.type === 'tactical'}
           onClose={discardMedia}
           onSave={handleEditorSave}
           saving={saving}

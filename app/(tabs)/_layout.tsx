@@ -30,17 +30,14 @@ import Animated, {
   Easing,
 } from 'react-native-reanimated';
 import { useEffect, useRef, useCallback, useState, useMemo } from 'react';
-import {
-  PanResponder,
-  Dimensions,
-  Animated as RNAnimated,
-} from 'react-native';
+import { PanResponder, Dimensions, Animated as RNAnimated } from 'react-native';
 import { useAuth, useProRecording } from '../_layout';
 import { useSport } from '../../context/SportContext';
 import FloatingLoginButton from '../../components/auth/FloatingLoginButton';
 import { HankOverlay } from '../../components/hank/HankOverlay';
 import { SpotifyOverlay } from '../../components/spotify/SpotifyOverlay';
 import * as Haptics from '../../lib/haptics';
+import { supabase } from '../../lib/supabase';
 
 // ============================================================================
 // ED HARDY COLORS
@@ -642,6 +639,36 @@ export default function TabsLayout() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { isRecording, startRecording, stopRecording } = useProRecording();
+  const defaultModuleApplied = useRef(false);
+
+  // -------------------------------------------------------------------------
+  // DEFAULT MODULE REDIRECT: Lee preferencia del usuario y redirige una vez
+  // -------------------------------------------------------------------------
+  useEffect(() => {
+    if (loading || defaultModuleApplied.current) return;
+    if (!user) {
+      defaultModuleApplied.current = true;
+      return;
+    }
+
+    (async () => {
+      try {
+        const { data } = await supabase
+          .from('user_profiles')
+          .select('default_module')
+          .eq('user_id', user.id)
+          .maybeSingle();
+
+        if (data?.default_module === 'adn') {
+          router.replace('/(tabs)/adn' as any);
+        }
+      } catch (err) {
+        // Silently fail — default to feed
+      } finally {
+        defaultModuleApplied.current = true;
+      }
+    })();
+  }, [user, loading]);
 
   // Obtener configuración de tabs según deporte activo
   const { activeSport, getTabConfig } = useSport();
@@ -689,10 +716,7 @@ export default function TabsLayout() {
   const slideX = slideXRef.current;
 
   // Contra-animación: multiplica slideX por -1 para cancelar movimiento en la tab bar
-  const counterSlideX = useMemo(
-    () => RNAnimated.multiply(slideX, -1),
-    [slideX]
-  );
+  const counterSlideX = useMemo(() => RNAnimated.multiply(slideX, -1), [slideX]);
 
   const [isSwiping, setIsSwiping] = useState(false);
 
@@ -759,7 +783,12 @@ export default function TabsLayout() {
       onPanResponderRelease: (_evt, gs) => {
         const idx = swipeIdxRef.current;
         if (idx < 0) {
-          RNAnimated.spring(slideX, { toValue: 0, damping: 20, stiffness: 400, useNativeDriver: true }).start();
+          RNAnimated.spring(slideX, {
+            toValue: 0,
+            damping: 20,
+            stiffness: 400,
+            useNativeDriver: true,
+          }).start();
           setIsSwiping(false);
           return;
         }
@@ -774,12 +803,22 @@ export default function TabsLayout() {
         } else if (shouldSwipe && goLeft && idx < SWIPEABLE_TABS.length - 1) {
           navigateSwipe(idx + 1, 'left');
         } else {
-          RNAnimated.spring(slideX, { toValue: 0, damping: 20, stiffness: 400, useNativeDriver: true }).start();
+          RNAnimated.spring(slideX, {
+            toValue: 0,
+            damping: 20,
+            stiffness: 400,
+            useNativeDriver: true,
+          }).start();
           setIsSwiping(false);
         }
       },
       onPanResponderTerminate: () => {
-        RNAnimated.spring(slideX, { toValue: 0, damping: 20, stiffness: 400, useNativeDriver: true }).start();
+        RNAnimated.spring(slideX, {
+          toValue: 0,
+          damping: 20,
+          stiffness: 400,
+          useNativeDriver: true,
+        }).start();
         setIsSwiping(false);
       },
     })

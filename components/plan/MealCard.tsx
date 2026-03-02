@@ -3,7 +3,7 @@
 // Diseño industrial con opciones intercambiables
 // ============================================================================
 
-import React, { useRef, useCallback, useMemo } from 'react';
+import React, { useRef, useCallback, useMemo, useState, useEffect } from 'react';
 import { View, Text, Pressable, ScrollView, useWindowDimensions, Platform } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
 import { Haptics } from '../../lib/haptics';
@@ -65,7 +65,7 @@ interface MealCardProps {
   onTimeChange: (mealId: string) => void;
   onDelete?: (mealId: string) => void;
   onDeleteOption?: (mealId: string, optionId: string) => void;
-  onEdit?: (mealId: string) => void;
+  onEdit?: (mealId: string, optionIndex?: number) => void;
   onAddOption?: (mealId: string) => void;
   isCompressed?: boolean;
 }
@@ -102,6 +102,12 @@ export const MealCard: React.FC<MealCardProps> = ({
   // ============================================================================
   const scrollViewRef = useRef<ScrollView>(null);
   const scaleAnim = useSharedValue(1);
+  const [activeIndex, setActiveIndex] = useState(meal.selectedOption);
+
+  // Sincronizar activeIndex cuando cambia selectedOption externamente
+  useEffect(() => {
+    setActiveIndex(meal.selectedOption);
+  }, [meal.selectedOption]);
 
   // Dimensiones dinámicas para responsividad en web
   const { width: windowWidth } = useWindowDimensions();
@@ -133,14 +139,29 @@ export const MealCard: React.FC<MealCardProps> = ({
     [meal.id, onSwap, optionWidth]
   );
 
-  // Handle scroll end
+  // Rastrear posición del scroll en tiempo real para los dots
+  const handleScroll = useCallback(
+    (event: { nativeEvent: { contentOffset: { x: number } } }) => {
+      const offsetX = event.nativeEvent.contentOffset.x;
+      const newIndex = Math.round(offsetX / optionWidth);
+      if (newIndex >= 0 && newIndex < meal.options.length && newIndex !== activeIndex) {
+        setActiveIndex(newIndex);
+      }
+    },
+    [optionWidth, meal.options.length, activeIndex]
+  );
+
+  // Handle scroll end - persistir cambio al padre
   const handleScrollEnd = useCallback(
     (event: { nativeEvent: { contentOffset: { x: number } } }) => {
       const offsetX = event.nativeEvent.contentOffset.x;
       const newIndex = Math.round(offsetX / optionWidth);
-      if (newIndex !== meal.selectedOption && newIndex >= 0 && newIndex < meal.options.length) {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-        onSwap(meal.id, newIndex);
+      if (newIndex >= 0 && newIndex < meal.options.length) {
+        setActiveIndex(newIndex);
+        if (newIndex !== meal.selectedOption) {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          onSwap(meal.id, newIndex);
+        }
       }
     },
     [meal.id, meal.selectedOption, meal.options.length, onSwap, optionWidth]
@@ -232,7 +253,7 @@ export const MealCard: React.FC<MealCardProps> = ({
       key={option.id}
       onPress={() => {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-        if (onEdit) onEdit(meal.id);
+        if (onEdit) onEdit(meal.id, index);
       }}
       onLongPress={() => handleLongPress(option.id)}
       delayLongPress={500}
@@ -496,7 +517,9 @@ export const MealCard: React.FC<MealCardProps> = ({
           snapToInterval={optionWidth}
           decelerationRate="fast"
           contentContainerStyle={{ paddingVertical: 12 }}
+          onScroll={handleScroll}
           onMomentumScrollEnd={handleScrollEnd}
+          onScrollEndDrag={handleScrollEnd}
           scrollEventThrottle={16}
         >
           {meal.options.map((option, index) => renderOptionCard(option, index))}
@@ -510,11 +533,11 @@ export const MealCard: React.FC<MealCardProps> = ({
         >
           {/* Navigation arrows */}
           <Pressable
-            onPress={() => navigateToOption(Math.max(0, meal.selectedOption - 1))}
-            disabled={meal.selectedOption === 0}
-            className={`p-2 rounded-lg ${meal.selectedOption === 0 ? 'opacity-20' : 'opacity-100'}`}
+            onPress={() => navigateToOption(Math.max(0, activeIndex - 1))}
+            disabled={activeIndex === 0}
+            className={`p-2 rounded-lg ${activeIndex === 0 ? 'opacity-20' : 'opacity-100'}`}
             style={{
-              backgroundColor: meal.selectedOption === 0 ? 'transparent' : 'rgba(220, 38, 38, 0.1)',
+              backgroundColor: activeIndex === 0 ? 'transparent' : 'rgba(220, 38, 38, 0.1)',
             }}
           >
             <ChevronLeft size={18} color="#DC2626" />
@@ -527,11 +550,10 @@ export const MealCard: React.FC<MealCardProps> = ({
                 <View
                   className="rounded-full transition-all"
                   style={{
-                    backgroundColor:
-                      idx === meal.selectedOption ? '#DC2626' : 'rgba(255, 255, 255, 0.1)',
-                    width: idx === meal.selectedOption ? 20 : 6,
+                    backgroundColor: idx === activeIndex ? '#DC2626' : 'rgba(255, 255, 255, 0.1)',
+                    width: idx === activeIndex ? 20 : 6,
                     height: 6,
-                    shadowColor: idx === meal.selectedOption ? '#DC2626' : 'transparent',
+                    shadowColor: idx === activeIndex ? '#DC2626' : 'transparent',
                     shadowOffset: { width: 0, height: 0 },
                     shadowOpacity: 0.8,
                     shadowRadius: 4,
@@ -551,16 +573,12 @@ export const MealCard: React.FC<MealCardProps> = ({
 
           {/* Navigation arrows */}
           <Pressable
-            onPress={() =>
-              navigateToOption(Math.min(meal.options.length - 1, meal.selectedOption + 1))
-            }
-            disabled={meal.selectedOption === meal.options.length - 1}
-            className={`p-2 rounded-lg ${meal.selectedOption === meal.options.length - 1 ? 'opacity-20' : 'opacity-100'}`}
+            onPress={() => navigateToOption(Math.min(meal.options.length - 1, activeIndex + 1))}
+            disabled={activeIndex === meal.options.length - 1}
+            className={`p-2 rounded-lg ${activeIndex === meal.options.length - 1 ? 'opacity-20' : 'opacity-100'}`}
             style={{
               backgroundColor:
-                meal.selectedOption === meal.options.length - 1
-                  ? 'transparent'
-                  : 'rgba(220, 38, 38, 0.1)',
+                activeIndex === meal.options.length - 1 ? 'transparent' : 'rgba(220, 38, 38, 0.1)',
             }}
           >
             <ChevronRight size={18} color="#DC2626" />
