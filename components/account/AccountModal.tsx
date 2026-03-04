@@ -17,6 +17,7 @@ import {
   Linking,
   Platform,
 } from 'react-native';
+import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
   X,
@@ -596,6 +597,7 @@ export default function AccountModal({
   // -------------------------------------------------------------------------
   // LOGOUT
   // -------------------------------------------------------------------------
+  const router = useRouter();
   const handleLogout = () => {
     Alert.alert('Cerrar Sesión', '¿Estás seguro de que deseas cerrar sesión?', [
       { text: 'Cancelar', style: 'cancel' },
@@ -606,6 +608,7 @@ export default function AccountModal({
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
           await supabase.auth.signOut();
           onClose();
+          router.replace('/(auth)/login');
         },
       },
     ]);

@@ -498,10 +498,7 @@ export default function LoginScreen() {
           className="mt-8 items-center gap-4"
         >
           {/* Botón Suscríbete */}
-          <TouchableOpacity
-            onPress={() => setShowProModal(true)}
-            activeOpacity={0.9}
-          >
+          <TouchableOpacity onPress={() => setShowProModal(true)} activeOpacity={0.9}>
             <LinearGradient
               colors={['#F97316', '#FBBF24']}
               start={{ x: 0, y: 0 }}
