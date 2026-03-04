@@ -71,15 +71,12 @@ export default function Index() {
   }
 
   // ============================================================================
-  // NATIVO: Comportamiento original
-  // TRENS NO pide login para usar la app
-  // El contenido público es accesible sin cuenta
+  // NATIVO: Login obligatorio
   // ============================================================================
-  // REDIRECCIÓN SEGÚN TIPO DE USUARIO:
-  // - PRO: Abre ADN por defecto (su perfil atlético)
-  // - FREE/Invitado: Abre FEED por defecto (contenido público)
-  // ============================================================================
-  if (isAdmin) return <Redirect href={'/(admin)/usuarios' as Href} />;
+  if (!isAuthenticated) {
+    return <Redirect href={'/(auth)/login' as Href} />;
+  }
 
+  if (isAdmin) return <Redirect href={'/(admin)/usuarios' as Href} />;
   return <Redirect href={'/(tabs)/feed' as Href} />;
 }

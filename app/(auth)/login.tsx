@@ -22,7 +22,9 @@ import {
   Flame,
   ArrowRight,
   Sparkles,
+  Crown,
 } from 'lucide-react-native';
+import { ProUpgradeModal } from '../../components/pro/ProUpgradeModal';
 import { LinearGradient } from 'expo-linear-gradient';
 import Animated, {
   useSharedValue,
@@ -211,6 +213,7 @@ export default function LoginScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showProModal, setShowProModal] = useState(false);
   const router = useRouter();
 
   // Refs para mantener focus en inputs
@@ -489,11 +492,35 @@ export default function LoginScreen() {
           </WebFormWrapper>
         </Animated.View>
 
-        {/* Links */}
+        {/* Suscríbete + Coach */}
         <Animated.View
           entering={FadeInUp.delay(700).duration(600)}
           className="mt-8 items-center gap-4"
         >
+          {/* Botón Suscríbete */}
+          <TouchableOpacity
+            onPress={() => setShowProModal(true)}
+            activeOpacity={0.9}
+          >
+            <LinearGradient
+              colors={['#F97316', '#FBBF24']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              className="flex-row items-center gap-2 px-6 py-3 rounded-full"
+              style={{
+                shadowColor: '#F97316',
+                shadowOffset: { width: 0, height: 4 },
+                shadowOpacity: 0.3,
+                shadowRadius: 8,
+                elevation: 6,
+              }}
+            >
+              <Crown size={16} color="white" />
+              <Text className="text-white font-bold text-sm tracking-widest">SUSCRÍBETE</Text>
+              <ArrowRight size={16} color="white" />
+            </LinearGradient>
+          </TouchableOpacity>
+
           <Link href="/(auth)/coach-access" asChild>
             <TouchableOpacity className="flex-row items-center gap-2">
               <Sparkles size={14} color="#52525b" />
@@ -502,6 +529,9 @@ export default function LoginScreen() {
             </TouchableOpacity>
           </Link>
         </Animated.View>
+
+        {/* Pro Upgrade Modal */}
+        <ProUpgradeModal visible={showProModal} onClose={() => setShowProModal(false)} />
 
         {/* Legal Links */}
         <Animated.View

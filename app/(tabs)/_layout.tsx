@@ -679,10 +679,8 @@ export default function TabsLayout() {
   const Tab5Icon = getIconComponent(tabConfig.tab5.icon);
   const sportColor = tabConfig.color;
 
-  // Determinar si mostrar el botón flotante de login
-  // Solo mostrar si: NO hay usuario autenticado Y NO estamos en Feed o PRO
-  const isFeedOrPro = pathname?.includes('feed') || pathname?.includes('pro');
-  const showLoginButton = !loading && !user && !isFeedOrPro;
+  // Login ya es obligatorio desde index.tsx, no necesitamos botón flotante
+  const showLoginButton = false;
   const getSourceIndex = (): number => {
     if (!previousModule) return -1;
     if (previousModule.includes('feed')) return 0;
