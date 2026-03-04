@@ -1,0 +1,27 @@
+{
+  "applinks": {
+    "apps": [],
+    "details": [
+      {
+        "appIDs": [
+          "APPLE_TEAM_ID.com.trens.app"
+        ],
+        "components": [
+          {
+            "/": "/share/*",
+            "comment": "Matches share links"
+          },
+          {
+            "/": "/v/*",
+            "comment": "Matches video share links"
+          }
+        ]
+      }
+    ]
+  },
+  "webcredentials": {
+    "apps": [
+      "APPLE_TEAM_ID.com.trens.app"
+    ]
+  }
+}

@@ -6,10 +6,16 @@
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
     "icon": "./assets/icon.png",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#000000"
+    },
     "assetBundlePatterns": ["**/*"],
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.trens.app",
+      "buildNumber": "1",
       "associatedDomains": ["applinks:share.trens.app", "applinks:trens.app"],
       "infoPlist": {
         "LSApplicationQueriesSchemes": ["spotify", "instagram"],
@@ -25,6 +31,7 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#000000"
       },
+      "versionCode": 1,
       "package": "com.trens.app",
       "permissions": ["CAMERA", "RECORD_AUDIO"],
       "intentFilters": [
@@ -96,7 +103,17 @@
           "photosPermission": "Permitir a TRENS acceder a tu galería para seleccionar fotos y videos."
         }
       ],
-      "expo-video"
+      "expo-video",
+      "expo-splash-screen",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#DC2626",
+          "defaultChannel": "trens-default",
+          "sounds": []
+        }
+      ]
     ],
     "scheme": "trensdev",
     "sdkVersion": "54.0.0",
@@ -112,7 +129,12 @@
       },
       "supabaseUrl": "https://cnrcrhlrteeqsyhlxhbb.supabase.co",
       "supabaseAnonKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNucmNyaGxydGVlcXN5aGx4aGJiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjYxODIyODYsImV4cCI6MjA4MTc1ODI4Nn0.9C2orxQ6xSBIt2Y7ua37rvlvPZBxNNIv0eZoYVRM5tE",
-      "instagramAppId": "917846514493235"
+      "instagramAppId": "917846514493235",
+      "openpayMerchantId": "mudi9kij0xb5xk54urc6",
+      "openpayPublicKey": "pk_8ce5687a939145189673ff91c3282463",
+      "openpaySandbox": "false",
+      "revenueCatAppleKey": "appl_YOUR_REVENUECAT_APPLE_KEY",
+      "revenueCatGoogleKey": "test_RHTdLaeoVXkvboIXkNWMqyBXyQM"
     },
     "runtimeVersion": {
       "policy": "appVersion"

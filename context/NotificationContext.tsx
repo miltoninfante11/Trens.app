@@ -1,6 +1,6 @@
 // ============================================================================
 // NOTIFICATION CONTEXT - Contexto Global de Notificaciones TRENS
-// Maneja notificaciones in-app con estilo premium SAVAGE
+// Maneja notificaciones in-app + push notifications nativas
 // ============================================================================
 
 import React, {
@@ -27,6 +27,8 @@ import { Bell, Utensils, Dumbbell, Pill, X, ChevronRight, Clock } from 'lucide-r
 import * as Haptics from '../lib/haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
+import * as Notifications from 'expo-notifications';
+import Constants from 'expo-constants';
 import notificationScheduler, {
   ScheduledNotification,
   NotificationType,
@@ -45,12 +47,14 @@ interface NotificationContextType {
   // State
   activeNotification: ActiveNotification | null;
   preferences: NotificationPreferences;
+  expoPushToken: string | null;
 
   // Actions
   dismissNotification: () => void;
   updatePreferences: (updates: Partial<NotificationPreferences>) => Promise<void>;
   syncNotifications: (userId: string) => Promise<void>;
   requestPermissions: () => Promise<boolean>;
+  registerForPushNotifications: () => Promise<string | null>;
 }
 
 // ============================================================================
@@ -294,6 +298,74 @@ const NotificationBanner: React.FC<NotificationBannerProps> = ({
 };
 
 // ============================================================================
+// PUSH NOTIFICATION SETUP (expo-notifications)
+// ============================================================================
+
+// Configure notification handler for foreground
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: true,
+    shouldShowBanner: true,
+    shouldShowList: true,
+  }),
+});
+
+/**
+ * Register for push notifications and get Expo Push Token.
+ * Returns the token string or null if failed.
+ */
+async function registerForPushNotificationsAsync(): Promise<string | null> {
+  if (Platform.OS === 'web') return null;
+
+  try {
+    // Check existing permissions
+    const { status: existingStatus } = await Notifications.getPermissionsAsync();
+    let finalStatus = existingStatus;
+
+    // Request if not granted
+    if (existingStatus !== 'granted') {
+      const { status } = await Notifications.requestPermissionsAsync();
+      finalStatus = status;
+    }
+
+    if (finalStatus !== 'granted') {
+      console.warn('\uD83D\uDD14 Push notification permission not granted');
+      return null;
+    }
+
+    // Get project ID from config
+    const projectId = Constants.expoConfig?.extra?.eas?.projectId;
+    if (!projectId) {
+      console.warn('\uD83D\uDD14 No EAS project ID found');
+      return null;
+    }
+
+    // Get push token
+    const tokenData = await Notifications.getExpoPushTokenAsync({ projectId });
+    const token = tokenData.data;
+    console.warn('\uD83D\uDD14 Expo Push Token:', token);
+
+    // Android: Setup notification channel
+    if (Platform.OS === 'android') {
+      await Notifications.setNotificationChannelAsync('trens-default', {
+        name: 'TRENS',
+        importance: Notifications.AndroidImportance.HIGH,
+        vibrationPattern: [0, 250, 250, 250],
+        lightColor: '#DC2626',
+        sound: 'default',
+      });
+    }
+
+    return token;
+  } catch (error) {
+    console.error('\uD83D\uDD14 Error registering push notifications:', error);
+    return null;
+  }
+}
+
+// ============================================================================
 // PROVIDER
 // ============================================================================
 
@@ -306,15 +378,25 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
   const [preferences, setPreferences] = useState<NotificationPreferences>(
     notificationScheduler.getPreferences()
   );
+  const [expoPushToken, setExpoPushToken] = useState<string | null>(null);
   const listenerRef = useRef<(() => void) | null>(null);
+  const notificationResponseRef = useRef<Notifications.EventSubscription | null>(null);
+  const notificationReceivedRef = useRef<Notifications.EventSubscription | null>(null);
 
-  // Initialize scheduler and listen for notifications
+  // Initialize scheduler, push notifications, and listen for notifications
   useEffect(() => {
     const init = async () => {
+      // 1. Initialize local scheduler
       await notificationScheduler.initialize();
       setPreferences(notificationScheduler.getPreferences());
 
-      // Listen for triggered notifications
+      // 2. Register for push notifications (native only)
+      if (Platform.OS !== 'web') {
+        const token = await registerForPushNotificationsAsync();
+        if (token) setExpoPushToken(token);
+      }
+
+      // 3. Listen for triggered local notifications
       listenerRef.current = notificationScheduler.addListener((notification) => {
         setActiveNotification({
           ...notification,
@@ -325,10 +407,47 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
 
     init();
 
-    return () => {
-      if (listenerRef.current) {
-        listenerRef.current();
+    // 4. Listen for push notification responses (user taps notification)
+    notificationResponseRef.current = Notifications.addNotificationResponseReceivedListener(
+      (response) => {
+        const data = response.notification.request.content.data;
+        // Navigate based on notification data
+        if (data?.route) {
+          router.push(data.route as any);
+        } else if (data?.type === 'meal' || data?.type === 'supplement') {
+          router.push('/(tabs)/plan');
+        } else if (data?.type === 'workout') {
+          router.push('/(tabs)/gym');
+        }
       }
+    );
+
+    // 5. Listen for push notifications received while app is in foreground
+    notificationReceivedRef.current = Notifications.addNotificationReceivedListener(
+      (notification) => {
+        const { title, body } = notification.request.content;
+        const data = notification.request.content.data;
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+        // Show as in-app banner
+        setActiveNotification({
+          id: notification.request.identifier,
+          type: (data?.type as NotificationType) || 'workout',
+          title: title || 'TRENS',
+          body: body || '',
+          scheduledTime: new Date().toLocaleTimeString('es-PE', {
+            hour: '2-digit',
+            minute: '2-digit',
+          }),
+          enabled: true,
+          receivedAt: new Date(),
+        });
+      }
+    );
+
+    return () => {
+      if (listenerRef.current) listenerRef.current();
+      if (notificationResponseRef.current) notificationResponseRef.current.remove();
+      if (notificationReceivedRef.current) notificationReceivedRef.current.remove();
       notificationScheduler.stopBackgroundCheck();
     };
   }, []);
@@ -349,13 +468,22 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
     await notificationScheduler.syncWithUserPlan(userId);
   }, []);
 
-  // Request permissions (for web)
+  // Request permissions (cross-platform)
   const requestPermissions = useCallback(async (): Promise<boolean> => {
     if (Platform.OS === 'web' && typeof window !== 'undefined' && 'Notification' in window) {
       const permission = await Notification.requestPermission();
       return permission === 'granted';
     }
-    return true; // Native permissions handled elsewhere
+    // Native
+    const { status } = await Notifications.requestPermissionsAsync();
+    return status === 'granted';
+  }, []);
+
+  // Register for push notifications
+  const registerForPush = useCallback(async (): Promise<string | null> => {
+    const token = await registerForPushNotificationsAsync();
+    if (token) setExpoPushToken(token);
+    return token;
   }, []);
 
   return (
@@ -363,10 +491,12 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
       value={{
         activeNotification,
         preferences,
+        expoPushToken,
         dismissNotification,
         updatePreferences,
         syncNotifications,
         requestPermissions,
+        registerForPushNotifications: registerForPush,
       }}
     >
       {children}

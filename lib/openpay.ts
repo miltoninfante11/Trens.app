@@ -19,12 +19,17 @@ import type {
 
 // ============================================================================
 // CONFIGURACIÓN - Solo llave pública (client-side)
+// Lee credenciales desde variables de entorno (app.json extra)
 // ============================================================================
 
+import Constants from 'expo-constants';
+
+const extra = Constants.expoConfig?.extra;
+
 const OPENPAY_CONFIG = {
-  merchantId: 'mudi9kij0xb5xk54urc6',
-  publicKey: 'pk_8ce5687a939145189673ff91c3282463',
-  isSandbox: false,
+  merchantId: extra?.openpayMerchantId || 'mudi9kij0xb5xk54urc6',
+  publicKey: extra?.openpayPublicKey || 'pk_8ce5687a939145189673ff91c3282463',
+  isSandbox: extra?.openpaySandbox === 'true' || false,
   apiUrl: 'https://api.openpay.pe/v1',
 } as const;
 

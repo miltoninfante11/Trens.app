@@ -1,4 +1,4 @@
-import { View, Text, ScrollView, TouchableOpacity, Platform } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity } from 'react-native';
 import { useRouter } from 'expo-router';
 import {
   ArrowLeft,
@@ -9,6 +9,10 @@ import {
   Heart,
   Mail,
   Globe,
+  CreditCard,
+  UserX,
+  ShieldCheck,
+  AlertTriangle,
 } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
@@ -107,11 +111,21 @@ export default function TermsScreen() {
         contentContainerStyle={{ paddingTop: 24, paddingBottom: 40 }}
         showsVerticalScrollIndicator={false}
       >
+        {/* Company Info */}
+        <Animated.View entering={FadeInDown.duration(400)} className="mb-6">
+          <View className="bg-zinc-900/50 border border-zinc-800/30 rounded-2xl p-4">
+            <Text className="text-zinc-400 text-sm leading-6">
+              Estos Términos de Servicio regulan el uso de la aplicación TRENS, operada por MICORP
+              LATAM. Al descargar, instalar o usar TRENS, aceptas estos términos en su totalidad.
+            </Text>
+          </View>
+        </Animated.View>
+
         {/* Date Badge */}
-        <Animated.View entering={FadeInDown.duration(400)} className="mb-8">
+        <Animated.View entering={FadeInDown.delay(50).duration(400)} className="mb-8">
           <View className="flex-row items-center gap-2 bg-zinc-900/50 border border-zinc-800/30 rounded-full px-4 py-2 self-start">
             <View className="w-2 h-2 rounded-full bg-green-500" />
-            <Text className="text-zinc-400 text-sm">Última actualización: 4 de enero de 2026</Text>
+            <Text className="text-zinc-400 text-sm">Última actualización: Marzo 2026</Text>
           </View>
         </Animated.View>
 
@@ -121,8 +135,12 @@ export default function TermsScreen() {
           icon={<FileText size={18} color="white" />}
           delay={100}
         >
-          Al acceder y utilizar la aplicación TRENS ("la App"), aceptas estos Términos de Servicio.
-          Si no estás de acuerdo con alguno de estos términos, no debes utilizar la App.
+          Al acceder y utilizar la aplicación TRENS ("la App"), aceptas estos Términos de Servicio y
+          nuestra Política de Privacidad.{'\n\n'}
+          Si no estás de acuerdo con alguno de estos términos, no debes utilizar la App. El uso
+          continuado de TRENS constituye tu aceptación de cualquier modificación futura.{'\n\n'}
+          Debes tener al menos 13 años para usar TRENS. Si eres menor de 18 años, necesitas el
+          consentimiento de tu padre, madre o tutor legal.
         </Section>
 
         <Section
@@ -131,10 +149,13 @@ export default function TermsScreen() {
           icon={<Dumbbell size={18} color="white" />}
           delay={150}
         >
-          TRENS es una aplicación de fitness de alto rendimiento que ofrece:{'\n\n'}• Planes de
-          entrenamiento personalizados{'\n'}• Seguimiento de progreso físico{'\n'}• Biblioteca de
-          ejercicios{'\n'}• Herramientas de registro de récords personales{'\n'}• Conexión con
-          coaches certificados
+          TRENS es una plataforma de fitness de alto rendimiento que ofrece:{'\n\n'}• Planes de
+          entrenamiento personalizados con IA{'\n'}• Seguimiento de progreso físico y récords
+          personales{'\n'}• Biblioteca de ejercicios con videos demostrativos{'\n'}• Registro y
+          grabación de sesiones de entrenamiento{'\n'}• Plan nutricional personalizado{'\n'}• Stack
+          de suplementación{'\n'}• Asistente virtual HANK con inteligencia artificial{'\n'}• Feed
+          social de videos de entrenamiento{'\n'}• Integración con Spotify para música{'\n'}•
+          Métricas ADN atlético
         </Section>
 
         <Section
@@ -144,63 +165,155 @@ export default function TermsScreen() {
           delay={200}
         >
           Para utilizar TRENS, debes crear una cuenta proporcionando información precisa y
-          actualizada. Eres responsable de mantener la confidencialidad de tu contraseña y de todas
-          las actividades que ocurran bajo tu cuenta.
+          actualizada.{'\n\n'}
+          Eres responsable de:{'\n'}• Mantener la confidencialidad de tu contraseña{'\n'}• Todas las
+          actividades que ocurran bajo tu cuenta{'\n'}• Notificarnos inmediatamente de cualquier uso
+          no autorizado{'\n'}• Mantener tu información de perfil actualizada{'\n\n'}
+          Nos reservamos el derecho de suspender o cerrar cuentas que violen estos términos.
         </Section>
 
         <Section
           number="04"
-          title="Uso Aceptable"
-          icon={<Scale size={18} color="white" />}
+          title="Suscripciones y Pagos"
+          icon={<CreditCard size={18} color="white" />}
           delay={250}
         >
-          Te comprometes a:{'\n\n'}• No utilizar la App para fines ilegales{'\n'}• No intentar
-          acceder a cuentas de otros usuarios{'\n'}• No distribuir malware o código malicioso{'\n'}•
-          No interferir con el funcionamiento de la App{'\n'}• No suplantar la identidad de otras
-          personas
+          TRENS ofrece un plan gratuito con funcionalidades básicas y un plan PRO con
+          funcionalidades avanzadas.{'\n\n'}
+          Plan PRO:{'\n'}• Precio: S/ 59.90/mes (sujeto a cambios con aviso previo){'\n'}• Cobro:
+          Recurrente mensual mediante tarjeta de crédito/débito{'\n'}• Procesador: OpenPay Perú (PCI
+          DSS Level 1){'\n'}• Cancelación: Puedes cancelar en cualquier momento desde la app. Tu
+          acceso PRO continuará hasta el final del período pagado{'\n'}• Reembolsos: No se realizan
+          reembolsos por períodos parciales{'\n\n'}
+          Los precios incluyen los impuestos aplicables según la legislación peruana.
         </Section>
 
         <Section
           number="05"
-          title="Propiedad Intelectual"
-          icon={<FileText size={18} color="white" />}
+          title="Uso Aceptable"
+          icon={<Scale size={18} color="white" />}
           delay={300}
         >
-          Todo el contenido de TRENS, incluyendo pero no limitado a logos, diseños, textos,
-          gráficos, videos, y software, es propiedad de TRENS o sus licenciantes y está protegido
-          por leyes de propiedad intelectual.
+          Te comprometes a:{'\n\n'}• No utilizar la App para fines ilegales{'\n'}• No intentar
+          acceder a cuentas de otros usuarios{'\n'}• No distribuir malware o código malicioso{'\n'}•
+          No interferir con el funcionamiento de la App{'\n'}• No suplantar la identidad de otras
+          personas{'\n'}• No subir contenido ofensivo, violento o inapropiado{'\n'}• No realizar
+          ingeniería inversa de la App{'\n'}• No usar bots o scripts automatizados
         </Section>
 
         <Section
           number="06"
-          title="Aviso de Salud"
-          icon={<Heart size={18} color="white" />}
+          title="Propiedad Intelectual"
+          icon={<FileText size={18} color="white" />}
           delay={350}
         >
-          TRENS proporciona información de fitness con fines educativos. Antes de comenzar cualquier
-          programa de ejercicios, consulta con un profesional de la salud. No somos responsables de
-          lesiones que puedan ocurrir durante el uso de la App.
+          Todo el contenido de TRENS, incluyendo pero no limitado a logos, diseños, textos,
+          gráficos, videos, algoritmos y software, es propiedad de TRENS / MICORP LATAM o sus
+          licenciantes y está protegido por leyes de propiedad intelectual.{'\n\n'}
+          El contenido que generes (entrenamientos, fotos, videos) sigue siendo tuyo. Al subirlo a
+          TRENS, nos otorgas una licencia limitada para almacenarlo y mostrarlo dentro de la
+          plataforma.{'\n\n'}
+          Puedes solicitar la eliminación de tu contenido en cualquier momento eliminando tu cuenta.
         </Section>
 
         <Section
           number="07"
+          title="Eliminación de Cuenta"
+          icon={<UserX size={18} color="white" />}
+          delay={400}
+        >
+          Puedes eliminar tu cuenta en cualquier momento desde Mi Cuenta → Eliminar cuenta.{'\n\n'}
+          Al eliminar tu cuenta:{'\n'}• Se cancelará tu suscripción activa (si la tienes){'\n'}• Se
+          eliminarán todos tus datos personales permanentemente{'\n'}• Se eliminarán tus
+          entrenamientos, récords, fotos y videos{'\n'}• Se eliminarán tus tarjetas guardadas
+          {'\n\n'}
+          Esta acción es irreversible. Los datos eliminados no pueden recuperarse.{'\n\n'}
+          Algunos datos pueden conservarse hasta 30 días por razones técnicas, y los registros de
+          pago se conservan según la legislación fiscal aplicable.
+        </Section>
+
+        <Section
+          number="08"
+          title="Aviso de Salud"
+          icon={<Heart size={18} color="white" />}
+          delay={450}
+        >
+          TRENS proporciona información de fitness con fines educativos e informativos únicamente.
+          {'\n\n'}
+          IMPORTANTE:{'\n'}• Antes de comenzar cualquier programa de ejercicios, consulta con un
+          profesional de la salud{'\n'}• Los planes nutricionales generados por IA son orientativos
+          y no sustituyen el consejo de un nutricionista certificado{'\n'}• No somos responsables de
+          lesiones que puedan ocurrir durante el uso de la App{'\n'}• Si experimentas dolor, mareos
+          u otros síntomas durante el ejercicio, detente inmediatamente y consulta a un médico
+        </Section>
+
+        <Section
+          number="09"
+          title="Limitación de Responsabilidad"
+          icon={<AlertTriangle size={18} color="white" />}
+          delay={500}
+        >
+          TRENS se proporciona "tal cual" y "según disponibilidad". No garantizamos que el servicio
+          será ininterrumpido o libre de errores.{'\n\n'}
+          MICORP LATAM no será responsable por:{'\n'}• Pérdida de datos debido a fallos técnicos
+          {'\n'}• Lesiones derivadas del uso de planes de ejercicio{'\n'}• Resultados específicos de
+          entrenamiento o nutrición{'\n'}• Interrupciones del servicio por mantenimiento o fuerza
+          mayor{'\n\n'}
+          Nuestra responsabilidad total se limita al monto pagado por el usuario en los últimos 12
+          meses.
+        </Section>
+
+        <Section
+          number="10"
+          title="Privacidad y Datos"
+          icon={<ShieldCheck size={18} color="white" />}
+          delay={550}
+        >
+          El tratamiento de tus datos personales se rige por nuestra Política de Privacidad,
+          disponible en la App y en https://trens.app/privacy{'\n\n'}
+          Al usar TRENS, aceptas nuestra Política de Privacidad y el procesamiento de tus datos
+          conforme a ella.
+        </Section>
+
+        <Section
+          number="11"
           title="Modificaciones"
           icon={<FileText size={18} color="white" />}
-          delay={400}
+          delay={600}
         >
           Nos reservamos el derecho de modificar estos términos en cualquier momento. Las
           modificaciones entrarán en vigor inmediatamente después de su publicación en la App.
+          {'\n\n'}
+          Te notificaremos de cambios significativos a través de la App o por correo electrónico con
+          al menos 7 días de anticipación.{'\n\n'}
+          El uso continuado de TRENS después de las modificaciones constituye tu aceptación de los
+          términos actualizados.
         </Section>
 
-        <Section number="08" title="Contacto" icon={<Mail size={18} color="white" />} delay={450}>
-          Para preguntas sobre estos términos, contáctanos en:{'\n\n'}
-          📧 Email: legal@trens.app{'\n'}
-          🌐 Web: https://trens.app
+        <Section
+          number="12"
+          title="Ley Aplicable"
+          icon={<Globe size={18} color="white" />}
+          delay={650}
+        >
+          Estos términos se rigen por las leyes de la República del Perú. Cualquier disputa será
+          resuelta por los tribunales competentes de la ciudad de Lima, Perú.{'\n\n'}
+          Si alguna disposición de estos términos resulta inaplicable, las demás disposiciones
+          continuarán en vigor.
+        </Section>
+
+        <Section number="13" title="Contacto" icon={<Mail size={18} color="white" />} delay={700}>
+          Para preguntas sobre estos términos:{'\n\n'}
+          📧 Email: soporte@trens.app{'\n'}
+          🌐 Web: https://trens.app/contact{'\n\n'}
+          MICORP LATAM{'\n'}
+          Operador de TRENS{'\n'}
+          Lima, Perú
         </Section>
 
         {/* Footer */}
         <Animated.View
-          entering={FadeInUp.delay(500).duration(500)}
+          entering={FadeInUp.delay(750).duration(500)}
           className="py-10 border-t border-zinc-800/50 mt-6 items-center"
         >
           <LinearGradient

@@ -2,13 +2,13 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
-  FlatList,
   TouchableOpacity,
   RefreshControl,
   ActivityIndicator,
   Modal,
   TextInput,
 } from 'react-native';
+import { FlashList } from '@shopify/flash-list';
 import { Image } from 'expo-image';
 import {
   Search,
@@ -492,7 +492,7 @@ export default function AdminFeedScreen() {
       </View>
 
       {/* List */}
-      <FlatList
+      <FlashList
         data={filteredItems}
         renderItem={renderItem}
         keyExtractor={(item) => item.id}
@@ -573,7 +573,7 @@ export default function AdminFeedScreen() {
           </View>
 
           {/* Results */}
-          <FlatList
+          <FlashList
             data={searchResults}
             keyExtractor={(t) => t.uri}
             contentContainerStyle={{ padding: 16 }}

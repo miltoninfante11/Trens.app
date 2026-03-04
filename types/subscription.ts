@@ -215,6 +215,35 @@ export const TRENS_PRO_PLAN: PlanDetails = {
 };
 
 // ============================================================================
+// PRECIOS POR PLATAFORMA
+// ============================================================================
+
+export const TRENS_PRICES = {
+  web: { amount: 59.9, formatted: 'S/ 59.90', label: 'S/ 59.90/mes' },
+  ios: { amount: 69.9, formatted: 'S/ 69.90', label: 'S/ 69.90/mes' },
+  android: { amount: 69.9, formatted: 'S/ 69.90', label: 'S/ 69.90/mes' },
+} as const;
+
+export const PRO_FEATURES = [
+  'Grabación de videos ilimitada',
+  'Bóveda personal',
+  'Registro de PRs y récords',
+  'Historial de entrenamientos',
+  'Sincronización con Spotify',
+  'Nutrición personalizada',
+  'Suplementación inteligente',
+  'Asistente HANK con IA',
+  'Fotos de progreso',
+  'Métricas ADN atlético',
+] as const;
+
+// ============================================================================
+// SUBSCRIPTION SOURCE
+// ============================================================================
+
+export type SubscriptionSourceType = 'openpay' | 'iap' | 'none';
+
+// ============================================================================
 // WEBHOOK
 // ============================================================================
 

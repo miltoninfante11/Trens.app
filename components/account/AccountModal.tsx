@@ -15,6 +15,7 @@ import {
   TextInput,
   ActivityIndicator,
   Linking,
+  Platform,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
@@ -40,6 +41,12 @@ import {
   Star,
   Play,
   Dna,
+  ShieldAlert,
+  UserX,
+  ExternalLink,
+  RotateCcw,
+  Globe,
+  Smartphone,
 } from 'lucide-react-native';
 import * as Haptics from '../../lib/haptics';
 import { Alert } from '../../lib/alert';
@@ -57,11 +64,33 @@ import { cancelSubscription } from '../../lib/openpay';
 import AddCardForm from './AddCardForm';
 import type { CustomerCard, Subscription } from '../../types/subscription';
 
+// Dynamic import para SubscriptionContext
+let useSubscriptionSafe: () => any = () => null;
+try {
+  const subMod = require('../../context/SubscriptionContext');
+  useSubscriptionSafe = () => {
+    try {
+      return subMod.useSubscription();
+    } catch {
+      return null;
+    }
+  };
+} catch {
+  // SubscriptionContext not available
+}
+
 // ============================================================================
 // TIPOS
 // ============================================================================
 
-type Section = 'main' | 'profile' | 'subscription' | 'cards' | 'password' | 'personal';
+type Section =
+  | 'main'
+  | 'profile'
+  | 'subscription'
+  | 'cards'
+  | 'password'
+  | 'personal'
+  | 'delete-account';
 
 interface AccountModalProps {
   visible: boolean;
@@ -85,6 +114,14 @@ export default function AccountModal({
   onProfileSaved,
 }: AccountModalProps) {
   const { user, isPro } = useUserRoleContext();
+  const subscriptionCtx = useSubscriptionSafe();
+
+  // Platform detection
+  const isWeb = Platform.OS === 'web';
+  const isIOS = Platform.OS === 'ios';
+  const isNative = Platform.OS === 'ios' || Platform.OS === 'android';
+  const hasIAPSubscription = subscriptionCtx?.activeSource === 'iap';
+  const hasOpenpaySubscription = subscriptionCtx?.activeSource === 'openpay';
 
   // Navigation
   const [section, setSection] = useState<Section>('main');
@@ -456,6 +493,107 @@ export default function AccountModal({
   };
 
   // -------------------------------------------------------------------------
+  // DELETE ACCOUNT
+  // -------------------------------------------------------------------------
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+
+  const handleDeleteAccount = () => {
+    if (deleteConfirmText !== 'ELIMINAR') {
+      Alert.alert('Error', 'Debes escribir ELIMINAR para confirmar.');
+      return;
+    }
+
+    Alert.alert(
+      'Eliminar Cuenta Permanentemente',
+      'Esta acción es IRREVERSIBLE. Se eliminarán todos tus datos, entrenamientos, récords, fotos y suscripciones. ¿Estás completamente seguro?',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Sí, eliminar todo',
+          style: 'destructive',
+          onPress: async () => {
+            setIsDeletingAccount(true);
+            try {
+              if (!user) throw new Error('No hay sesión activa');
+
+              // 1. Cancel active subscription if exists
+              if (
+                subscription &&
+                subscription.status === 'active' &&
+                subscription.openpay_subscription_id
+              ) {
+                try {
+                  await cancelSubscription(subscription.openpay_subscription_id);
+                } catch (subErr) {
+                  console.warn('Error cancelling subscription during account deletion:', subErr);
+                }
+              }
+
+              // 2. Delete user data from all tables
+              const tablesToClean = [
+                'user_profiles',
+                'profiles',
+                'training_sessions',
+                'personal_records',
+                'meals',
+                'supplement_stack',
+                'workout_block_position',
+                'subscriptions',
+                'customer_cards',
+                'progress_photos',
+                'feed_videos',
+              ];
+
+              for (const table of tablesToClean) {
+                try {
+                  await supabase
+                    .from(table)
+                    .delete()
+                    .eq(table === 'profiles' ? 'id' : 'user_id', user.id);
+                } catch (e) {
+                  console.warn(`Error cleaning ${table}:`, e);
+                }
+              }
+
+              // 3. Delete avatar from R2 if exists
+              if (profile?.avatar_url) {
+                try {
+                  await cloudflareR2.deleteAvatar(profile.avatar_url);
+                } catch (e) {
+                  console.warn('Error deleting avatar:', e);
+                }
+              }
+
+              // 4. Call edge function to delete auth user
+              const { error: deleteError } = await supabase.functions.invoke('admin-users', {
+                body: { action: 'delete', userId: user.id },
+              });
+
+              if (deleteError) {
+                console.warn('Edge function delete error:', deleteError);
+              }
+
+              // 5. Sign out
+              await supabase.auth.signOut();
+
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+              onClose();
+            } catch (err: any) {
+              Alert.alert(
+                'Error',
+                err.message || 'No se pudo eliminar la cuenta. Contacta a soporte.'
+              );
+            } finally {
+              setIsDeletingAccount(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  // -------------------------------------------------------------------------
   // LOGOUT
   // -------------------------------------------------------------------------
   const handleLogout = () => {
@@ -589,7 +727,17 @@ export default function AccountModal({
         <MenuItem
           icon={<Crown size={20} color={isPro ? '#F97316' : '#71717A'} />}
           label="Suscripción"
-          sublabel={isPro ? 'TRENS PRO activa' : 'Plan gratuito'}
+          sublabel={
+            isPro
+              ? hasIAPSubscription
+                ? isIOS
+                  ? 'PRO via App Store'
+                  : 'PRO via Google Play'
+                : hasOpenpaySubscription
+                  ? 'PRO via OpenPay'
+                  : 'TRENS PRO activa'
+              : 'Plan gratuito'
+          }
           onPress={() => goTo('subscription')}
           badge={isPro ? 'PRO' : undefined}
         />
@@ -710,7 +858,7 @@ export default function AccountModal({
         <TouchableOpacity
           onPress={() => {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            Linking.openURL('mailto:micorp.latam@gmail.com?subject=Soporte%20TRENS');
+            Linking.openURL('mailto:soporte@trens.app?subject=Soporte%20TRENS');
           }}
           className="flex-row items-center justify-center gap-2 py-3 mb-3"
         >
@@ -721,15 +869,24 @@ export default function AccountModal({
         {/* Cerrar sesión */}
         <TouchableOpacity
           onPress={handleLogout}
-          className="flex-row items-center justify-center gap-2 py-3"
+          className="flex-row items-center justify-center gap-2 py-3 mb-3"
         >
           <LogOut size={16} color="#EF4444" />
           <Text className="text-red-500 text-sm font-medium">Cerrar Sesión</Text>
         </TouchableOpacity>
+
+        {/* Eliminar Cuenta */}
+        <TouchableOpacity
+          onPress={() => goTo('delete-account')}
+          className="flex-row items-center justify-center gap-2 py-3"
+        >
+          <UserX size={14} color="#52525B" />
+          <Text className="text-zinc-600 text-xs">Eliminar mi cuenta</Text>
+        </TouchableOpacity>
       </View>
 
       {/* Version */}
-      <Text className="text-zinc-700 text-xs text-center mt-6">TRENS v1.0</Text>
+      <Text className="text-zinc-700 text-xs text-center mt-6">TRENS v1.0.1</Text>
     </View>
   );
 
@@ -825,192 +982,348 @@ export default function AccountModal({
   );
 
   // =========================================================================
-  // RENDER: SUBSCRIPTION
+  // RENDER: SUBSCRIPTION (HYBRID)
   // =========================================================================
-  const renderSubscriptionSection = () => (
-    <View className="flex-1">
-      <Text className="text-xs text-zinc-500 uppercase tracking-widest mb-4 font-bold">
-        SUSCRIPCIÓN
-      </Text>
+  const renderSubscriptionSection = () => {
+    const iapInfo = subscriptionCtx?.iapInfo;
+    const activeSource = subscriptionCtx?.activeSource || 'none';
 
-      {loadingSub ? (
-        <View className="items-center py-12">
-          <ActivityIndicator color="#F97316" size="large" />
-        </View>
-      ) : isPro && subscription ? (
-        <View>
-          {/* Plan Card */}
-          <View className="bg-zinc-800/60 rounded-2xl p-5 border border-zinc-700/50 mb-4">
-            <View className="flex-row items-center justify-between mb-4">
-              <View className="flex-row items-center gap-2">
-                <Crown size={22} color="#F97316" />
-                <Text className="text-white text-lg font-bold">TRENS PRO</Text>
-              </View>
-              <View
-                className="px-3 py-1 rounded-full"
-                style={{
-                  backgroundColor: getStatusColor(subscription.status) + '20',
-                  borderWidth: 1,
-                  borderColor: getStatusColor(subscription.status) + '60',
-                }}
-              >
-                <Text
-                  className="text-xs font-bold uppercase tracking-widest"
-                  style={{ color: getStatusColor(subscription.status) }}
+    return (
+      <View className="flex-1">
+        <Text className="text-xs text-zinc-500 uppercase tracking-widest mb-4 font-bold">
+          SUSCRIPCIÓN
+        </Text>
+
+        {loadingSub || subscriptionCtx?.isLoading ? (
+          <View className="items-center py-12">
+            <ActivityIndicator color="#F97316" size="large" />
+          </View>
+        ) : isPro ? (
+          <View>
+            {/* ============ IAP SUBSCRIPTION (iOS/Android) ============ */}
+            {activeSource === 'iap' && iapInfo ? (
+              <View>
+                {/* Plan Card - IAP */}
+                <View className="bg-zinc-800/60 rounded-2xl p-5 border border-zinc-700/50 mb-4">
+                  <View className="flex-row items-center justify-between mb-4">
+                    <View className="flex-row items-center gap-2">
+                      <Crown size={22} color="#F97316" />
+                      <Text className="text-white text-lg font-bold">TRENS PRO</Text>
+                    </View>
+                    <View className="px-3 py-1 rounded-full bg-green-500/20 border border-green-500/60">
+                      <Text className="text-xs font-bold uppercase tracking-widest text-green-400">
+                        ACTIVA
+                      </Text>
+                    </View>
+                  </View>
+
+                  {/* Store badge */}
+                  <View className="flex-row items-center gap-2 mb-4 px-3 py-2 bg-zinc-900/60 rounded-xl">
+                    <Smartphone size={16} color="#71717A" />
+                    <Text className="text-zinc-400 text-sm">
+                      {iapInfo.store === 'APP_STORE'
+                        ? 'Suscripción via App Store'
+                        : 'Suscripción via Google Play'}
+                    </Text>
+                  </View>
+
+                  {/* Details */}
+                  <View className="gap-3">
+                    <DetailRow
+                      icon={<CalendarDays size={16} color="#71717A" />}
+                      label="Vence"
+                      value={iapInfo.expirationDate ? formatDate(iapInfo.expirationDate) : '—'}
+                    />
+                    <DetailRow
+                      icon={
+                        <CheckCircle size={16} color={iapInfo.willRenew ? '#22C55E' : '#F59E0B'} />
+                      }
+                      label="Renovación"
+                      value={iapInfo.willRenew ? 'Automática' : 'No renovará'}
+                    />
+                  </View>
+                </View>
+
+                {/* Features */}
+                {renderFeaturesCard()}
+
+                {/* Manage via Store */}
+                <TouchableOpacity
+                  onPress={async () => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    if (subscriptionCtx) {
+                      await subscriptionCtx.manageSubscription();
+                    }
+                  }}
+                  className="flex-row items-center justify-center gap-2 py-4 rounded-xl border border-zinc-700 mt-4"
                 >
-                  {getStatusLabel(subscription.status)}
-                </Text>
+                  <ExternalLink size={16} color="#71717A" />
+                  <Text className="text-zinc-400 text-sm">
+                    {isIOS ? 'Gestionar en App Store' : 'Gestionar en Google Play'}
+                  </Text>
+                </TouchableOpacity>
+
+                <View className="flex-row items-start gap-2 mt-3 p-3 bg-zinc-800/40 rounded-xl">
+                  <AlertCircle size={14} color="#71717A" />
+                  <Text className="text-zinc-500 text-xs flex-1">
+                    Para cancelar o cambiar tu suscripción, usa la configuración de{' '}
+                    {isIOS ? 'App Store' : 'Google Play'}. Los cambios se aplican al final del
+                    período actual.
+                  </Text>
+                </View>
+              </View>
+            ) : subscription ? (
+              /* ============ OPENPAY SUBSCRIPTION (Web) ============ */
+              <View>
+                {/* Plan Card - OpenPay */}
+                <View className="bg-zinc-800/60 rounded-2xl p-5 border border-zinc-700/50 mb-4">
+                  <View className="flex-row items-center justify-between mb-4">
+                    <View className="flex-row items-center gap-2">
+                      <Crown size={22} color="#F97316" />
+                      <Text className="text-white text-lg font-bold">TRENS PRO</Text>
+                    </View>
+                    <View
+                      className="px-3 py-1 rounded-full"
+                      style={{
+                        backgroundColor: getStatusColor(subscription.status) + '20',
+                        borderWidth: 1,
+                        borderColor: getStatusColor(subscription.status) + '60',
+                      }}
+                    >
+                      <Text
+                        className="text-xs font-bold uppercase tracking-widest"
+                        style={{ color: getStatusColor(subscription.status) }}
+                      >
+                        {getStatusLabel(subscription.status)}
+                      </Text>
+                    </View>
+                  </View>
+
+                  {/* Source badge */}
+                  <View className="flex-row items-center gap-2 mb-4 px-3 py-2 bg-zinc-900/60 rounded-xl">
+                    <Globe size={16} color="#71717A" />
+                    <Text className="text-zinc-400 text-sm">Suscripción via OpenPay</Text>
+                  </View>
+
+                  {/* Price */}
+                  <View className="flex-row items-baseline gap-1 mb-4">
+                    <Text className="text-white text-3xl font-black font-mono">
+                      S/ {subscription.amount?.toFixed(2) || '59.90'}
+                    </Text>
+                    <Text className="text-zinc-500 text-sm">/ mes</Text>
+                  </View>
+
+                  {/* Details */}
+                  <View className="gap-3">
+                    <DetailRow
+                      icon={<CalendarDays size={16} color="#71717A" />}
+                      label="Inicio del período"
+                      value={formatDate(subscription.current_period_start)}
+                    />
+                    <DetailRow
+                      icon={<CalendarDays size={16} color="#71717A" />}
+                      label="Próximo cobro"
+                      value={formatDate(subscription.current_period_end)}
+                    />
+                    <DetailRow
+                      icon={<CreditCard size={16} color="#71717A" />}
+                      label="Tarjeta"
+                      value={
+                        subscription.openpay_card_last4
+                          ? `${subscription.openpay_card_brand?.toUpperCase() || 'TARJETA'} •••• ${subscription.openpay_card_last4}`
+                          : '—'
+                      }
+                    />
+                  </View>
+                </View>
+
+                {/* Features */}
+                {renderFeaturesCard()}
+
+                {/* Cancel Button - OpenPay */}
+                {subscription.status === 'active' && (
+                  <TouchableOpacity
+                    onPress={handleCancelSubscription}
+                    disabled={isCancelling}
+                    className="py-3 rounded-xl border border-zinc-700 mt-4"
+                  >
+                    {isCancelling ? (
+                      <ActivityIndicator color="#EF4444" />
+                    ) : (
+                      <Text className="text-zinc-500 text-center text-sm">
+                        Cancelar suscripción
+                      </Text>
+                    )}
+                  </TouchableOpacity>
+                )}
+
+                {subscription.status === 'cancelled' && (
+                  <View className="bg-red-500/10 rounded-xl p-4 border border-red-500/20 mt-4">
+                    <View className="flex-row items-center gap-2 mb-1">
+                      <AlertCircle size={16} color="#EF4444" />
+                      <Text className="text-red-400 font-bold text-sm">Suscripción cancelada</Text>
+                    </View>
+                    <Text className="text-zinc-400 text-xs">
+                      Tu acceso PRO continuará hasta el{' '}
+                      {formatDate(subscription.current_period_end)}.
+                    </Text>
+                  </View>
+                )}
+              </View>
+            ) : (
+              /* PRO but no subscription found (admin/ceo grant) */
+              <View>
+                <View className="bg-zinc-800/60 rounded-2xl p-5 border border-zinc-700/50 mb-4">
+                  <View className="flex-row items-center gap-2 mb-3">
+                    <Crown size={22} color="#F97316" />
+                    <Text className="text-white text-lg font-bold">TRENS PRO</Text>
+                  </View>
+                  <View className="px-3 py-1 rounded-full bg-green-500/20 border border-green-500/60 self-start mb-3">
+                    <Text className="text-xs font-bold uppercase tracking-widest text-green-400">
+                      ACTIVA
+                    </Text>
+                  </View>
+                  <Text className="text-zinc-400 text-sm">
+                    Tu acceso PRO fue otorgado por el administrador.
+                  </Text>
+                </View>
+                {renderFeaturesCard()}
+              </View>
+            )}
+          </View>
+        ) : (
+          /* ============ FREE PLAN ============ */
+          <View>
+            <View className="bg-zinc-800/60 rounded-2xl p-5 border border-zinc-700/50 mb-4">
+              <View className="flex-row items-center gap-2 mb-3">
+                <Zap size={22} color="#71717A" />
+                <Text className="text-white text-lg font-bold">Plan Gratuito</Text>
+              </View>
+              <Text className="text-zinc-400 text-sm mb-4">
+                Funciones básicas de entrenamiento. Actualiza a PRO para desbloquear todo el
+                potencial de TRENS.
+              </Text>
+
+              <View className="gap-2">
+                {[
+                  'Grabación de videos',
+                  'Bóveda personal',
+                  'Historial completo',
+                  'Asistente HANK con IA',
+                  'Nutrición personalizada',
+                ].map((feat) => (
+                  <View key={feat} className="flex-row items-center gap-2">
+                    <Lock size={14} color="#52525B" />
+                    <Text className="text-zinc-500 text-sm">{feat}</Text>
+                  </View>
+                ))}
               </View>
             </View>
 
-            {/* Price */}
-            <View className="flex-row items-baseline gap-1 mb-4">
-              <Text className="text-white text-3xl font-black font-mono">
-                S/ {subscription.amount?.toFixed(2) || '59.90'}
-              </Text>
-              <Text className="text-zinc-500 text-sm">/ mes</Text>
-            </View>
-
-            {/* Details */}
-            <View className="gap-3">
-              <DetailRow
-                icon={<CalendarDays size={16} color="#71717A" />}
-                label="Inicio del período"
-                value={formatDate(subscription.current_period_start)}
-              />
-              <DetailRow
-                icon={<CalendarDays size={16} color="#71717A" />}
-                label="Próximo cobro"
-                value={formatDate(subscription.current_period_end)}
-              />
-              <DetailRow
-                icon={<CreditCard size={16} color="#71717A" />}
-                label="Tarjeta"
-                value={
-                  subscription.openpay_card_last4
-                    ? `${subscription.openpay_card_brand?.toUpperCase() || 'TARJETA'} •••• ${subscription.openpay_card_last4}`
-                    : '—'
-                }
-              />
-            </View>
-          </View>
-
-          {/* Features */}
-          <View className="bg-zinc-800/30 rounded-2xl p-5 border border-zinc-700/30 mb-6">
-            <Text className="text-zinc-400 text-xs uppercase tracking-widest font-bold mb-3">
-              TU PLAN INCLUYE
-            </Text>
-            <View className="gap-2">
-              {[
-                'Grabación de videos ilimitada',
-                'Bóveda personal',
-                'Registro de PRs y récords',
-                'Historial de entrenamientos',
-                'Sincronización con Spotify',
-                'Nutrición personalizada',
-                'Asistente HANK con IA',
-                'Fotos de progreso',
-                'Métricas ADN atlético',
-              ].map((feature) => (
-                <View key={feature} className="flex-row items-center gap-2">
-                  <CheckCircle size={14} color="#22C55E" />
-                  <Text className="text-zinc-300 text-sm">{feature}</Text>
-                </View>
-              ))}
-            </View>
-          </View>
-
-          {/* Cancel Button */}
-          {subscription.status === 'active' && (
+            {/* Upgrade Button - Platform aware */}
             <TouchableOpacity
-              onPress={handleCancelSubscription}
-              disabled={isCancelling}
-              className="py-3 rounded-xl border border-zinc-700"
+              onPress={() => {
+                onClose();
+              }}
+              className="overflow-hidden rounded-xl"
             >
-              {isCancelling ? (
-                <ActivityIndicator color="#EF4444" />
-              ) : (
-                <Text className="text-zinc-500 text-center text-sm">Cancelar suscripción</Text>
-              )}
-            </TouchableOpacity>
-          )}
-
-          {subscription.status === 'cancelled' && (
-            <View className="bg-red-500/10 rounded-xl p-4 border border-red-500/20">
-              <View className="flex-row items-center gap-2 mb-1">
-                <AlertCircle size={16} color="#EF4444" />
-                <Text className="text-red-400 font-bold text-sm">Suscripción cancelada</Text>
-              </View>
-              <Text className="text-zinc-400 text-xs">
-                Tu acceso PRO continuará hasta el {formatDate(subscription.current_period_end)}.
-              </Text>
-            </View>
-          )}
-        </View>
-      ) : (
-        /* Free Plan */
-        <View>
-          <View className="bg-zinc-800/60 rounded-2xl p-5 border border-zinc-700/50 mb-4">
-            <View className="flex-row items-center gap-2 mb-3">
-              <Zap size={22} color="#71717A" />
-              <Text className="text-white text-lg font-bold">Plan Gratuito</Text>
-            </View>
-            <Text className="text-zinc-400 text-sm mb-4">
-              Funciones básicas de entrenamiento. Actualiza a PRO para desbloquear todo el potencial
-              de TRENS.
-            </Text>
-
-            {/* Locked features */}
-            <View className="gap-2">
-              {[
-                'Grabación de videos',
-                'Bóveda personal',
-                'Historial completo',
-                'Asistente HANK con IA',
-                'Nutrición personalizada',
-              ].map((feature) => (
-                <View key={feature} className="flex-row items-center gap-2">
-                  <Lock size={14} color="#52525B" />
-                  <Text className="text-zinc-500 text-sm">{feature}</Text>
+              <LinearGradient
+                colors={['#DC2626', '#F97316']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                className="py-4 items-center"
+              >
+                <View className="flex-row items-center gap-2">
+                  <Crown size={18} color="#fff" />
+                  <Text className="text-white text-center font-bold text-lg uppercase tracking-widest">
+                    Hazte PRO —{' '}
+                    {subscriptionCtx
+                      ? isWeb
+                        ? subscriptionCtx.webPrice
+                        : subscriptionCtx.nativePrice
+                      : 'S/ 59.90/mes'}
+                  </Text>
                 </View>
-              ))}
-            </View>
-          </View>
+              </LinearGradient>
+            </TouchableOpacity>
 
-          {/* Upgrade Button */}
-          <TouchableOpacity
-            onPress={() => {
-              onClose();
-              // Navigate to pro upgrade - el ProUpgradeModal se manejará en la pantalla padre
-            }}
-            className="overflow-hidden rounded-xl"
-          >
-            <LinearGradient
-              colors={['#DC2626', '#F97316']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              className="py-4 items-center"
-            >
-              <View className="flex-row items-center gap-2">
-                <Crown size={18} color="#fff" />
-                <Text className="text-white text-center font-bold text-lg uppercase tracking-widest">
-                  Hazte PRO — S/ 59.90/mes
-                </Text>
-              </View>
-            </LinearGradient>
-          </TouchableOpacity>
-        </View>
-      )}
+            {/* Restore (native only) */}
+            {isNative && subscriptionCtx && (
+              <TouchableOpacity
+                onPress={async () => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  const result = await subscriptionCtx.restorePurchases();
+                  if (result.success) {
+                    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                    Alert.alert('Compras restauradas', 'Tu suscripción PRO ha sido restaurada.');
+                    fetchSubscription();
+                  } else {
+                    Alert.alert(
+                      'Sin compras',
+                      result.error || 'No se encontraron compras anteriores.'
+                    );
+                  }
+                }}
+                className="flex-row items-center justify-center gap-2 py-3 mt-3"
+              >
+                <RotateCcw size={14} color="#71717A" />
+                <Text className="text-zinc-500 text-sm">Restaurar compras</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
+      </View>
+    );
+  };
+
+  // Helper: Features card (reutilizable)
+  const renderFeaturesCard = () => (
+    <View className="bg-zinc-800/30 rounded-2xl p-5 border border-zinc-700/30">
+      <Text className="text-zinc-400 text-xs uppercase tracking-widest font-bold mb-3">
+        TU PLAN INCLUYE
+      </Text>
+      <View className="gap-2">
+        {[
+          'Grabación de videos ilimitada',
+          'Bóveda personal',
+          'Registro de PRs y récords',
+          'Historial de entrenamientos',
+          'Sincronización con Spotify',
+          'Nutrición personalizada',
+          'Asistente HANK con IA',
+          'Fotos de progreso',
+          'Métricas ADN atlético',
+        ].map((feat) => (
+          <View key={feat} className="flex-row items-center gap-2">
+            <CheckCircle size={14} color="#22C55E" />
+            <Text className="text-zinc-300 text-sm">{feat}</Text>
+          </View>
+        ))}
+      </View>
     </View>
   );
 
   // =========================================================================
-  // RENDER: CARDS
+  // RENDER: CARDS (solo para suscripciones OpenPay / tarjetas guardadas)
   // =========================================================================
   const renderCardsSection = () => (
     <View className="flex-1">
+      {/* Show IAP notice if subscription is via IAP */}
+      {hasIAPSubscription && (
+        <View className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-4 mb-4">
+          <View className="flex-row items-center gap-2 mb-1">
+            <Smartphone size={16} color="#3B82F6" />
+            <Text className="text-blue-400 font-bold text-sm">Pago via tienda</Text>
+          </View>
+          <Text className="text-zinc-400 text-xs">
+            Tu suscripción se cobra a través de {isIOS ? 'App Store' : 'Google Play'}. La gestión de
+            pago se hace desde la configuración de tu dispositivo.
+          </Text>
+        </View>
+      )}
+
       <Text className="text-xs text-zinc-500 uppercase tracking-widest mb-4 font-bold">
-        MÉTODOS DE PAGO
+        {hasIAPSubscription ? 'TARJETAS GUARDADAS' : 'MÉTODOS DE PAGO'}
       </Text>
 
       {/* Add Card Form (inline) */}
@@ -1328,6 +1641,99 @@ export default function AccountModal({
   );
 
   // =========================================================================
+  // RENDER: DELETE ACCOUNT
+  // =========================================================================
+  const renderDeleteAccountSection = () => (
+    <View className="flex-1">
+      {/* Warning Header */}
+      <View className="bg-red-950/30 border border-red-500/30 rounded-2xl p-5 mb-6">
+        <View className="flex-row items-center gap-3 mb-3">
+          <View className="w-12 h-12 rounded-full bg-red-500/20 items-center justify-center">
+            <ShieldAlert size={24} color="#EF4444" />
+          </View>
+          <View className="flex-1">
+            <Text className="text-red-400 text-lg font-bold">Zona de Peligro</Text>
+            <Text className="text-red-400/60 text-xs mt-0.5">Esta acción es irreversible</Text>
+          </View>
+        </View>
+        <Text className="text-zinc-400 text-sm leading-6">
+          Al eliminar tu cuenta se borrarán permanentemente:
+        </Text>
+        <View className="mt-3 gap-2">
+          {[
+            'Tu perfil y datos personales',
+            'Todos tus entrenamientos y récords',
+            'Fotos de progreso',
+            'Plan nutricional y suplementos',
+            'Videos subidos a la bóveda',
+            'Suscripción activa (si la tienes)',
+            'Tarjetas guardadas',
+          ].map((item) => (
+            <View key={item} className="flex-row items-center gap-2">
+              <Trash2 size={12} color="#EF4444" />
+              <Text className="text-zinc-400 text-sm">{item}</Text>
+            </View>
+          ))}
+        </View>
+      </View>
+
+      {/* Confirmation Input */}
+      <View className="mb-6">
+        <Text className="text-zinc-400 text-sm mb-2">
+          Escribe <Text className="text-red-400 font-bold">ELIMINAR</Text> para confirmar:
+        </Text>
+        <TextInput
+          value={deleteConfirmText}
+          onChangeText={setDeleteConfirmText}
+          placeholder="Escribe ELIMINAR"
+          placeholderTextColor="#52525b"
+          className="bg-zinc-800 text-white text-lg p-4 rounded-xl border border-red-900/50"
+          autoCapitalize="characters"
+          autoCorrect={false}
+        />
+      </View>
+
+      {/* Delete Button */}
+      <TouchableOpacity
+        onPress={handleDeleteAccount}
+        disabled={isDeletingAccount || deleteConfirmText !== 'ELIMINAR'}
+        className={`py-4 rounded-xl ${
+          isDeletingAccount || deleteConfirmText !== 'ELIMINAR'
+            ? 'bg-zinc-800 border border-zinc-700'
+            : 'bg-red-600'
+        }`}
+      >
+        {isDeletingAccount ? (
+          <View className="flex-row items-center justify-center gap-2">
+            <ActivityIndicator color="#EF4444" />
+            <Text className="text-red-400 font-bold">Eliminando cuenta...</Text>
+          </View>
+        ) : (
+          <View className="flex-row items-center justify-center gap-2">
+            <UserX size={18} color={deleteConfirmText === 'ELIMINAR' ? '#fff' : '#52525B'} />
+            <Text
+              className={`text-center font-bold text-lg uppercase tracking-widest ${
+                deleteConfirmText === 'ELIMINAR' ? 'text-white' : 'text-zinc-600'
+              }`}
+            >
+              Eliminar mi cuenta
+            </Text>
+          </View>
+        )}
+      </TouchableOpacity>
+
+      {/* Help text */}
+      <View className="flex-row items-start gap-2 mt-4 p-3 bg-zinc-800/40 rounded-xl">
+        <AlertCircle size={14} color="#71717A" className="mt-0.5" />
+        <Text className="text-zinc-500 text-xs flex-1">
+          Si tienes problemas con tu cuenta, contacta a soporte@trens.app antes de eliminarla.
+          Podemos ayudarte.
+        </Text>
+      </View>
+    </View>
+  );
+
+  // =========================================================================
   // RENDER: CURRENT SECTION
   // =========================================================================
   const renderSection = () => {
@@ -1344,6 +1750,8 @@ export default function AccountModal({
         return renderPasswordSection();
       case 'personal':
         return renderPersonalSection();
+      case 'delete-account':
+        return renderDeleteAccountSection();
       default:
         return renderMainMenu();
     }
@@ -1363,6 +1771,8 @@ export default function AccountModal({
         return 'Contraseña';
       case 'personal':
         return 'Info Personal';
+      case 'delete-account':
+        return 'Eliminar Cuenta';
       default:
         return 'Mi Cuenta';
     }

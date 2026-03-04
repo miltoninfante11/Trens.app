@@ -12,6 +12,7 @@ import { ProRecordingProvider } from '../context/ProRecordingContext';
 import { UserRoleProvider, useUserRoleContext } from '../context/UserRoleContext';
 import { SaveGuardProvider } from '../context/SaveGuardContext';
 import { NotificationProvider } from '../context/NotificationContext';
+import { SubscriptionProvider } from '../context/SubscriptionContext';
 import { useDeepLinkHandler } from '../services/share/deepLinkHandler';
 import { ErrorBoundary } from '../components/ui/ErrorBoundary';
 import * as WebBrowser from 'expo-web-browser';
@@ -102,6 +103,12 @@ export { useSaveGuard } from '../context/SaveGuardContext';
 export { useNotifications } from '../context/NotificationContext';
 
 // ============================================================================
+// 6. SUBSCRIPTION CONTEXT - Sistema híbrido IAP + OpenPay
+// Re-exportamos useSubscription para acceso global
+// ============================================================================
+export { useSubscription } from '../context/SubscriptionContext';
+
+// ============================================================================
 // 4. HANK WRAPPER - Conecta HankProvider con userId del Auth
 // Solo renderiza HankProvider y HankOverlay cuando hay usuario autenticado
 // ============================================================================
@@ -140,13 +147,15 @@ export default function RootLayout() {
                 <ProRecordingProvider>
                   <SaveGuardWrapper>
                     <NotificationProvider>
-                      <HankWrapper>
-                        <View className="flex-1 bg-savage-black">
-                          <Slot />
-                          {/* Overlays movidos a (tabs)/_layout.tsx donde hay contexto de navegación */}
-                          <StatusBar style="light" />
-                        </View>
-                      </HankWrapper>
+                      <SubscriptionProvider>
+                        <HankWrapper>
+                          <View className="flex-1 bg-savage-black">
+                            <Slot />
+                            {/* Overlays movidos a (tabs)/_layout.tsx donde hay contexto de navegación */}
+                            <StatusBar style="light" />
+                          </View>
+                        </HankWrapper>
+                      </SubscriptionProvider>
                     </NotificationProvider>
                   </SaveGuardWrapper>
                 </ProRecordingProvider>
