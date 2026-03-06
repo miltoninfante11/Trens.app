@@ -150,7 +150,7 @@
       "openpayPublicKey": "pk_8ce5687a939145189673ff91c3282463",
       "openpaySandbox": "false",
       "revenueCatAppleKey": "appl_YOUR_REVENUECAT_APPLE_KEY",
-      "revenueCatGoogleKey": "test_RHTdLaeoVXkvboIXkNWMqyBXyQM"
+      "revenueCatGoogleKey": "goog_SaphEtgVTxHGIyAfxMeophkRsOx"
     },
     "runtimeVersion": {
       "policy": "appVersion"
