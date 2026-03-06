@@ -1075,7 +1075,9 @@ function ProScreenContent() {
             mediaData={capturedMedia}
             spotifyMetadata={spotifyMetadata}
             spotifyConnected={spotifyConnected}
-            exerciseName={(proContext as any).type === 'tactical' ? (proContext as any).exerciseName : null}
+            exerciseName={
+              (proContext as any).type === 'tactical' ? (proContext as any).exerciseName : null
+            }
             isTactical={(proContext as any).type === 'tactical'}
             onClose={discardMedia}
             onSave={handleEditorSave}
@@ -1325,7 +1327,9 @@ function ProScreenContent() {
           mediaData={capturedMedia}
           spotifyMetadata={spotifyMetadata}
           spotifyConnected={spotifyConnected}
-          exerciseName={(proContext as any).type === 'tactical' ? (proContext as any).exerciseName : null}
+          exerciseName={
+            (proContext as any).type === 'tactical' ? (proContext as any).exerciseName : null
+          }
           isTactical={(proContext as any).type === 'tactical'}
           onClose={discardMedia}
           onSave={handleEditorSave}

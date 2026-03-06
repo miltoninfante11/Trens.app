@@ -1178,9 +1178,14 @@ export const HankOverlay: React.FC = () => {
 
   const flatListRef = useRef<FlatList>(null);
 
-  // Ocultar en Feed
+  // Ocultar en Feed y PRO
   const isHiddenInFeed =
-    pathname?.includes('feed') || pathname === '/feed/index' || pathname === '/feed';
+    pathname?.includes('feed') ||
+    pathname === '/feed/index' ||
+    pathname === '/feed' ||
+    pathname?.includes('pro') ||
+    pathname === '/pro/index' ||
+    pathname === '/pro';
 
   // Animated value para cierre por gesto
   const translateY = useSharedValue(0);

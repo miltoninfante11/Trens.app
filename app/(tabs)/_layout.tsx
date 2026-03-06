@@ -1,6 +1,6 @@
 import { Tabs, usePathname, useRouter } from 'expo-router';
 import { BottomTabBar } from '@react-navigation/bottom-tabs';
-import { View, Text, Platform } from 'react-native';
+import { View, Text, Platform, Pressable } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
@@ -13,10 +13,7 @@ import {
   Flag,
   Sailboat,
   Waves,
-  Music,
   Camera,
-  CameraOff,
-  ChevronUp,
   LucideIcon,
 } from 'lucide-react-native';
 import Animated, {
@@ -25,8 +22,6 @@ import Animated, {
   withRepeat,
   withTiming,
   withSequence,
-  withDelay,
-  withSpring,
   Easing,
 } from 'react-native-reanimated';
 import { useEffect, useRef, useCallback, useState, useMemo } from 'react';
@@ -73,235 +68,38 @@ const getIconComponent = (iconName: string): LucideIcon => {
   return ICON_MAP[iconName] || Dumbbell;
 };
 
-// Hook para detectar módulo anterior y si PRO está activo
-function useProNavigation() {
-  const pathname = usePathname();
-  const previousModuleRef = useRef<string | null>(null);
-  const isProActive = pathname === '/pro' || pathname === '/pro/index';
-
-  useEffect(() => {
-    if (!isProActive && pathname) {
-      previousModuleRef.current = pathname;
-    }
-  }, [pathname, isProActive]);
-
-  return {
-    isProActive,
-    previousModule: previousModuleRef.current,
-  };
-}
-
-// Componente de icono con glow pulsante sincronizado
-function SyncedGlowIcon({
+// Componente de icono simple para tabs
+function TabIcon({
   Icon,
   color,
   size,
-  isSource,
   fill,
-  accentColor = '#DC2626',
 }: {
   Icon: any;
   color: string;
   size: number;
-  isSource: boolean;
   fill?: string;
-  accentColor?: string;
 }) {
-  const glowOpacity = useSharedValue(0);
-  const glowScale = useSharedValue(1);
-
-  useEffect(() => {
-    if (isSource) {
-      // Pulso sincronizado
-      glowOpacity.value = withRepeat(
-        withSequence(
-          withTiming(1, { duration: 800, easing: Easing.inOut(Easing.ease) }),
-          withTiming(0.4, { duration: 800, easing: Easing.inOut(Easing.ease) })
-        ),
-        -1,
-        true
-      );
-      glowScale.value = withRepeat(
-        withSequence(
-          withTiming(1.4, { duration: 800, easing: Easing.inOut(Easing.ease) }),
-          withTiming(1.2, { duration: 800, easing: Easing.inOut(Easing.ease) })
-        ),
-        -1,
-        true
-      );
-    } else {
-      glowOpacity.value = withTiming(0, { duration: 300 });
-      glowScale.value = withTiming(1, { duration: 300 });
-    }
-  }, [isSource]);
-
-  const glowStyle = useAnimatedStyle(() => ({
-    position: 'absolute',
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: accentColor,
-    opacity: glowOpacity.value * 0.5,
-    transform: [{ scale: glowScale.value }],
-  }));
-
   return (
     <View style={{ alignItems: 'center', justifyContent: 'center' }}>
-      <Animated.View style={glowStyle} />
-      <Icon
-        color={isSource ? accentColor : color}
-        size={size}
-        fill={isSource ? accentColor : fill}
-      />
+      <Icon color={color} size={size} fill={fill} />
     </View>
   );
 }
 
-// Línea de conexión animada en el borde superior
-function ConnectionLine({
-  isVisible,
-  sourceIndex,
-}: {
-  isVisible: boolean;
-  sourceIndex: number; // 0=FEED, 1=ADN, 3=GYM, 4=PLAN (PRO es 2)
-}) {
-  const lineProgress = useSharedValue(0);
-  const lineOpacity = useSharedValue(0);
-
-  useEffect(() => {
-    if (isVisible && sourceIndex !== -1) {
-      lineOpacity.value = withTiming(1, { duration: 200 });
-      lineProgress.value = 0;
-      lineProgress.value = withDelay(
-        100,
-        withTiming(1, { duration: 400, easing: Easing.out(Easing.cubic) })
-      );
-    } else {
-      lineOpacity.value = withTiming(0, { duration: 200 });
-      lineProgress.value = withTiming(0, { duration: 200 });
-    }
-  }, [isVisible, sourceIndex]);
-
-  const lineStyle = useAnimatedStyle(() => {
-    // Calcular posiciones (5 tabs, PRO está en posición 2)
-    const tabWidth = 100 / 5;
-    const proCenter = 2 * tabWidth + tabWidth / 2; // Centro de PRO en %
-    const sourceCenter = sourceIndex * tabWidth + tabWidth / 2; // Centro del módulo origen
-
-    const startX = Math.min(proCenter, sourceCenter);
-    const endX = Math.max(proCenter, sourceCenter);
-    const totalWidth = endX - startX;
-
-    // La línea crece desde el origen hacia PRO
-    const isLeftOfPro = sourceIndex < 2;
-    const currentWidth = totalWidth * lineProgress.value;
-
-    return {
-      position: 'absolute',
-      top: 0,
-      left: isLeftOfPro ? `${startX + (totalWidth - currentWidth)}%` : `${startX}%`,
-      width: `${currentWidth}%`,
-      height: 2,
-      backgroundColor: '#DC2626',
-      opacity: lineOpacity.value,
-      shadowColor: '#DC2626',
-      shadowOffset: { width: 0, height: 0 },
-      shadowOpacity: 0.8,
-      shadowRadius: 4,
-    };
-  });
-
-  // Punto en el origen
-  const dotStyle = useAnimatedStyle(() => {
-    const tabWidth = 100 / 5;
-    const sourceCenter = sourceIndex * tabWidth + tabWidth / 2;
-
-    return {
-      position: 'absolute',
-      top: -3,
-      left: `${sourceCenter}%`,
-      marginLeft: -4,
-      width: 8,
-      height: 8,
-      borderRadius: 4,
-      backgroundColor: '#DC2626',
-      opacity: lineOpacity.value,
-      transform: [{ scale: lineProgress.value }],
-      shadowColor: '#DC2626',
-      shadowOffset: { width: 0, height: 0 },
-      shadowOpacity: 1,
-      shadowRadius: 6,
-    };
-  });
-
-  // Punto en PRO
-  const proDotStyle = useAnimatedStyle(() => {
-    const tabWidth = 100 / 5;
-    const proCenter = 2 * tabWidth + tabWidth / 2;
-
-    return {
-      position: 'absolute',
-      top: -3,
-      left: `${proCenter}%`,
-      marginLeft: -4,
-      width: 8,
-      height: 8,
-      borderRadius: 4,
-      backgroundColor: '#DC2626',
-      opacity: lineOpacity.value,
-      transform: [{ scale: lineProgress.value }],
-      shadowColor: '#DC2626',
-      shadowOffset: { width: 0, height: 0 },
-      shadowOpacity: 1,
-      shadowRadius: 6,
-    };
-  });
-
-  if (sourceIndex === -1) return null;
-
-  return (
-    <>
-      <Animated.View style={lineStyle} />
-      <Animated.View style={dotStyle} />
-      <Animated.View style={proDotStyle} />
-    </>
-  );
-}
-
 // Componente para el icono PRO con indicadores dinámicos
-function ProTabIcon({ focused, onTabPress }: { focused: boolean; onTabPress: () => void }) {
-  const { isRecording, recordingTime, hasSpotify, exerciseName, takePhoto } = useProRecording();
-
-  // Refs para PanResponder (mismo patrón que Spotify)
-  const focusedRef = useRef(focused);
-  const isRecordingRef = useRef(isRecording);
-  const takePhotoRef = useRef(takePhoto);
-  const onTabPressRef = useRef(onTabPress);
-  const startPos = useRef({ x: 0, y: 0 });
-  const isDragging = useRef(false);
-  useEffect(() => {
-    focusedRef.current = focused;
-  }, [focused]);
-  useEffect(() => {
-    isRecordingRef.current = isRecording;
-  }, [isRecording]);
-  useEffect(() => {
-    takePhotoRef.current = takePhoto;
-  }, [takePhoto]);
-  useEffect(() => {
-    onTabPressRef.current = onTabPress;
-  }, [onTabPress]);
+function ProTabIcon({
+  focused,
+  onTabPress,
+  onPhotoPress,
+}: {
+  focused: boolean;
+  onTabPress: () => void;
+  onPhotoPress: () => void;
+}) {
+  const { isRecording, recordingTime } = useProRecording();
 
   const pulseScale = useSharedValue(1);
-  const hintOpacity = useSharedValue(0);
-  const fabTranslateY = useSharedValue(0);
-  const fabScale = useSharedValue(1);
-  const waveY1 = useSharedValue(0);
-  const waveY2 = useSharedValue(0);
-  const waveY3 = useSharedValue(0);
-  const waveOpacity1 = useSharedValue(0);
-  const waveOpacity2 = useSharedValue(0);
-  const waveOpacity3 = useSharedValue(0);
 
   useEffect(() => {
     if (isRecording) {
@@ -318,96 +116,8 @@ function ProTabIcon({ focused, onTabPress }: { focused: boolean; onTabPress: () 
     }
   }, [isRecording]);
 
-  // Animación de ondas: translateY hacia arriba (no scale)
-  useEffect(() => {
-    if (focused && !isRecording) {
-      hintOpacity.value = withDelay(800, withTiming(1, { duration: 400 }));
-
-      // Onda 1: sube y se desvanece
-      waveY1.value = withRepeat(
-        withSequence(
-          withTiming(-30, { duration: 1200, easing: Easing.out(Easing.ease) }),
-          withTiming(0, { duration: 0 })
-        ),
-        -1
-      );
-      waveOpacity1.value = withRepeat(
-        withSequence(withTiming(0.8, { duration: 100 }), withTiming(0, { duration: 1100 })),
-        -1
-      );
-
-      // Onda 2: 400ms desfase
-      waveY2.value = withDelay(
-        400,
-        withRepeat(
-          withSequence(
-            withTiming(-30, { duration: 1200, easing: Easing.out(Easing.ease) }),
-            withTiming(0, { duration: 0 })
-          ),
-          -1
-        )
-      );
-      waveOpacity2.value = withDelay(
-        400,
-        withRepeat(
-          withSequence(withTiming(0.5, { duration: 100 }), withTiming(0, { duration: 1100 })),
-          -1
-        )
-      );
-
-      // Onda 3: 800ms desfase
-      waveY3.value = withDelay(
-        800,
-        withRepeat(
-          withSequence(
-            withTiming(-30, { duration: 1200, easing: Easing.out(Easing.ease) }),
-            withTiming(0, { duration: 0 })
-          ),
-          -1
-        )
-      );
-      waveOpacity3.value = withDelay(
-        800,
-        withRepeat(
-          withSequence(withTiming(0.4, { duration: 100 }), withTiming(0, { duration: 1100 })),
-          -1
-        )
-      );
-    } else {
-      hintOpacity.value = withTiming(0, { duration: 200 });
-      waveOpacity1.value = withTiming(0, { duration: 200 });
-      waveOpacity2.value = withTiming(0, { duration: 200 });
-      waveOpacity3.value = withTiming(0, { duration: 200 });
-      waveY1.value = withTiming(0, { duration: 200 });
-      waveY2.value = withTiming(0, { duration: 200 });
-      waveY3.value = withTiming(0, { duration: 200 });
-    }
-  }, [focused, isRecording]);
-
-  // Animated styles
   const buttonStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: pulseScale.value * fabScale.value }, { translateY: fabTranslateY.value }],
-  }));
-
-  const hintAnimatedStyle = useAnimatedStyle(() => ({
-    opacity: hintOpacity.value,
-  }));
-
-  // 3 semicírculos que suben — solo arco superior visible
-  const ARC_W = 50;
-  const ARC_H = 14; // mitad del arco visible
-
-  const wave1Style = useAnimatedStyle(() => ({
-    opacity: waveOpacity1.value,
-    transform: [{ translateY: waveY1.value }],
-  }));
-  const wave2Style = useAnimatedStyle(() => ({
-    opacity: waveOpacity2.value,
-    transform: [{ translateY: waveY2.value }],
-  }));
-  const wave3Style = useAnimatedStyle(() => ({
-    opacity: waveOpacity3.value,
-    transform: [{ translateY: waveY3.value }],
+    transform: [{ scale: pulseScale.value }],
   }));
 
   const formatTime = (seconds: number): string => {
@@ -415,56 +125,6 @@ function ProTabIcon({ focused, onTabPress }: { focused: boolean; onTabPress: () 
     const secs = seconds % 60;
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
-
-  // PanResponder — captura TODO (ya no hay Pressable padre que compita)
-  // Tap = navegar/grabar/parar. Drag hacia arriba = foto (solo en PRO).
-  const panResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
-
-      onPanResponderGrant: (evt) => {
-        isDragging.current = false;
-        startPos.current = {
-          x: evt.nativeEvent.pageX,
-          y: evt.nativeEvent.pageY,
-        };
-      },
-
-      onPanResponderMove: (_evt, gestureState) => {
-        // Solo arrastra si estamos en PRO y no grabando
-        if (!focusedRef.current || isRecordingRef.current) return;
-        if (Math.abs(gestureState.dy) > 5) {
-          isDragging.current = true;
-          fabScale.value = withTiming(0.95, { duration: 100 });
-        }
-        // Solo hacia arriba, con resistencia elástica al 50%
-        if (gestureState.dy < 0) {
-          fabTranslateY.value = Math.max(-80, gestureState.dy * 0.5);
-        }
-      },
-
-      onPanResponderRelease: (_evt, gestureState) => {
-        fabScale.value = withSpring(1);
-        fabTranslateY.value = withSpring(0, { damping: 15, stiffness: 300 });
-
-        if (isDragging.current && gestureState.dy < -40) {
-          // Drag hacia arriba suficiente → foto
-          takePhotoRef.current();
-        } else if (!isDragging.current) {
-          // Tap corto → navegar o grabar/parar
-          onTabPressRef.current();
-        }
-        isDragging.current = false;
-      },
-
-      onPanResponderTerminate: () => {
-        fabScale.value = withSpring(1);
-        fabTranslateY.value = withSpring(0, { damping: 15, stiffness: 300 });
-        isDragging.current = false;
-      },
-    })
-  ).current;
 
   return (
     <View style={{ alignItems: 'center', overflow: 'visible' }}>
@@ -500,121 +160,96 @@ function ProTabIcon({ focused, onTabPress }: { focused: boolean; onTabPress: () 
         </View>
       )}
 
-      {/* Texto FOTO — encima de las ondas */}
+      {/* Botón de FOTO — icono de cámara encima del botón de grabar (solo en PRO, no grabando) */}
       {focused && !isRecording && (
-        <Animated.View
-          style={[
-            hintAnimatedStyle,
-            {
-              position: 'absolute',
-              bottom: 92,
-              alignItems: 'center',
-              zIndex: 110,
-            },
-          ]}
-        >
-          <ChevronUp color="#DC2626" size={14} strokeWidth={3} />
-          <Text
-            style={{
-              color: '#DC2626',
-              fontSize: 9,
-              fontWeight: '800',
-              letterSpacing: 1,
-              marginTop: -3,
-            }}
-          >
-            FOTO
-          </Text>
-        </Animated.View>
-      )}
-
-      {/* Ondas — semicírculos que suben desde el botón */}
-      {focused && !isRecording && (
-        <View style={{ position: 'absolute', bottom: 66, alignItems: 'center', zIndex: 99 }}>
-          <Animated.View style={[wave1Style, { position: 'absolute', bottom: 0 }]}>
-            <View
-              style={{
-                width: ARC_W,
-                height: ARC_H,
-                borderTopLeftRadius: ARC_W / 2,
-                borderTopRightRadius: ARC_W / 2,
-                borderWidth: 2,
-                borderBottomWidth: 0,
-                borderColor: '#DC2626',
-              }}
-            />
-          </Animated.View>
-          <Animated.View style={[wave2Style, { position: 'absolute', bottom: 0 }]}>
-            <View
-              style={{
-                width: ARC_W * 0.8,
-                height: ARC_H * 0.85,
-                borderTopLeftRadius: ARC_W / 2,
-                borderTopRightRadius: ARC_W / 2,
-                borderWidth: 1.5,
-                borderBottomWidth: 0,
-                borderColor: '#DC2626',
-              }}
-            />
-          </Animated.View>
-          <Animated.View style={[wave3Style, { position: 'absolute', bottom: 0 }]}>
-            <View
-              style={{
-                width: ARC_W * 0.6,
-                height: ARC_H * 0.7,
-                borderTopLeftRadius: ARC_W / 2,
-                borderTopRightRadius: ARC_W / 2,
-                borderWidth: 1,
-                borderBottomWidth: 0,
-                borderColor: '#DC2626',
-              }}
-            />
-          </Animated.View>
-        </View>
-      )}
-
-      {/* Botón principal — panHandlers aplicados al Animated.View (como Spotify) */}
-      <Animated.View
-        style={[
-          buttonStyle,
-          Platform.OS === 'web'
-            ? ({ touchAction: 'none', userSelect: 'none', cursor: 'grab' } as any)
-            : {},
-        ]}
-        {...panResponder.panHandlers}
-      >
-        <View
+        <Pressable
+          onPress={onPhotoPress}
           style={{
-            padding: 16,
-            borderRadius: 999,
-            backgroundColor: isRecording
-              ? ED_HARDY.fireRed
-              : focused
-                ? ED_HARDY.fireRed
-                : ED_HARDY.zinc800,
-            marginBottom: 20,
-            shadowColor: isRecording
-              ? ED_HARDY.neonRed
-              : focused
-                ? ED_HARDY.neonRed
-                : 'transparent',
-            shadowOffset: { width: 0, height: 0 },
-            shadowOpacity: isRecording ? 1 : focused ? 0.8 : 0,
-            shadowRadius: isRecording ? 20 : 15,
-            elevation: isRecording ? 20 : focused ? 15 : 0,
-            borderWidth: isRecording ? 3 : focused ? 2 : 0,
-            borderColor: isRecording ? '#fff' : ED_HARDY.fireOrange,
+            position: 'absolute',
+            bottom: 96,
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 110,
+            width: 36,
+            height: 36,
+            borderRadius: 18,
+            backgroundColor: 'rgba(10, 0, 0, 0.9)',
+            borderWidth: 1.5,
+            borderColor: '#F97316',
+            ...(Platform.OS !== 'web'
+              ? {
+                  shadowColor: '#F97316',
+                  shadowOffset: { width: 0, height: 0 },
+                  shadowOpacity: 0.8,
+                  shadowRadius: 8,
+                  elevation: 10,
+                }
+              : {}),
           }}
         >
-          {isRecording ? (
-            <View style={{ width: 28, height: 28, backgroundColor: '#fff', borderRadius: 4 }} />
-          ) : focused ? (
-            <Camera color="#FFFFFF" size={28} strokeWidth={2.5} />
-          ) : (
-            <Crosshair color="#FFFFFF" size={28} strokeWidth={2.5} />
-          )}
-        </View>
-      </Animated.View>
+          <Camera color="#FFFFFF" size={18} strokeWidth={2.5} />
+        </Pressable>
+      )}
+
+      {/* Botón principal de grabar — Pressable unificado web + nativo */}
+      <Pressable onPress={onTabPress}>
+        <Animated.View style={[buttonStyle]}>
+          <View
+            style={{
+              // Círculo blanco exterior (siempre visible en PRO)
+              padding: focused ? 4 : 16,
+              borderRadius: 999,
+              backgroundColor: focused ? '#FFFFFF' : ED_HARDY.zinc800,
+              marginBottom: 20,
+              alignItems: 'center',
+              justifyContent: 'center',
+              ...(Platform.OS !== 'web'
+                ? {
+                    shadowColor: isRecording
+                      ? ED_HARDY.neonRed
+                      : focused
+                        ? ED_HARDY.neonRed
+                        : 'transparent',
+                    shadowOffset: { width: 0, height: 0 },
+                    shadowOpacity: isRecording ? 1 : focused ? 0.8 : 0,
+                    shadowRadius: isRecording ? 20 : 15,
+                    elevation: isRecording ? 20 : focused ? 15 : 0,
+                  }
+                : {}),
+            }}
+          >
+            {focused ? (
+              // Dentro de PRO: círculo rojo (idle) o cuadrado rojo (grabando)
+              isRecording ? (
+                // GRABANDO → cuadrado rojo (stop)
+                <View
+                  style={{
+                    width: 28,
+                    height: 28,
+                    borderRadius: 6,
+                    backgroundColor: ED_HARDY.fireRed,
+                    margin: 10,
+                  }}
+                />
+              ) : (
+                // IDLE → círculo rojo grande (start)
+                <View
+                  style={{
+                    width: 44,
+                    height: 44,
+                    borderRadius: 22,
+                    backgroundColor: ED_HARDY.fireRed,
+                    margin: 2,
+                  }}
+                />
+              )
+            ) : (
+              // Fuera de PRO: icono crosshair
+              <Crosshair color="#FFFFFF" size={28} strokeWidth={2.5} />
+            )}
+          </View>
+        </Animated.View>
+      </Pressable>
     </View>
   );
 }
@@ -633,12 +268,11 @@ const TAB_ROUTES = ['feed', 'adn', 'pro', 'gym', 'plan'] as const;
 const SWIPEABLE_TABS = ['feed', 'adn'] as const;
 
 export default function TabsLayout() {
-  const { isProActive, previousModule } = useProNavigation();
   const { user, loading } = useAuth();
   const pathname = usePathname();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { isRecording, startRecording, stopRecording } = useProRecording();
+  const { isRecording, startRecording, stopRecording, takePhoto } = useProRecording();
   const defaultModuleApplied = useRef(false);
 
   // -------------------------------------------------------------------------
@@ -681,19 +315,6 @@ export default function TabsLayout() {
 
   // Login ya es obligatorio desde index.tsx, no necesitamos botón flotante
   const showLoginButton = false;
-  const getSourceIndex = (): number => {
-    if (!previousModule) return -1;
-    if (previousModule.includes('feed')) return 0;
-    if (previousModule.includes('adn')) return 1;
-    if (previousModule.includes('gym')) return 3;
-    if (previousModule.includes('plan')) return 4;
-    return -1;
-  };
-
-  const isSourceModule = (routeName: string) => {
-    if (!isProActive || !previousModule) return false;
-    return previousModule.includes(routeName);
-  };
 
   // Altura dinámica del tab bar basada en safe area
   // En web insets.bottom es 0, necesitamos padding mínimo para que el texto no se corte
@@ -869,9 +490,7 @@ export default function TabsLayout() {
                 start={{ x: 0.5, y: 0 }}
                 end={{ x: 0.5, y: 1 }}
                 style={{ flex: 1 }}
-              >
-                <ConnectionLine isVisible={isProActive} sourceIndex={getSourceIndex()} />
-              </LinearGradient>
+              />
             ),
           }}
         >
@@ -886,13 +505,7 @@ export default function TabsLayout() {
                 const effectiveFocused = focused || isProfileView;
                 const effectiveColor = effectiveFocused ? sportColor : color;
                 return (
-                  <SyncedGlowIcon
-                    Icon={Play}
-                    color={effectiveColor}
-                    size={26}
-                    fill={effectiveColor}
-                    isSource={isSourceModule('feed')}
-                  />
+                  <TabIcon Icon={Play} color={effectiveColor} size={26} fill={effectiveColor} />
                 );
               },
             }}
@@ -903,14 +516,7 @@ export default function TabsLayout() {
             name="adn/index"
             options={{
               title: 'ADN',
-              tabBarIcon: ({ color }) => (
-                <SyncedGlowIcon
-                  Icon={User}
-                  color={color}
-                  size={26}
-                  isSource={isSourceModule('adn')}
-                />
-              ),
+              tabBarIcon: ({ color }) => <TabIcon Icon={User} color={color} size={26} />,
             }}
           />
 
@@ -923,6 +529,7 @@ export default function TabsLayout() {
                 <ProTabIcon
                   focused={focused}
                   onTabPress={() => {
+                    const isProActive = pathname?.includes('/pro');
                     if (isProActive) {
                       if (isRecording) {
                         stopRecording();
@@ -933,14 +540,14 @@ export default function TabsLayout() {
                       router.push('/pro');
                     }
                   }}
+                  onPhotoPress={() => {
+                    takePhoto();
+                  }}
                 />
               ),
-              // Reemplazar PlatformPressable con View simple para que PanResponder funcione
-              tabBarButton: (props) => (
-                <View
-                  style={[props.style as any, { overflow: 'visible' }]}
-                  accessibilityRole="button"
-                >
+              // View simple en ambas plataformas — el click lo maneja el Pressable interno de ProTabIcon
+              tabBarButton: (props: any) => (
+                <View style={[props.style, { overflow: 'visible' }]} accessibilityRole="button">
                   {props.children}
                 </View>
               ),
@@ -952,15 +559,7 @@ export default function TabsLayout() {
             name="gym/index"
             options={{
               title: tabConfig.tab4.name,
-              tabBarIcon: ({ color }) => (
-                <SyncedGlowIcon
-                  Icon={Tab4Icon}
-                  color={color}
-                  size={26}
-                  isSource={isSourceModule('gym')}
-                  accentColor={sportColor}
-                />
-              ),
+              tabBarIcon: ({ color }) => <TabIcon Icon={Tab4Icon} color={color} size={26} />,
             }}
           />
 
@@ -969,15 +568,7 @@ export default function TabsLayout() {
             name="plan/index"
             options={{
               title: tabConfig.tab5.name,
-              tabBarIcon: ({ color }) => (
-                <SyncedGlowIcon
-                  Icon={Tab5Icon}
-                  color={color}
-                  size={26}
-                  isSource={isSourceModule('plan')}
-                  accentColor={sportColor}
-                />
-              ),
+              tabBarIcon: ({ color }) => <TabIcon Icon={Tab5Icon} color={color} size={26} />,
             }}
           />
 

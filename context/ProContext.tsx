@@ -3,26 +3,16 @@ import React, { createContext, useContext, useState, ReactNode, useCallback } fr
 // ============================================================================
 // TIPOS
 // ============================================================================
-export type ProContextType = 'tactical' | 'free';
+export type ProContextType = 'free';
 
 export interface ProContextData {
   type: ProContextType;
-  exerciseId?: string;
-  exerciseName?: string;
-  exerciseNotes?: string;
-  exerciseTags?: string[];
   moduleName: 'GYM' | 'NUCLEO' | 'ADN' | 'PLAN';
 }
 
 interface ProContextValue {
   context: ProContextData;
-  setTacticalContext: (
-    exerciseId: string,
-    exerciseName: string,
-    notes?: string,
-    tags?: string[]
-  ) => void;
-  setFreeContext: (moduleName: 'NUCLEO' | 'ADN' | 'PLAN') => void;
+  setFreeContext: (moduleName: 'GYM' | 'NUCLEO' | 'ADN' | 'PLAN') => void;
   clearContext: () => void;
 }
 
@@ -40,32 +30,7 @@ export function ProContextProvider({ children }: { children: ReactNode }) {
     moduleName: 'NUCLEO',
   });
 
-  const setTacticalContext = useCallback(
-    (exerciseId: string, exerciseName: string, notes?: string, tags?: string[]) => {
-      setContext((prev) => {
-        // Evitar actualización si el contexto es el mismo (excepto notas/tags que siempre actualizamos)
-        if (
-          prev.type === 'tactical' &&
-          prev.exerciseId === exerciseId &&
-          prev.exerciseNotes === notes &&
-          JSON.stringify(prev.exerciseTags) === JSON.stringify(tags)
-        ) {
-          return prev;
-        }
-        return {
-          type: 'tactical',
-          exerciseId,
-          exerciseName,
-          exerciseNotes: notes,
-          exerciseTags: tags,
-          moduleName: 'GYM',
-        };
-      });
-    },
-    []
-  );
-
-  const setFreeContext = useCallback((moduleName: 'NUCLEO' | 'ADN' | 'PLAN') => {
+  const setFreeContext = useCallback((moduleName: 'GYM' | 'NUCLEO' | 'ADN' | 'PLAN') => {
     setContext((prev) => {
       if (prev.type === 'free' && prev.moduleName === moduleName) {
         return prev;
@@ -73,8 +38,6 @@ export function ProContextProvider({ children }: { children: ReactNode }) {
       return {
         type: 'free',
         moduleName,
-        exerciseId: undefined,
-        exerciseName: undefined,
       };
     });
   }, []);
@@ -90,7 +53,6 @@ export function ProContextProvider({ children }: { children: ReactNode }) {
     <ProContext.Provider
       value={{
         context,
-        setTacticalContext,
         setFreeContext,
         clearContext,
       }}

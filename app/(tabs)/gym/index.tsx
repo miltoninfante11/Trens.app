@@ -14,7 +14,6 @@ import {
   RefreshControl,
   KeyboardAvoidingView,
   Platform,
-  Image as RNImage,
 } from 'react-native';
 import { PWAGuard } from '../../../components/auth/PWAGuard';
 import { ErrorBoundary } from '../../../components/ui/ErrorBoundary';
@@ -23,7 +22,7 @@ import { Image } from 'expo-image';
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useIsFocused } from '@react-navigation/native';
 import { supabase } from '../../../lib/supabase';
-import { useAuth, useProContext } from '../../_layout';
+import { useAuth } from '../../_layout';
 import {
   Sliders,
   Plus,
@@ -33,16 +32,10 @@ import {
   Timer,
   Edit3,
   Camera as CameraIcon,
-  Video,
   ChevronDown,
   Play,
-  Pause,
   Search,
-  Eye,
-  EyeOff,
-  Share2,
   RotateCcw,
-  Lock,
   Volume2,
   Zap,
   Undo2,
@@ -77,7 +70,7 @@ import { useHank } from '../../../context/HankContext';
 import { subscribeToHankChat } from '../../../lib/hankChatState';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
-import spotify, { SpotifyVideoMetadata, SpotifyTrack } from '../../../services/spotify/spotify';
+import spotify, { SpotifyTrack } from '../../../services/spotify/spotify';
 import cloudflareStream from '../../../services/cloudflare/stream';
 import { DraggableExerciseCard } from '../../../components/gym/DraggableExerciseCard';
 import { SeriesCard } from '../../../components/gym/SeriesCard';
@@ -117,34 +110,6 @@ const getDayOfWeek = (): DayOfWeek => {
     'Sábado',
   ];
   return days[new Date().getDay()];
-};
-
-// ============================================================================
-// VIDEO THUMBNAIL - Muestra el primer frame del video
-// ============================================================================
-const VideoThumbnail = ({
-  videoUrl,
-  width = 96,
-  height = 128,
-}: {
-  videoUrl: string;
-  width?: number;
-  height?: number;
-}) => {
-  const player = useVideoPlayer(videoUrl, (p) => {
-    p.loop = false;
-    p.muted = true;
-    p.pause();
-  });
-
-  return (
-    <VideoView
-      player={player}
-      style={{ width, height }}
-      contentFit="cover"
-      nativeControls={false}
-    />
-  );
 };
 
 // ============================================================================
@@ -239,40 +204,14 @@ interface SeriesConfig {
   weight: number;
 }
 
-interface VideoRecord {
-  id: string;
-  exercise_id?: string;
-  video_url?: string;
-  videoUrl?: string; // alias para compatibilidad
-  thumbnail_url?: string;
-  cloudflare_video_id?: string;
-  media_type?: 'video' | 'photo';
-  weight: number;
-  reps: number;
-  free_text?: string; // Caption del video
-  date: string;
-  is_public: boolean;
-  spotify?: {
-    enabled: boolean;
-    trackName?: string;
-    artist?: string;
-    trackUri?: string;
-    positionMs?: number;
-  };
-  notes?: string; // Notas del video capturadas al grabar
-  exercise_notes?: string; // Notas del ejercicio al momento de grabar
-  tags?: string[]; // Tags del video (PR, dolor, etc)
-}
-
 interface Exercise {
   id: string;
-  exercise_id: string; // ID del ejercicio en tabla exercises (para pro_videos)
+  exercise_id: string; // ID del ejercicio en tabla exercises
   name: string;
   sets: string;
   image_url: string;
   order: number;
   series: Series[];
-  videos: VideoRecord[];
   training_days: number[]; // Array de días donde aparece este ejercicio
   alternatives?: ExerciseAlternative[]; // Ejercicios alternativos
 }
@@ -281,7 +220,6 @@ interface ExerciseAlternative {
   id: string;
   name: string;
   image_url: string;
-  videos: VideoRecord[];
   series: Series[];
 }
 
@@ -612,7 +550,6 @@ function GymScreen() {
     spotifyConnected: contextSpotifyConnected,
     updateSpotifyStatus,
   } = useUserRoleContext();
-  const { setTacticalContext } = useProContext();
   const { canSave } = useSaveGuard();
   const isFocused = useIsFocused(); // Detecta si esta pantalla está activa
   const { setActiveAsset, setScreenContext, refreshTrigger } = useHank();
@@ -671,64 +608,12 @@ function GymScreen() {
   const [savingNotes, setSavingNotes] = useState(false);
   const [currentExerciseIndex, setCurrentExerciseIndex] = useState(0);
 
-  // Historial de notas del ejercicio
-  const [notesHistory, setNotesHistory] = useState<
-    Array<{
-      id: string;
-      date: string;
-      rawDate: string;
-      notes: string;
-      tags?: string[];
-      type: 'video' | 'session';
-      videoId?: string;
-      isToday: boolean;
-    }>
-  >([]);
-  const [loadingNotesHistory, setLoadingNotesHistory] = useState(false);
-  const [todayNoteId, setTodayNoteId] = useState<string | null>(null); // ID de nota de hoy si existe
-
-  // Video Notes Modal State (para editar notas de un video específico)
-  const [videoNotesModalVisible, setVideoNotesModalVisible] = useState(false);
-  const [videoNoteText, setVideoNoteText] = useState('');
-  const [savingVideoNotes, setSavingVideoNotes] = useState(false);
-  const [videoNotesExpanded, setVideoNotesExpanded] = useState(false);
-
-  // Spotify State (solo para captura durante grabación)
+  // Spotify State
   const [spotifyConnected, setSpotifyConnected] = useState(false);
-  const [capturedSpotifyMetadata, setCapturedSpotifyMetadata] =
-    useState<SpotifyVideoMetadata | null>(null);
 
   // Spotify Now Playing State (para fondo animado en modo FOCUS)
   const [spotifyCurrentTrack, setSpotifyCurrentTrack] = useState<SpotifyTrack | null>(null);
   const [spotifyIsPlaying, setSpotifyIsPlaying] = useState(false);
-
-  // Helper: Arreglar URLs de Cloudflare Stream incompletas
-  const fixCloudflareUrl = (url: string): string => {
-    if (!url) return url;
-    if (url.includes('cloudflarestream.com') && !url.includes('/manifest/')) {
-      return `${url}/manifest/video.m3u8`;
-    }
-    return url;
-  };
-
-  // Video State
-  const [videoViewerVisible, setVideoViewerVisible] = useState(false);
-  const [selectedVideo, setSelectedVideo] = useState<VideoRecord | null>(null);
-  const [isVideoManuallyPaused, setIsVideoManuallyPaused] = useState(false);
-
-  // Video Player para historial
-  const rawVideoSource = selectedVideo?.videoUrl || selectedVideo?.video_url || '';
-  const historialVideoSource = fixCloudflareUrl(rawVideoSource);
-  const historialPlayer = useVideoPlayer(historialVideoSource, (player) => {
-    player.loop = true;
-    // Volumen se controla dinámicamente en el useEffect según Spotify
-  });
-
-  // Video Player para preview de video capturado
-  const [capturedVideoUri, setCapturedVideoUri] = useState<string | null>(null);
-  const videoPlayer = useVideoPlayer(capturedVideoUri || '', (player) => {
-    player.loop = true;
-  });
 
   // Editor state - declarado aquí antes de usarlo en editorVideoPlayer
   const [imageToEdit, setImageToEdit] = useState<string | null>(null);
@@ -752,101 +637,9 @@ function GymScreen() {
     }
   }, [editorVisible, mediaType, imageToEdit, editorVideoPlayer]);
 
-  // Play preview video cuando se captura
-  useEffect(() => {
-    if (capturedVideoUri && videoPlayer) {
-      videoPlayer.play();
-    }
-  }, [capturedVideoUri, videoPlayer]);
-
-  // Ref para rastrear si Spotify ya se sincronizó (evita re-sync al reanudar de pausa)
-  const spotifySyncedRef = useRef(false);
-
-  // Ref para rastrear si el video viewer estaba abierto (detectar cierre real)
-  const wasVideoViewerOpenRef = useRef(false);
-
-  // Controlar play/pause del video cuando abre/cierra el viewer
-  useEffect(() => {
-    if (videoViewerVisible && historialPlayer) {
-      // Marcar que el viewer está abierto
-      wasVideoViewerOpenRef.current = true;
-
-      // Determinar si hay Spotify para este video
-      const hasSpotify = !!(
-        spotifyPremium &&
-        selectedVideo?.spotify?.enabled &&
-        selectedVideo?.spotify?.trackUri
-      );
-
-      // MUTEAR el video si hay Spotify - solo se escuchará Spotify
-      historialPlayer.volume = hasSpotify ? 0 : 1;
-
-      // Reproducir video si no está pausado manualmente
-      if (!isVideoManuallyPaused) {
-        historialPlayer.play();
-      }
-
-      // Solo sincronizar Spotify la PRIMERA vez que se abre el modal
-      if (!spotifySyncedRef.current) {
-        console.log('🎬 VIDEO VIEWER ABIERTO - Spotify check:', {
-          spotifyPremium,
-          hasSpotifyData: !!selectedVideo?.spotify,
-          spotifyEnabled: selectedVideo?.spotify?.enabled,
-          trackUri: selectedVideo?.spotify?.trackUri,
-          positionMs: selectedVideo?.spotify?.positionMs,
-          videoMuted: hasSpotify,
-        });
-
-        if (hasSpotify) {
-          spotifySyncedRef.current = true;
-          console.log(
-            '🎵 SINCRONIZANDO SPOTIFY (video muted):',
-            selectedVideo?.spotify?.trackName,
-            'desde',
-            selectedVideo?.spotify?.positionMs,
-            'ms'
-          );
-          spotify.syncWithVideo(
-            selectedVideo!.spotify!.trackUri as string,
-            selectedVideo!.spotify!.positionMs || 0
-          );
-        } else {
-          console.log('🔊 Reproduciendo audio ambiente del video');
-        }
-      }
-    } else if (historialPlayer && !videoViewerVisible && wasVideoViewerOpenRef.current) {
-      // Solo pausar si el viewer REALMENTE estaba abierto antes (no en mount inicial)
-      wasVideoViewerOpenRef.current = false;
-      historialPlayer.pause();
-      setIsVideoManuallyPaused(false); // Reset al cerrar
-      // Solo pausar Spotify si realmente sincronizamos una canción
-      if (spotifySyncedRef.current) {
-        spotify.pauseForSwipe();
-      }
-      spotifySyncedRef.current = false; // Reset para próxima apertura
-    }
-  }, [videoViewerVisible, historialPlayer, selectedVideo, spotifyPremium]);
-
-  // Handler para tap en el video (pausar/reanudar solo video, NO Spotify)
-  const handleHistorialVideoTap = useCallback(() => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    setIsVideoManuallyPaused((prev) => {
-      const newPaused = !prev;
-      if (newPaused) {
-        historialPlayer.pause();
-      } else {
-        historialPlayer.play();
-      }
-      return newPaused;
-    });
-  }, [historialPlayer]);
-
   // Modal State
-  const [historialModalVisible, setHistorialModalVisible] = useState(false);
   const [structureModalVisible, setStructureModalVisible] = useState(false);
   const [modalExercise, setModalExercise] = useState<Exercise | null>(null);
-  const [exerciseVideos, setExerciseVideos] = useState<VideoRecord[]>([]);
-  const [loadingVideos, setLoadingVideos] = useState(false);
 
   // Estado para el modal de estructura editable (FOCUS mode)
   const [focusSeriesConfig, setFocusSeriesConfig] = useState<SeriesConfig[]>([]);
@@ -861,11 +654,7 @@ function GymScreen() {
   const cameraRef = useRef<any>(null);
   const [captureProcessing, setCaptureProcessing] = useState(false);
   const [uploadingMessage, setUploadingMessage] = useState<string | null>(null);
-  const [cameraMode, setCameraMode] = useState<'photo' | 'video'>('photo');
-  const [isRecording, setIsRecording] = useState(false);
-  const [recordingTime, setRecordingTime] = useState(0);
   const [cameraFacing, setCameraFacing] = useState<'front' | 'back'>('back');
-  const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Ref para evitar loops en sincronización de contexto
   const lastSyncedExerciseId = useRef<string | null>(null);
@@ -1317,8 +1106,6 @@ function GymScreen() {
   useEffect(() => {
     const isNowOpen =
       notesModalVisible ||
-      videoNotesModalVisible ||
-      historialModalVisible ||
       structureModalOpen || // Modal de estructura principal (días)
       structureModalVisible || // Modal de focus series (ejercicio individual)
       seriesConfigModalVisible ||
@@ -1331,8 +1118,6 @@ function GymScreen() {
     isAnyModalOpenRef.current = isNowOpen;
   }, [
     notesModalVisible,
-    videoNotesModalVisible,
-    historialModalVisible,
     structureModalOpen,
     structureModalVisible,
     seriesConfigModalVisible,
@@ -1608,24 +1393,6 @@ function GymScreen() {
         exerciseName = alternativeName;
       }
 
-      // SIEMPRE actualizar el contexto táctico cuando GYM está enfocado
-      // (Para que PRO tenga el contexto correcto al entrar)
-      const relatedIds = getAllExerciseIdsByName(exerciseName);
-      let notes = '';
-      let tags: string[] = [];
-
-      for (const id of relatedIds) {
-        if (!notes && exerciseNotes[id]) {
-          notes = exerciseNotes[id];
-        }
-        if (tags.length === 0 && exerciseTags[id] && exerciseTags[id].length > 0) {
-          tags = exerciseTags[id];
-        }
-        if (notes && tags.length > 0) break;
-      }
-
-      setTacticalContext(exerciseId, exerciseName, notes, tags);
-
       // SIEMPRE sincronizar con HANK cuando el ejercicio cambie (EN TODOS LOS MODOS)
       // BUGFIX: Antes solo se sincronizaba en FOCUS, causando que Hank
       // operara en el ejercicio incorrecto en GRID/LIST
@@ -1660,24 +1427,15 @@ function GymScreen() {
     isFocused,
     currentAltIndexForSync, // Valor primitivo que React detecta correctamente
     viewMode,
-    setTacticalContext,
     setActiveAsset,
-    exerciseNotes,
-    exerciseTags,
   ]);
 
   // Modal drag state
-  const translateYHistorial = useSharedValue(0);
   const translateYStructure = useSharedValue(0);
   const translateYFocusSeries = useSharedValue(0);
   const translateYCatalog = useSharedValue(0);
   const translateYSeriesConfig = useSharedValue(0);
   const translateYNotes = useSharedValue(0);
-  const translateYVideoNotes = useSharedValue(0);
-
-  const animatedStyleHistorial = useAnimatedStyle(() => ({
-    transform: [{ translateY: translateYHistorial.value }],
-  }));
 
   const animatedStyleStructure = useAnimatedStyle(() => ({
     transform: [{ translateY: translateYStructure.value }],
@@ -1698,38 +1456,6 @@ function GymScreen() {
   const animatedStyleNotes = useAnimatedStyle(() => ({
     transform: [{ translateY: translateYNotes.value }],
   }));
-
-  const animatedStyleVideoNotes = useAnimatedStyle(() => ({
-    transform: [{ translateY: translateYVideoNotes.value }],
-  }));
-
-  const closeHistorialWithAnimation = () => setHistorialModalVisible(false);
-
-  const panResponderHistorial = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: (_, gestureState) => Math.abs(gestureState.dy) > 5,
-      onPanResponderMove: (_, gestureState) => {
-        if (gestureState.dy > 0) {
-          translateYHistorial.value = gestureState.dy;
-        }
-      },
-      onPanResponderRelease: (_, gestureState) => {
-        if (gestureState.dy > 150) {
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-          // Animar hacia abajo y luego cerrar
-          translateYHistorial.value = withTiming(
-            800,
-            { duration: 200, easing: Easing.out(Easing.ease) },
-            () => runOnJS(closeHistorialWithAnimation)()
-          );
-        } else {
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-          translateYHistorial.value = withTiming(0, { duration: 150 });
-        }
-      },
-    })
-  ).current;
 
   // Ref para guardar series al cerrar con gesto
   const saveFocusSeriesRef = useRef<() => void>(() => {});
@@ -1977,49 +1703,6 @@ function GymScreen() {
     })
   ).current;
 
-  // Ref para saber si debemos guardar video notes al cerrar
-  const shouldSaveVideoNotesOnCloseRef = useRef(false);
-
-  const closeVideoNotesWithAnimation = () => {
-    shouldSaveVideoNotesOnCloseRef.current = true;
-    setVideoNotesModalVisible(false);
-  };
-
-  const panResponderVideoNotes = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: (_, gestureState) => Math.abs(gestureState.dy) > 5,
-      onPanResponderMove: (_, gestureState) => {
-        if (gestureState.dy > 0) {
-          translateYVideoNotes.value = gestureState.dy;
-        }
-      },
-      onPanResponderRelease: (_, gestureState) => {
-        if (gestureState.dy > 150) {
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-          translateYVideoNotes.value = withTiming(
-            800,
-            { duration: 200, easing: Easing.out(Easing.ease) },
-            () => runOnJS(closeVideoNotesWithAnimation)()
-          );
-        } else {
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-          translateYVideoNotes.value = withTiming(0, { duration: 150 });
-        }
-      },
-    })
-  ).current;
-
-  // Resetear translateY y animar entrada cuando los modales se abren
-  useEffect(() => {
-    if (historialModalVisible) {
-      // Empezar fuera de pantalla y animar hacia arriba
-      translateYHistorial.value = 800;
-      translateYHistorial.value = withTiming(0, { duration: 300, easing: Easing.out(Easing.ease) });
-      setTimeout(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium), 100);
-    }
-  }, [historialModalVisible]);
-
   // NOTA: El effect para structureModalVisible ya está arriba usando translateYFocusSeries
 
   useEffect(() => {
@@ -2030,30 +1713,6 @@ function GymScreen() {
       setTimeout(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium), 100);
     }
   }, [notesModalVisible]);
-
-  // Animar entrada del modal de video notes
-  useEffect(() => {
-    if (videoNotesModalVisible) {
-      translateYVideoNotes.value = 800;
-      translateYVideoNotes.value = withTiming(0, {
-        duration: 300,
-        easing: Easing.out(Easing.ease),
-      });
-      setTimeout(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium), 100);
-    }
-  }, [videoNotesModalVisible]);
-
-  // Auto-save video notes al cerrar con gesto
-  const prevVideoNotesModalVisibleRef = useRef(videoNotesModalVisible);
-  useEffect(() => {
-    if (prevVideoNotesModalVisibleRef.current && !videoNotesModalVisible) {
-      if (shouldSaveVideoNotesOnCloseRef.current) {
-        saveVideoNotes();
-      }
-      shouldSaveVideoNotesOnCloseRef.current = false;
-    }
-    prevVideoNotesModalVisibleRef.current = videoNotesModalVisible;
-  }, [videoNotesModalVisible]);
 
   useEffect(() => {
     if (seriesConfigModalVisible) {
@@ -2146,131 +1805,46 @@ function GymScreen() {
         allRelatedIds.length
       );
 
-      // Cargar historial de notas del ejercicio
-      const loadNotesHistory = async () => {
+      // Cargar notas del ejercicio desde user_exercise_config
+      const loadNotes = async () => {
         if (!user) return;
-        setLoadingNotesHistory(true);
 
         try {
-          // Fecha de hoy (inicio del día)
-          const today = new Date();
-          today.setHours(0, 0, 0, 0);
-          const todayStr = today.toISOString().split('T')[0];
-
-          // Obtener notas de videos de TODOS los ejercicios con el mismo nombre
-          const { data: videoNotes, error } = await supabase
-            .from('pro_videos')
-            .select('id, exercise_id, notes, exercise_notes, tags, created_at')
+          const { data: configData } = await supabase
+            .from('user_exercise_config')
+            .select('metadata')
             .eq('user_id', user.id)
-            .in('exercise_id', allRelatedIds)
-            .or('notes.not.is.null,exercise_notes.not.is.null')
-            .order('created_at', { ascending: false })
-            .limit(20);
+            .in('exercise_id', allRelatedIds);
 
-          if (error) throw error;
+          let savedNotes = '';
+          let savedTags: string[] = [];
 
-          const history: Array<{
-            id: string;
-            date: string;
-            rawDate: string;
-            notes: string;
-            tags?: string[];
-            type: 'video' | 'session';
-            videoId?: string;
-            isToday: boolean;
-          }> = [];
-
-          let foundTodayNote: string | null = null;
-          let todayNoteContent = '';
-          let todayNoteTags: string[] = [];
-
-          // Agregar notas de videos
-          videoNotes?.forEach((v: any) => {
-            const noteContent = v.notes || v.exercise_notes;
-            if (noteContent) {
-              const date = new Date(v.created_at);
-              const dateStr = date.toISOString().split('T')[0];
-              const isToday = dateStr === todayStr;
-
-              // IMPORTANTE: Solo marcar como "nota de hoy" si:
-              // 1. Es del día de hoy (fecha)
-              // 2. Pertenece al ejercicio ACTUAL específico (no solo mismo nombre en otro día)
-              const isCurrentExerciseToday = isToday && v.exercise_id === exerciseId;
-
-              if (isCurrentExerciseToday && !foundTodayNote) {
-                foundTodayNote = v.id;
-                todayNoteContent = noteContent;
-                todayNoteTags = v.tags || [];
-              }
-
-              history.push({
-                id: v.id,
-                date: date.toLocaleDateString('es-ES', {
-                  day: 'numeric',
-                  month: 'short',
-                  year: date.getFullYear() !== new Date().getFullYear() ? 'numeric' : undefined,
-                }),
-                rawDate: dateStr,
-                notes: noteContent,
-                tags: v.tags,
-                type: 'video',
-                videoId: v.id,
-                isToday: isCurrentExerciseToday, // Solo es "de hoy" si es del ejercicio actual
-              });
+          configData?.forEach((cfg: any) => {
+            if (!savedNotes && cfg.metadata?.notes) {
+              savedNotes = cfg.metadata.notes;
+            }
+            if (savedTags.length === 0 && cfg.metadata?.tags) {
+              savedTags = cfg.metadata.tags;
             }
           });
 
-          setNotesHistory(history);
-          setTodayNoteId(foundTodayNote);
+          setCurrentNoteText(savedNotes);
+          setExerciseTags((prev) => ({ ...prev, [exerciseId]: savedTags }));
 
-          // Si hay nota de hoy, cargar su contenido
-          if (foundTodayNote) {
-            setCurrentNoteText(todayNoteContent);
-            setExerciseTags((prev) => ({ ...prev, [exerciseId]: todayNoteTags }));
-          } else {
-            // Si no hay nota de hoy, cargar desde metadata (user_exercise_config)
-            // Hacer fetch directo para asegurar datos actualizados
-            // Buscar en TODOS los IDs relacionados por nombre
-            const { data: configData } = await supabase
-              .from('user_exercise_config')
-              .select('metadata')
-              .eq('user_id', user.id)
-              .in('exercise_id', allRelatedIds);
-
-            // Buscar la primera nota/tags que encontremos
-            let savedNotes = '';
-            let savedTags: string[] = [];
-
-            configData?.forEach((cfg: any) => {
-              if (!savedNotes && cfg.metadata?.notes) {
-                savedNotes = cfg.metadata.notes;
-              }
-              if (savedTags.length === 0 && cfg.metadata?.tags) {
-                savedTags = cfg.metadata.tags;
-              }
+          if (savedNotes) {
+            const notesUpdate: Record<string, string> = {};
+            allRelatedIds.forEach((id) => {
+              notesUpdate[id] = savedNotes;
             });
-
-            setCurrentNoteText(savedNotes);
-            setExerciseTags((prev) => ({ ...prev, [exerciseId]: savedTags }));
-
-            // Actualizar cache local para todos los IDs relacionados
-            if (savedNotes) {
-              const notesUpdate: Record<string, string> = {};
-              allRelatedIds.forEach((id) => {
-                notesUpdate[id] = savedNotes;
-              });
-              setExerciseNotes((prev) => ({ ...prev, ...notesUpdate }));
-            }
+            setExerciseNotes((prev) => ({ ...prev, ...notesUpdate }));
           }
         } catch (err) {
-          console.error('Error loading notes history:', err);
+          console.error('Error loading notes:', err);
           setCurrentNoteText(exerciseNotes[exerciseId] || '');
-        } finally {
-          setLoadingNotesHistory(false);
         }
       };
 
-      loadNotesHistory();
+      loadNotes();
     }
   }, [notesModalVisible, currentExerciseIndex, exercises, user, activeAlternatives]);
 
@@ -2325,31 +1899,6 @@ function GymScreen() {
           }
         });
 
-        // 2. Buscar notas de pro_videos para ejercicios que NO tienen notas en user_exercise_config
-        const exercisesWithoutNotes = allExerciseIds.filter((id) => !notesMap[id]);
-        if (exercisesWithoutNotes.length > 0) {
-          const { data: videoNotes, error: videoError } = await supabase
-            .from('pro_videos')
-            .select('exercise_id, notes, exercise_notes, tags')
-            .eq('user_id', user.id)
-            .in('exercise_id', exercisesWithoutNotes)
-            .or('notes.not.is.null,exercise_notes.not.is.null')
-            .order('created_at', { ascending: false });
-
-          if (!videoError && videoNotes) {
-            // Usar la nota más reciente por ejercicio
-            videoNotes.forEach((v: any) => {
-              const noteContent = v.notes || v.exercise_notes;
-              if (noteContent && !notesMap[v.exercise_id]) {
-                notesMap[v.exercise_id] = noteContent;
-              }
-              if (v.tags && v.tags.length > 0 && !tagsMap[v.exercise_id]) {
-                tagsMap[v.exercise_id] = v.tags;
-              }
-            });
-          }
-        }
-
         setExerciseNotes(notesMap);
         setExerciseTags(tagsMap);
       } catch (err) {
@@ -2359,178 +1908,6 @@ function GymScreen() {
 
     loadExerciseNotes();
   }, [user, exercises.length]);
-
-  // Cargar videos del ejercicio cuando se abre el historial
-  useEffect(() => {
-    const fetchExerciseVideos = async () => {
-      if (!historialModalVisible || !modalExercise || !user) return;
-
-      setLoadingVideos(true);
-      try {
-        // Usar exercise_id (de tabla exercises), no el id de user_exercise_config
-        const exerciseId = modalExercise.exercise_id || modalExercise.id;
-
-        const { data, error } = await supabase
-          .from('pro_videos')
-          .select('*')
-          .eq('user_id', user.id)
-          .eq('exercise_id', exerciseId)
-          .not('video_url', 'is', null)
-          .order('created_at', { ascending: false });
-
-        if (error) throw error;
-
-        // Mapear a formato VideoRecord
-        const mappedVideos: VideoRecord[] = (data || []).map((v: any) => ({
-          id: v.id,
-          date: new Date(v.created_at).toLocaleDateString('es-ES', {
-            day: '2-digit',
-            month: 'short',
-            year: 'numeric',
-          }),
-          weight: v.weight_kg || 0,
-          reps: v.reps || 0,
-          free_text: v.free_text,
-          is_public: v.is_public,
-          videoUrl: v.video_url,
-          video_url: v.video_url,
-          thumbnail_url: v.thumbnail_url || v.video_url,
-          cloudflare_video_id: v.cloudflare_video_id,
-          spotify: v.spotify,
-          notes: v.notes,
-          exercise_notes: v.exercise_notes,
-          tags: v.tags,
-          media_type: v.media_type || 'video',
-        }));
-
-        setExerciseVideos(mappedVideos);
-      } catch (err) {
-        console.error('Error fetching exercise videos:', err);
-        setExerciseVideos([]);
-      } finally {
-        setLoadingVideos(false);
-      }
-    };
-
-    fetchExerciseVideos();
-  }, [historialModalVisible, modalExercise]);
-
-  // ============================================================================
-  // VIDEO ACTIONS
-  // ============================================================================
-
-  // Eliminar video de pro_videos
-  const handleDeleteVideo = async () => {
-    if (!selectedVideo) return;
-    deleteVideoFromHistorial(selectedVideo);
-  };
-
-  // Eliminar video desde historial (para long press)
-  const deleteVideoFromHistorial = async (video: VideoRecord) => {
-    Alert.alert(
-      '🗑️ ELIMINAR VIDEO',
-      '¿Estás seguro de que quieres eliminar este video? Esta acción no se puede deshacer.',
-      [
-        { text: 'CANCELAR', style: 'cancel' },
-        {
-          text: 'ELIMINAR',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-
-              // 1. Eliminar de Cloudflare Stream si existe
-              if (video.cloudflare_video_id) {
-                console.warn(
-                  '🗑️ Eliminando video de Cloudflare Stream:',
-                  video.cloudflare_video_id
-                );
-                const deleted = await cloudflareStream.deleteVideo(video.cloudflare_video_id);
-                if (deleted) {
-                  console.warn('✅ Video eliminado de Cloudflare Stream');
-                } else {
-                  console.warn('⚠️ No se pudo eliminar de Cloudflare Stream (continuando con DB)');
-                }
-              }
-
-              // 2. Eliminar de la base de datos
-              const { error } = await supabase.from('pro_videos').delete().eq('id', video.id);
-
-              if (error) throw error;
-
-              // 3. Eliminar de personal_records si está vinculado
-              await supabase.from('personal_records').delete().eq('video_id', video.id);
-
-              // Actualizar lista local del modal historial
-              setExerciseVideos((prev) => prev.filter((v) => v.id !== video.id));
-
-              // También actualizar la lista de ejercicios para que el video desaparezca de las cards
-              setExercises((prevExercises) =>
-                prevExercises.map((ex) => ({
-                  ...ex,
-                  videos: ex.videos.filter((v) => v.id !== video.id),
-                  alternatives: ex.alternatives?.map((alt) => ({
-                    ...alt,
-                    videos: alt.videos.filter((v) => v.id !== video.id),
-                  })),
-                }))
-              );
-
-              // Si el video eliminado era el seleccionado, cerrar viewer
-              if (selectedVideo?.id === video.id) {
-                setVideoViewerVisible(false);
-                setSelectedVideo(null);
-              }
-
-              await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-            } catch (err) {
-              console.error('Error deleting video:', err);
-              await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-            }
-          },
-        },
-      ]
-    );
-  };
-
-  // Toggle visibilidad pública del video
-  const handleToggleVisibility = async () => {
-    if (!selectedVideo) return;
-
-    try {
-      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-
-      const newPublicState = !selectedVideo.is_public;
-
-      const { error } = await supabase
-        .from('pro_videos')
-        .update({ is_public: newPublicState })
-        .eq('id', selectedVideo.id);
-
-      if (error) throw error;
-
-      // Actualizar estado local
-      setSelectedVideo((prev) => (prev ? { ...prev, is_public: newPublicState } : null));
-      setExerciseVideos((prev) =>
-        prev.map((v) => (v.id === selectedVideo.id ? { ...v, is_public: newPublicState } : v))
-      );
-
-      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    } catch (err) {
-      console.error('Error toggling visibility:', err);
-      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-    }
-  };
-
-  // Compartir - mostrar instrucción para screen record
-  const handleShareVideo = async () => {
-    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    Alert.alert(
-      '📱 COMPARTIR CON BRANDING',
-      'Graba tu pantalla mientras reproduces este video para compartirlo con los overlays de TRENS.\n\n• Logo TRENS\n• Datos del ejercicio\n• Peso × Reps\n• Tu track de Spotify',
-      [{ text: 'ENTENDIDO', style: 'default' }]
-    );
-  };
 
   // ============================================================================
   // TRAINING DAY LOGIC
@@ -3176,123 +2553,6 @@ function GymScreen() {
           );
         }
 
-        // Cargar videos de pro_videos para todos los ejercicios del usuario
-        // Incluir ejercicios principales Y alternativas
-        // IMPORTANTE: usar exercise_id (ID de tabla exercises), NO id (ID de user_exercise_config)
-        const allExerciseIds = [
-          ...filteredData.map((item: any) => item.exercise_id),
-          ...allAlternativeIds,
-        ];
-        let exerciseVideosMap: Record<string, VideoRecord[]> = {};
-
-        // Crear mapa de nombre -> IDs para sincronizar videos por nombre de ejercicio
-        const exerciseNameToIds: Record<string, string[]> = {};
-
-        // Agregar ejercicios principales al mapa nombre -> IDs (usando exercise_id)
-        filteredData.forEach((item: any) => {
-          const name = item.name?.toLowerCase()?.trim();
-          if (name) {
-            if (!exerciseNameToIds[name]) exerciseNameToIds[name] = [];
-            if (!exerciseNameToIds[name].includes(item.exercise_id)) {
-              exerciseNameToIds[name].push(item.exercise_id);
-            }
-          }
-        });
-
-        // Agregar alternativas al mapa nombre -> IDs
-        alternativeExercisesData.forEach((alt: any) => {
-          const name = alt.name?.toLowerCase()?.trim();
-          if (name) {
-            if (!exerciseNameToIds[name]) exerciseNameToIds[name] = [];
-            if (!exerciseNameToIds[name].includes(alt.id)) {
-              exerciseNameToIds[name].push(alt.id);
-            }
-          }
-        });
-
-        console.log(
-          '🔗 Ejercicios por nombre:',
-          Object.entries(exerciseNameToIds)
-            .filter(([, ids]) => ids.length > 1)
-            .map(([name, ids]) => `${name}: ${ids.length} IDs`)
-        );
-
-        if (allExerciseIds.length > 0) {
-          const { data: videosData, error: videosError } = await supabase
-            .from('pro_videos')
-            .select(
-              'id, exercise_id, video_url, thumbnail_url, weight_kg, reps, free_text, is_public, created_at, spotify, cloudflare_video_id, notes, exercise_notes, tags'
-            )
-            .eq('user_id', user.id)
-            .in('exercise_id', allExerciseIds)
-            .not('video_url', 'is', null)
-            .order('created_at', { ascending: false });
-
-          if (!videosError && videosData) {
-            // Agrupar videos por exercise_id
-            videosData.forEach((v: any) => {
-              if (!exerciseVideosMap[v.exercise_id]) {
-                exerciseVideosMap[v.exercise_id] = [];
-              }
-              exerciseVideosMap[v.exercise_id].push({
-                id: v.id,
-                exercise_id: v.exercise_id,
-                video_url: v.video_url,
-                videoUrl: v.video_url,
-                thumbnail_url: v.thumbnail_url || v.video_url,
-                cloudflare_video_id: v.cloudflare_video_id,
-                weight: v.weight_kg || 0,
-                reps: v.reps || 0,
-                free_text: v.free_text,
-                date: new Date(v.created_at).toLocaleDateString('es-ES', {
-                  day: '2-digit',
-                  month: 'short',
-                }),
-                is_public: v.is_public,
-                spotify: v.spotify,
-                notes: v.notes,
-                exercise_notes: v.exercise_notes,
-                tags: v.tags,
-              });
-            });
-
-            // SINCRONIZAR videos entre ejercicios con el mismo nombre
-            // Si "Flexiones" tiene IDs [A, B] y A tiene videos, B también los tendrá
-            Object.entries(exerciseNameToIds).forEach(([, ids]) => {
-              if (ids.length > 1) {
-                // Combinar todos los videos de todos los IDs con este nombre
-                const allVideosForName: VideoRecord[] = [];
-                ids.forEach((id) => {
-                  if (exerciseVideosMap[id]) {
-                    allVideosForName.push(...exerciseVideosMap[id]);
-                  }
-                });
-
-                // Eliminar duplicados por ID de video
-                const uniqueVideos = allVideosForName.filter(
-                  (v, i, arr) => arr.findIndex((x) => x.id === v.id) === i
-                );
-
-                // Ordenar por fecha (más reciente primero)
-                uniqueVideos.sort(
-                  (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
-                );
-
-                // Asignar los videos combinados a TODOS los IDs con este nombre
-                ids.forEach((id) => {
-                  exerciseVideosMap[id] = uniqueVideos;
-                });
-              }
-            });
-
-            console.log(
-              '🎥 Videos cargados para',
-              Object.keys(exerciseVideosMap).length,
-              'ejercicios'
-            );
-          }
-        }
-
         const mappedExercises: Exercise[] = filteredData.map((item, index) => {
           try {
             // Obtener IDs de alternativas de este ejercicio (viene de exercises.alternatives en BD)
@@ -3356,7 +2616,6 @@ function GymScreen() {
                   id: altExercise.id,
                   name: altExercise.name,
                   image_url: imageUrl,
-                  videos: exerciseVideosMap[altId] || [],
                   series: seriesForState,
                 };
               })
@@ -3371,14 +2630,13 @@ function GymScreen() {
 
             return {
               id: item.id,
-              exercise_id: item.exercise_id, // ID del ejercicio real para pro_videos
+              exercise_id: item.exercise_id,
               name: item.name || 'UNNAMED',
               sets: item.metadata?.sets || '0x0',
               image_url: item.media_url || '',
               order: item.order || 0,
               series: seriesForState,
               training_days: item.training_days || [0],
-              videos: exerciseVideosMap[item.exercise_id] || [],
               alternatives,
             };
           } catch (mapError) {
@@ -3394,7 +2652,6 @@ function GymScreen() {
               order: index,
               series: [],
               training_days: [0],
-              videos: [],
               alternatives: [],
             };
           }
@@ -4237,109 +3494,6 @@ function GymScreen() {
     }
   };
 
-  // ============================================================================
-  // VIDEO RECORDING FUNCTIONS
-  // ============================================================================
-  const startVideoRecording = async () => {
-    if (!cameraRef.current || isRecording) return;
-
-    try {
-      setIsRecording(true);
-      setRecordingTime(0);
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-
-      // 🎵 Capturar metadata de Spotify ANTES de grabar
-      // Guarda trackUri + positionMs para sincronizar al reproducir
-      // Spotify SIGUE sonando - el usuario escucha con audífonos mientras graba
-      if (spotifyPremium) {
-        const metadata = await spotify.captureMetadataForRecording();
-        setCapturedSpotifyMetadata(metadata);
-        if (metadata?.enabled) {
-          console.log(
-            '🎵 Spotify metadata capturado:',
-            metadata.trackName,
-            'en',
-            metadata.positionMs,
-            'ms'
-          );
-        }
-      } else {
-        setCapturedSpotifyMetadata(null);
-      }
-
-      // Timer para mostrar tiempo de grabación (máximo 10 segundos)
-      recordingTimerRef.current = setInterval(() => {
-        setRecordingTime((prev) => {
-          if (prev >= 10) {
-            // Auto-stop at 10 seconds
-            stopVideoRecording();
-            return 10;
-          }
-          return prev + 1;
-        });
-      }, 1000);
-
-      const video = await cameraRef.current.recordAsync({
-        maxDuration: 10, // Máximo 10 segundos
-        quality: '480p', // Compresión a 480p para reducir tamaño (~1-2MB)
-      });
-
-      if (video?.uri) {
-        setCapturedVideoUri(video.uri);
-      }
-    } catch (error) {
-      console.error('💥 Error recording video:', error);
-      setIsRecording(false);
-      if (recordingTimerRef.current) {
-        clearInterval(recordingTimerRef.current);
-      }
-    }
-  };
-
-  const stopVideoRecording = async () => {
-    if (!cameraRef.current || !isRecording) return;
-
-    try {
-      if (recordingTimerRef.current) {
-        clearInterval(recordingTimerRef.current);
-        recordingTimerRef.current = null;
-      }
-
-      cameraRef.current.stopRecording();
-      setIsRecording(false);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    } catch (error) {
-      console.error('💥 Error stopping recording:', error);
-      setIsRecording(false);
-    }
-  };
-
-  const saveVideo = async () => {
-    // Guard: Verificar si puede guardar
-    if (!canSave('save_exercise_video')) return;
-
-    if (!capturedVideoUri) return;
-
-    try {
-      setCaptureProcessing(true);
-      setUploadingMessage('📹 SUBIENDO VIDEO...');
-      await uploadExerciseMedia(capturedVideoUri, 'video');
-      setCapturedVideoUri(null);
-      setCameraModalVisible(false);
-    } catch (error) {
-      console.error('💥 Error saving video:', error);
-      alert('Error al guardar video');
-    } finally {
-      setCaptureProcessing(false);
-      setUploadingMessage(null);
-    }
-  };
-
-  const discardVideo = () => {
-    setCapturedVideoUri(null);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-  };
-
   const uploadExerciseMedia = async (uri: string, type: 'photo' | 'video') => {
     if (!user) return;
 
@@ -4720,7 +3874,6 @@ function GymScreen() {
           order: data.display_order || 0,
           series: seriesForState,
           training_days: data.training_days || [targetDay],
-          videos: [],
           alternatives: [],
         };
 
@@ -4960,7 +4113,6 @@ function GymScreen() {
           order: data.display_order || 0,
           series: seriesForState,
           training_days: data.training_days || [targetDay],
-          videos: [],
           alternatives: [],
         };
 
@@ -7690,97 +6842,32 @@ function GymScreen() {
     setSavingNotes(true);
 
     try {
-      // Si ya existe una nota de hoy, actualizar ese registro
-      if (todayNoteId) {
-        const { error } = await supabase
-          .from('pro_videos')
-          .update({
-            notes: currentNoteText,
-            exercise_notes: currentNoteText,
-            tags: newTags,
-          })
-          .eq('id', todayNoteId);
+      // Obtener todos los IDs relacionados por nombre para sincronizar
+      const allRelatedIds = getAllExerciseIdsByName(exerciseName);
 
-        if (error) throw error;
+      // Guardar notas en user_exercise_config.metadata para TODOS los IDs relacionados
+      for (const relatedId of allRelatedIds) {
+        const { data: existingConfig } = await supabase
+          .from('user_exercise_config')
+          .select('id, metadata')
+          .eq('user_id', user.id)
+          .eq('exercise_id', relatedId)
+          .maybeSingle();
 
-        // Actualizar en historial local
-        setNotesHistory((prev) =>
-          prev.map((n) =>
-            n.id === todayNoteId ? { ...n, notes: currentNoteText, tags: newTags } : n
-          )
-        );
-
-        // Actualizar en la lista de videos del ejercicio (para el reproductor)
-        setExerciseVideos((prev) =>
-          prev.map((v) =>
-            v.id === todayNoteId
-              ? { ...v, notes: currentNoteText, exercise_notes: currentNoteText, tags: newTags }
-              : v
-          )
-        );
-
-        // Actualizar selectedVideo si es el mismo
-        if (selectedVideo && selectedVideo.id === todayNoteId) {
-          setSelectedVideo((prev) =>
-            prev
-              ? { ...prev, notes: currentNoteText, exercise_notes: currentNoteText, tags: newTags }
-              : null
-          );
-        }
-      } else {
-        // No hay nota de hoy - crear un registro en pro_videos solo con notas (sin video)
-        // Esto permite guardar notas inmediatamente sin necesidad de grabar video
-
-        const { data: newNoteRecord, error: insertError } = await supabase
-          .from('pro_videos')
-          .insert({
-            user_id: user.id,
-            exercise_id: exerciseId,
-            exercise_name: exerciseName,
-            notes: currentNoteText,
-            exercise_notes: currentNoteText,
-            tags: newTags,
-            context_type: 'tactical',
-            // Sin video - es solo un registro de notas
-            video_url: null,
-            thumbnail_url: null,
-            is_public: false,
-          })
-          .select('id')
-          .single();
-
-        if (insertError) {
-          console.error('Error creando registro de notas:', insertError);
-          throw insertError;
-        }
-
-        // Guardar el ID como todayNoteId para futuras ediciones
-        if (newNoteRecord) {
-          setTodayNoteId(newNoteRecord.id);
-
-          // Agregar al historial local
-          const today = new Date();
-          setNotesHistory((prev) => [
-            {
-              id: newNoteRecord.id,
-              date: today.toLocaleDateString('es-ES', {
-                day: 'numeric',
-                month: 'short',
-              }),
-              rawDate: today.toISOString().split('T')[0],
-              notes: currentNoteText,
-              tags: newTags,
-              type: 'video',
-              videoId: newNoteRecord.id,
-              isToday: true,
-            },
-            ...prev,
-          ]);
+        if (existingConfig) {
+          const currentMetadata = existingConfig.metadata || {};
+          await supabase
+            .from('user_exercise_config')
+            .update({
+              metadata: {
+                ...currentMetadata,
+                notes: currentNoteText,
+                tags: newTags,
+              },
+            })
+            .eq('id', existingConfig.id);
         }
       }
-
-      // Obtener todos los IDs relacionados por nombre para sincronizar estado local
-      const allRelatedIds = getAllExerciseIdsByName(exerciseName);
 
       // Actualizar estado local para TODOS los IDs relacionados
       const notesUpdate: Record<string, string> = {};
@@ -7793,54 +6880,6 @@ function GymScreen() {
       setExerciseNotes((prev) => ({ ...prev, ...notesUpdate }));
       setExerciseTags((prev) => ({ ...prev, ...tagsUpdate }));
 
-      // Actualizar videos en TODOS los ejercicios con el mismo nombre
-      setExercises((prev) =>
-        prev.map((ex) => {
-          let updatedEx = ex;
-
-          // Verificar si el ejercicio principal tiene el mismo nombre
-          if (ex.name.toLowerCase().trim() === exerciseName.toLowerCase().trim()) {
-            updatedEx = {
-              ...ex,
-              videos: ex.videos.map((v) =>
-                v.id === todayNoteId
-                  ? { ...v, notes: currentNoteText, exercise_notes: currentNoteText, tags: newTags }
-                  : v
-              ),
-            };
-          }
-
-          // Verificar alternativas con el mismo nombre
-          if (updatedEx.alternatives) {
-            updatedEx = {
-              ...updatedEx,
-              alternatives: updatedEx.alternatives.map((alt) =>
-                alt.name.toLowerCase().trim() === exerciseName.toLowerCase().trim()
-                  ? {
-                      ...alt,
-                      videos: alt.videos.map((v) =>
-                        v.id === todayNoteId
-                          ? {
-                              ...v,
-                              notes: currentNoteText,
-                              exercise_notes: currentNoteText,
-                              tags: newTags,
-                            }
-                          : v
-                      ),
-                    }
-                  : alt
-              ),
-            };
-          }
-
-          return updatedEx;
-        })
-      );
-
-      // Actualizar ProContext para que si graban ahora, tenga las notas actualizadas
-      setTacticalContext(exerciseId, exerciseName, currentNoteText, newTags);
-
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setNotesModalVisible(false);
     } catch (error) {
@@ -7849,91 +6888,6 @@ function GymScreen() {
     } finally {
       setSavingNotes(false);
     }
-  };
-
-  // Guardar notas de un video específico
-  const saveVideoNotes = async () => {
-    if (!selectedVideo || !user) return;
-
-    setSavingVideoNotes(true);
-
-    try {
-      const { error } = await supabase
-        .from('pro_videos')
-        .update({ notes: videoNoteText })
-        .eq('id', selectedVideo.id);
-
-      if (error) throw error;
-
-      // Actualizar el video en estado local
-      setSelectedVideo((prev) => (prev ? { ...prev, notes: videoNoteText } : null));
-
-      // Actualizar en la lista de videos del historial
-      setExerciseVideos((prev) =>
-        prev.map((v) => (v.id === selectedVideo.id ? { ...v, notes: videoNoteText } : v))
-      );
-
-      // Actualizar en notesHistory para que se refleje inmediatamente en el modal principal
-      setNotesHistory((prev) =>
-        prev.map((n) => (n.id === selectedVideo.id ? { ...n, notes: videoNoteText } : n))
-      );
-
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      setVideoNotesModalVisible(false);
-    } catch (error) {
-      console.error('Error guardando notas del video:', error);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-    } finally {
-      setSavingVideoNotes(false);
-    }
-  };
-
-  // Eliminar nota de un video específico
-  const deleteVideoNote = (noteId: string, noteDate: string) => {
-    Alert.alert(
-      '🗑️ ELIMINAR NOTA',
-      `¿Eliminar la nota del ${noteDate}? Esta acción no se puede deshacer.`,
-      [
-        { text: 'CANCELAR', style: 'cancel' },
-        {
-          text: 'ELIMINAR',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-
-              // Eliminar notas del registro en pro_videos
-              const { error } = await supabase
-                .from('pro_videos')
-                .update({ notes: null, exercise_notes: null })
-                .eq('id', noteId);
-
-              if (error) throw error;
-
-              // Actualizar notesHistory (eliminar de la lista)
-              setNotesHistory((prev) => prev.filter((n) => n.id !== noteId));
-
-              // También actualizar exerciseVideos si está cargado
-              setExerciseVideos((prev) =>
-                prev.map((v) =>
-                  v.id === noteId ? { ...v, notes: undefined, exercise_notes: undefined } : v
-                )
-              );
-
-              // Si es el video seleccionado, cerrar el modal
-              if (selectedVideo?.id === noteId) {
-                setVideoNotesModalVisible(false);
-              }
-
-              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-            } catch (error) {
-              console.error('Error eliminando nota:', error);
-              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-            }
-          },
-        },
-      ]
-    );
   };
 
   // Toggle tag
@@ -8026,21 +6980,6 @@ function GymScreen() {
               </Animated.View>
 
               <ScrollView className="flex-1 px-4 py-4" keyboardShouldPersistTaps="handled">
-                {/* INDICADOR DE NOTA DE HOY */}
-                {todayNoteId && (
-                  <View
-                    className="flex-row items-center gap-2 mb-4 px-3 py-2 rounded-lg"
-                    style={{
-                      backgroundColor: '#22C55E20',
-                      borderWidth: 1,
-                      borderColor: '#22C55E40',
-                    }}
-                  >
-                    <Text className="text-green-500">✓</Text>
-                    <Text className="text-green-500 text-xs font-medium">Editando nota de hoy</Text>
-                  </View>
-                )}
-
                 {/* TAGS RÁPIDOS */}
                 <View className="mb-4">
                   <Text className="text-zinc-400 text-xs uppercase tracking-wider mb-3">
@@ -8076,23 +7015,21 @@ function GymScreen() {
                 {/* TEXTO DE NOTAS */}
                 <View className="mb-4">
                   <Text className="text-zinc-400 text-xs uppercase tracking-wider mb-3">
-                    {todayNoteId ? 'Nota de hoy' : 'Nueva nota'}
+                    Nota del ejercicio
                   </Text>
                   <View
                     className="rounded-xl"
                     style={{
                       backgroundColor: '#0a0a0a',
                       borderWidth: 1,
-                      borderColor: todayNoteId ? '#22C55E40' : '#27272a',
+                      borderColor: '#27272a',
                     }}
                   >
                     <TextInput
                       className="text-white text-base p-4"
                       style={{ minHeight: 120, textAlignVertical: 'top' }}
                       placeholder={
-                        todayNoteId
-                          ? 'Edita tu nota de hoy...'
-                          : 'Escribe tus notas aquí...&#10;&#10;Ejemplos:&#10;• Dolor leve en hombro izquierdo&#10;• Probar agarre más cerrado&#10;• Subir a 50kg próxima sesión'
+                        'Escribe tus notas aquí...\n\nEjemplos:\n• Dolor leve en hombro izquierdo\n• Probar agarre más cerrado\n• Subir a 50kg próxima sesión'
                       }
                       placeholderTextColor="#52525b"
                       multiline
@@ -8100,131 +7037,6 @@ function GymScreen() {
                       onChangeText={setCurrentNoteText}
                     />
                   </View>
-                </View>
-
-                {/* TIPS - Solo mostrar si no hay nota de hoy */}
-                {!todayNoteId && (
-                  <View
-                    className="p-4 rounded-xl mb-4"
-                    style={{ backgroundColor: '#0f0f0f', borderWidth: 1, borderColor: '#1a1a1a' }}
-                  >
-                    <Text className="text-zinc-400 text-xs mb-2">
-                      💡 Solo puedes guardar una nota por día por ejercicio
-                    </Text>
-                    <Text className="text-zinc-500 text-[10px]">
-                      La nota se guardará cuando grabes un video
-                    </Text>
-                  </View>
-                )}
-
-                {/* HISTORIAL DE NOTAS - Excluir la nota de hoy */}
-                <View className="mb-4">
-                  <Text className="text-zinc-400 text-xs uppercase tracking-wider mb-3">
-                    📜 Notas anteriores
-                  </Text>
-
-                  {loadingNotesHistory ? (
-                    <View className="py-4 items-center">
-                      <ActivityIndicator color="#DC2626" size="small" />
-                    </View>
-                  ) : notesHistory.filter((n) => !n.isToday).length === 0 ? (
-                    <View
-                      className="py-6 items-center rounded-xl"
-                      style={{ backgroundColor: '#0a0a0a', borderWidth: 1, borderColor: '#1a1a1a' }}
-                    >
-                      <Text className="text-zinc-600 text-sm">Sin notas anteriores</Text>
-                      <Text className="text-zinc-700 text-xs mt-1">
-                        Tus notas de días pasados aparecerán aquí
-                      </Text>
-                    </View>
-                  ) : (
-                    <ScrollView
-                      horizontal
-                      showsHorizontalScrollIndicator={false}
-                      contentContainerStyle={{ gap: 12 }}
-                    >
-                      {notesHistory
-                        .filter((n) => !n.isToday)
-                        .map((note) => (
-                          <TouchableOpacity
-                            key={note.id}
-                            onPress={() => {
-                              // Abrir modal de edición de nota del video
-                              if (note.videoId) {
-                                setSelectedVideo({
-                                  id: note.videoId,
-                                  notes: note.notes,
-                                  tags: note.tags,
-                                  date: note.date,
-                                } as any);
-                                setVideoNoteText(note.notes);
-                                setVideoNotesModalVisible(true);
-                              }
-                            }}
-                            onLongPress={() => {
-                              // Eliminar nota con long press
-                              deleteVideoNote(note.id, note.date);
-                            }}
-                            delayLongPress={500}
-                            className="rounded-xl p-3"
-                            style={{
-                              backgroundColor: '#18181b',
-                              borderWidth: 1,
-                              borderColor: '#27272a',
-                              width: 200,
-                            }}
-                          >
-                            {/* Header con fecha */}
-                            <View className="flex-row items-center justify-between mb-2">
-                              <Text className="text-zinc-500 text-[10px] uppercase">
-                                {note.date}
-                              </Text>
-                              <View className="flex-row items-center gap-1">
-                                <Edit3 color="#71717A" size={10} />
-                                <Text className="text-zinc-600 text-[10px]">Editar</Text>
-                              </View>
-                            </View>
-
-                            {/* Tags si tiene */}
-                            {note.tags && note.tags.length > 0 && (
-                              <View className="flex-row flex-wrap gap-1 mb-2">
-                                {note.tags.slice(0, 2).map((tag: string) => {
-                                  const tagInfo = EXERCISE_TAGS.find((t) => t.key === tag);
-                                  if (!tagInfo) return null;
-                                  return (
-                                    <View
-                                      key={tag}
-                                      className="px-2 py-0.5 rounded-full"
-                                      style={{ backgroundColor: tagInfo.color + '20' }}
-                                    >
-                                      <Text
-                                        style={{
-                                          color: tagInfo.color,
-                                          fontSize: 10,
-                                          fontWeight: 'bold',
-                                        }}
-                                      >
-                                        {tagInfo.label.split(' ')[0]}
-                                      </Text>
-                                    </View>
-                                  );
-                                })}
-                                {note.tags.length > 2 && (
-                                  <Text className="text-zinc-600 text-[10px]">
-                                    +{note.tags.length - 2}
-                                  </Text>
-                                )}
-                              </View>
-                            )}
-
-                            {/* Texto de la nota (truncado) */}
-                            <Text className="text-zinc-300 text-xs" numberOfLines={3}>
-                              {note.notes}
-                            </Text>
-                          </TouchableOpacity>
-                        ))}
-                    </ScrollView>
-                  )}
                 </View>
 
                 {/* INDICADOR DE NOTAS ACTIVAS */}
@@ -8236,140 +7048,6 @@ function GymScreen() {
                     </Text>
                   </View>
                 )}
-              </ScrollView>
-            </Animated.View>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
-    );
-  };
-
-  // Modal para ver/editar notas de un video específico
-  const renderVideoNotesModal = () => {
-    if (!selectedVideo) return null;
-
-    return (
-      <Modal
-        visible={videoNotesModalVisible}
-        animationType="none"
-        transparent={true}
-        onRequestClose={() => {
-          shouldSaveVideoNotesOnCloseRef.current = true;
-          setVideoNotesModalVisible(false);
-        }}
-      >
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          className="flex-1"
-        >
-          <View className="flex-1 bg-transparent justify-end">
-            <Animated.View
-              style={[
-                {
-                  height: '50%',
-                  backgroundColor: '#0a0a0a',
-                  borderTopLeftRadius: 24,
-                  borderTopRightRadius: 24,
-                  borderTopWidth: 2,
-                  borderTopColor: 'rgba(249, 115, 22, 0.5)',
-                  overflow: 'hidden',
-                },
-                animatedStyleVideoNotes,
-              ]}
-            >
-              {/* Línea de acento superior */}
-              <View
-                style={{
-                  position: 'absolute',
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  height: 3,
-                  backgroundColor: '#F97316',
-                  shadowColor: '#F97316',
-                  shadowOffset: { width: 0, height: 0 },
-                  shadowOpacity: 0.8,
-                  shadowRadius: 10,
-                  zIndex: 10,
-                }}
-              />
-
-              {/* Drag Handle + Header (Área para arrastrar) */}
-              <Animated.View
-                className="items-center pt-4 pb-4 border-b border-zinc-800"
-                {...panResponderVideoNotes.panHandlers}
-              >
-                <View className="w-12 h-1.5 bg-zinc-600 rounded-full mb-4" />
-
-                {/* Header centrado */}
-                <View className="px-6 pb-2 w-full">
-                  <Text className="text-white text-xl font-bold text-center" numberOfLines={1}>
-                    📝 Nota del {selectedVideo.date}
-                  </Text>
-                  <Text className="text-zinc-500 text-xs mt-1 tracking-wider text-center uppercase">
-                    Desliza hacia abajo para guardar y cerrar
-                  </Text>
-                </View>
-              </Animated.View>
-
-              <ScrollView className="flex-1 px-4 py-4" keyboardShouldPersistTaps="handled">
-                {/* Tags del video (solo lectura) */}
-                {selectedVideo.tags && selectedVideo.tags.length > 0 && (
-                  <View className="flex-row flex-wrap gap-2 mb-4">
-                    {selectedVideo.tags.map((tag: string) => {
-                      const tagInfo = EXERCISE_TAGS.find((t) => t.key === tag);
-                      if (!tagInfo) return null;
-                      return (
-                        <View
-                          key={tag}
-                          className="px-3 py-1.5 rounded-full"
-                          style={{ backgroundColor: tagInfo.color + '30' }}
-                        >
-                          <Text style={{ color: tagInfo.color, fontSize: 12, fontWeight: 'bold' }}>
-                            {tagInfo.label}
-                          </Text>
-                        </View>
-                      );
-                    })}
-                  </View>
-                )}
-
-                {/* Editor de notas */}
-                <Text className="text-zinc-400 text-xs uppercase tracking-wider mb-2">
-                  Contenido de la nota
-                </Text>
-                <View
-                  className="rounded-xl"
-                  style={{
-                    backgroundColor: '#0a0a0a',
-                    borderWidth: 1,
-                    borderColor: '#F9731640',
-                  }}
-                >
-                  <TextInput
-                    className="text-white text-base p-4"
-                    style={{ minHeight: 120, textAlignVertical: 'top' }}
-                    placeholder="Escribe tu nota aquí..."
-                    placeholderTextColor="#52525b"
-                    multiline
-                    value={videoNoteText}
-                    onChangeText={setVideoNoteText}
-                  />
-                </View>
-
-                {/* Botón de eliminar */}
-                <TouchableOpacity
-                  onPress={() => deleteVideoNote(selectedVideo.id, selectedVideo.date)}
-                  className="flex-row items-center justify-center gap-2 mt-6 py-3 rounded-xl"
-                  style={{
-                    backgroundColor: '#DC262620',
-                    borderWidth: 1,
-                    borderColor: '#DC262640',
-                  }}
-                >
-                  <Trash2 color="#DC2626" size={18} />
-                  <Text className="text-red-500 font-bold">Eliminar esta nota</Text>
-                </TouchableOpacity>
               </ScrollView>
             </Animated.View>
           </View>
@@ -8585,676 +7263,103 @@ function GymScreen() {
         transparent={true}
         onRequestClose={() => {
           setCameraModalVisible(false);
-          setCapturedVideoUri(null);
-          setIsRecording(false);
-          setRecordingTime(0);
         }}
       >
         {/* Container que NO tapa la barra de navegación */}
         <View className="flex-1 bg-black pt-12 pb-24">
-          {/* VIDEO PREVIEW MODE - Si hay video capturado */}
-          {capturedVideoUri ? (
-            <View className="flex-1">
-              {/* Header con opciones de video */}
-              <View className="bg-black px-6 py-4">
-                <View className="flex-row justify-between items-center">
-                  <TouchableOpacity
-                    onPress={discardVideo}
-                    className="bg-zinc-900 px-4 py-2 rounded-full"
-                  >
-                    <Text className="text-white font-bold">✕ DESCARTAR</Text>
-                  </TouchableOpacity>
-                  <Text className="text-savage-text font-bold text-lg">PREVIEW VIDEO</Text>
-                  <TouchableOpacity
-                    onPress={saveVideo}
-                    disabled={captureProcessing}
-                    className="bg-savage-red px-4 py-2 rounded-full"
-                  >
-                    <Text className="text-white font-bold">
-                      {captureProcessing ? '...' : '✓ GUARDAR'}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-                <Text className="text-zinc-500 text-center text-sm mt-2">
-                  {recordingTime}s de video • Máx 10s
-                </Text>
-              </View>
-
-              {/* Video Preview */}
-              <View className="flex-1 justify-center items-center px-4">
-                <View
-                  className="w-full overflow-hidden bg-zinc-900 rounded-lg"
-                  style={{ aspectRatio: 1 }}
-                >
-                  <VideoView
-                    player={videoPlayer}
-                    style={{ flex: 1, width: '100%', height: '100%' }}
-                    contentFit="cover"
-                    nativeControls={false}
-                  />
-                </View>
-              </View>
-
-              {/* Info */}
-              <View className="py-4 bg-black">
-                <Text className="text-zinc-400 text-center text-sm">
-                  Video comprimido a 480p (~1-2MB)
-                </Text>
-              </View>
+          {/* HEADER */}
+          <View className="bg-black px-6 pb-4 border-b border-zinc-900">
+            <View className="flex-row justify-between items-center mb-3">
+              <TouchableOpacity
+                onPress={() => {
+                  setCameraModalVisible(false);
+                }}
+              >
+                <X color="#FFFFFF" size={28} />
+              </TouchableOpacity>
+              <Text className="text-savage-text font-bold text-lg tracking-wider">📸 FOTO</Text>
+              <TouchableOpacity
+                onPress={() => {
+                  setCameraFacing(cameraFacing === 'back' ? 'front' : 'back');
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                }}
+              >
+                <RotateCcw color="#FFFFFF" size={24} />
+              </TouchableOpacity>
             </View>
-          ) : (
-            <>
-              {/* HEADER */}
-              <View className="bg-black px-6 pb-4 border-b border-zinc-900">
-                <View className="flex-row justify-between items-center mb-3">
-                  <TouchableOpacity
-                    onPress={() => {
-                      setCameraModalVisible(false);
-                      setIsRecording(false);
-                      setRecordingTime(0);
-                      if (recordingTimerRef.current) {
-                        clearInterval(recordingTimerRef.current);
-                      }
-                    }}
-                  >
-                    <X color="#FFFFFF" size={28} />
-                  </TouchableOpacity>
-                  <Text className="text-savage-text font-bold text-lg tracking-wider">
-                    {cameraMode === 'photo' ? '📸 FOTO' : '🎬 VIDEO'}
-                  </Text>
-                  <TouchableOpacity
-                    onPress={() => {
-                      setCameraFacing(cameraFacing === 'back' ? 'front' : 'back');
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    }}
-                  >
-                    <RotateCcw color="#FFFFFF" size={24} />
-                  </TouchableOpacity>
-                </View>
-                <Text className="text-zinc-500 text-center text-sm">
-                  {exercises[currentExerciseIndex]?.name}
-                </Text>
-              </View>
+            <Text className="text-zinc-500 text-center text-sm">
+              {exercises[currentExerciseIndex]?.name}
+            </Text>
+          </View>
 
-              {/* MODE TOGGLE */}
-              <View className="flex-row justify-center py-4 bg-black border-b border-zinc-900">
-                <TouchableOpacity
-                  onPress={() => {
-                    setCameraMode('photo');
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  }}
-                  className={`px-6 py-2 rounded-l-full ${cameraMode === 'photo' ? 'bg-savage-red' : 'bg-zinc-800'}`}
-                >
-                  <Text
-                    className={`font-bold ${cameraMode === 'photo' ? 'text-white' : 'text-zinc-400'}`}
-                  >
-                    📸 FOTO
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  onPress={() => {
-                    setCameraMode('video');
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  }}
-                  className={`px-6 py-2 rounded-r-full ${cameraMode === 'video' ? 'bg-savage-red' : 'bg-zinc-800'}`}
-                >
-                  <Text
-                    className={`font-bold ${cameraMode === 'video' ? 'text-white' : 'text-zinc-400'}`}
-                  >
-                    🎬 VIDEO
-                  </Text>
-                </TouchableOpacity>
-              </View>
-
-              {/* CAMERA VIEW - FORMATO CUADRADO CON DIMENSIONES FIJAS */}
-              <View className="flex-1 justify-center items-center bg-black px-4">
-                <View
-                  className="w-full overflow-hidden rounded-lg bg-zinc-900"
-                  style={{ aspectRatio: 1 }}
-                >
-                  <CameraView
-                    ref={cameraRef}
-                    style={{ flex: 1, width: '100%', height: '100%' }}
-                    facing={cameraFacing}
-                    mode={cameraMode === 'video' ? 'video' : 'picture'}
-                  />
-                  {/* Recording indicator */}
-                  {isRecording && (
-                    <View className="absolute top-4 left-4 flex-row items-center bg-savage-red px-3 py-1 rounded-full">
-                      <View className="w-3 h-3 rounded-full bg-white mr-2" />
-                      <Text className="text-white font-bold font-mono">{recordingTime}s / 10s</Text>
-                    </View>
-                  )}
-                </View>
-              </View>
-
-              {/* PROCESSING/UPLOAD INDICATOR */}
-              {captureProcessing && (
-                <View className="absolute inset-0 bg-black/90 justify-center items-center z-50">
-                  <View className="bg-zinc-900 rounded-2xl p-8 items-center border border-zinc-800">
-                    {/* Animated upload icon */}
-                    <View className="w-20 h-20 rounded-full bg-savage-red/20 items-center justify-center mb-4">
-                      <ActivityIndicator size="large" color="#DC2626" />
-                    </View>
-                    <Text className="text-white text-lg font-bold tracking-wider">
-                      {uploadingMessage || 'PROCESANDO...'}
-                    </Text>
-                    <Text className="text-zinc-500 text-xs mt-2">
-                      {uploadingMessage ? 'Por favor espera' : 'Preparando archivo'}
-                    </Text>
-                  </View>
-                </View>
-              )}
-
-              {/* CONTROLS */}
-              <View className="bg-black py-4 border-t border-zinc-900">
-                {/* BOTÓN GALERÍA + RESTAURAR DEFAULT */}
-                <View className="flex-row justify-center mb-4" style={{ gap: 12 }}>
-                  <TouchableOpacity
-                    onPress={() => {
-                      setCameraModalVisible(false);
-                      setTimeout(() => pickFromGallery(), 300);
-                    }}
-                    className="bg-zinc-900 px-6 py-3 rounded-full border border-zinc-700"
-                    disabled={isRecording}
-                  >
-                    <Text className="text-white font-bold">📁 GALERÍA</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    onPress={restoreDefaultMedia}
-                    className="bg-zinc-900 px-4 py-3 rounded-full border border-zinc-700 flex-row items-center"
-                    style={{ gap: 6 }}
-                    disabled={isRecording || captureProcessing}
-                  >
-                    <Undo2 color="#DC2626" size={16} />
-                    <Text className="text-savage-red font-bold">DEFAULT</Text>
-                  </TouchableOpacity>
-                </View>
-
-                {/* CAPTURE/RECORD BUTTON */}
-                <View className="items-center">
-                  {cameraMode === 'photo' ? (
-                    <>
-                      <TouchableOpacity
-                        onPress={capturePhoto}
-                        disabled={captureProcessing}
-                        className="w-20 h-20 rounded-full border-4 border-white bg-transparent items-center justify-center"
-                      >
-                        <View className="w-16 h-16 rounded-full bg-white" />
-                      </TouchableOpacity>
-                      <Text className="text-zinc-500 text-xs mt-3 tracking-wider">
-                        TOCA PARA FOTO
-                      </Text>
-                    </>
-                  ) : (
-                    <>
-                      <TouchableOpacity
-                        onPress={isRecording ? stopVideoRecording : startVideoRecording}
-                        disabled={captureProcessing}
-                        className={`w-20 h-20 rounded-full border-4 ${isRecording ? 'border-savage-red' : 'border-white'} bg-transparent items-center justify-center`}
-                      >
-                        {isRecording ? (
-                          <View className="w-8 h-8 rounded-sm bg-savage-red" />
-                        ) : (
-                          <View className="w-16 h-16 rounded-full bg-savage-red" />
-                        )}
-                      </TouchableOpacity>
-                      <Text className="text-zinc-500 text-xs mt-3 tracking-wider">
-                        {isRecording ? 'TOCA PARA DETENER' : 'TOCA PARA GRABAR (MÁX 10s)'}
-                      </Text>
-                    </>
-                  )}
-                </View>
-              </View>
-            </>
-          )}
-        </View>
-      </Modal>
-    );
-  };
-
-  const renderVideoViewer = () => {
-    return (
-      <Modal
-        visible={videoViewerVisible}
-        animationType="fade"
-        transparent={false}
-        onRequestClose={() => {
-          setVideoViewerVisible(false);
-        }}
-      >
-        <View className="flex-1 bg-savage-black">
-          {/* VIDEO/PHOTO FULLSCREEN CON OVERLAYS */}
-          {selectedVideo && (
-            <View className="flex-1">
-              {/* VIDEO o FOTO con TAP para pausar/reanudar (solo videos) */}
-              {(() => {
-                console.log('🖼️ GYM Historial - selectedVideo:', {
-                  id: selectedVideo.id,
-                  media_type: selectedVideo.media_type,
-                  videoUrl: selectedVideo.videoUrl?.substring(0, 50),
-                  video_url: selectedVideo.video_url?.substring(0, 50),
-                });
-                return null;
-              })()}
-              {selectedVideo.media_type === 'photo' ? (
-                <View
-                  style={{
-                    flex: 1,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    backgroundColor: '#000',
-                  }}
-                >
-                  <RNImage
-                    source={{
-                      uri:
-                        selectedVideo.videoUrl ||
-                        selectedVideo.video_url ||
-                        selectedVideo.thumbnail_url,
-                    }}
-                    style={{
-                      width: SCREEN_WIDTH,
-                      height: SCREEN_WIDTH * (16 / 9),
-                    }}
-                    resizeMode="cover"
-                  />
-                </View>
-              ) : historialVideoSource ? (
-                <TouchableOpacity
-                  activeOpacity={1}
-                  onPress={handleHistorialVideoTap}
-                  style={{ flex: 1 }}
-                >
-                  <VideoView
-                    player={historialPlayer}
-                    style={{ flex: 1, width: '100%', height: '100%' }}
-                    contentFit="cover"
-                    nativeControls={false}
-                  />
-                  {/* Icono de Play cuando está pausado */}
-                  {isVideoManuallyPaused && (
-                    <View className="absolute inset-0 justify-center items-center">
-                      <View className="bg-black/60 rounded-full p-6">
-                        <Play color="#DC2626" size={64} fill="#DC2626" />
-                      </View>
-                    </View>
-                  )}
-                </TouchableOpacity>
-              ) : (
-                <View className="flex-1 bg-zinc-900 justify-center items-center">
-                  <Text className="text-zinc-500">Contenido no disponible</Text>
-                </View>
-              )}
-
-              {/* === OVERLAY BRANDING === */}
-
-              {/* TOP BAR - Logo + Fecha */}
-              <View className="absolute top-0 left-0 right-0 z-50">
-                <LinearGradient
-                  colors={['rgba(0,0,0,0.8)', 'rgba(0,0,0,0)']}
-                  style={{ paddingTop: insets.top + 12, paddingBottom: 40, paddingHorizontal: 24 }}
-                >
-                  <View className="flex-row justify-between items-center">
-                    {/* Close Button */}
-                    <TouchableOpacity
-                      onPress={() => setVideoViewerVisible(false)}
-                      className="bg-black/50 p-2 rounded-full"
-                    >
-                      <X color="#FFFFFF" size={24} />
-                    </TouchableOpacity>
-
-                    {/* TRENS Logo */}
-                    <View className="flex-row items-center gap-2">
-                      <View className="w-8 h-8 bg-savage-red rounded-lg items-center justify-center">
-                        <Text className="text-white font-black text-sm">T</Text>
-                      </View>
-                      <Text className="text-white font-bold tracking-wider">TRENS</Text>
-                    </View>
-
-                    {/* Visibility Badge */}
-                    <View
-                      className={`px-3 py-1 rounded-full ${selectedVideo.is_public ? 'bg-green-500/20' : 'bg-zinc-800'}`}
-                    >
-                      <Text
-                        className={`text-xs font-bold ${selectedVideo.is_public ? 'text-green-500' : 'text-zinc-500'}`}
-                      >
-                        {selectedVideo.is_public ? 'PÚBLICO' : 'PRIVADO'}
-                      </Text>
-                    </View>
-                  </View>
-                </LinearGradient>
-              </View>
-
-              {/* BOTTOM BAR - Datos del ejercicio */}
-              <View className="absolute bottom-0 left-0 right-0 z-50">
-                <LinearGradient
-                  colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.95)']}
-                  className="px-6 pt-20 pb-10"
-                >
-                  {/* Ejercicio Name (si está disponible) */}
-                  {modalExercise && (
-                    <Text className="text-white text-2xl font-bold mb-4 tracking-wide">
-                      {modalExercise.name}
-                    </Text>
-                  )}
-
-                  {/* Datos: Peso x Reps (solo si hay datos) */}
-                  {(selectedVideo.weight > 0 || selectedVideo.reps > 0) && (
-                    <View className="flex-row items-baseline mb-4">
-                      {selectedVideo.weight > 0 && (
-                        <>
-                          <Text className="text-savage-red text-5xl font-black font-mono">
-                            {selectedVideo.weight}
-                          </Text>
-                          <Text className="text-white text-xl font-bold ml-1">KG</Text>
-                        </>
-                      )}
-                      {selectedVideo.weight > 0 && selectedVideo.reps > 0 && (
-                        <Text className="text-zinc-500 text-3xl mx-3">×</Text>
-                      )}
-                      {selectedVideo.reps > 0 && (
-                        <>
-                          <Text className="text-savage-red text-5xl font-black font-mono">
-                            {selectedVideo.reps}
-                          </Text>
-                          <Text className="text-white text-xl font-bold ml-1">REPS</Text>
-                        </>
-                      )}
-                    </View>
-                  )}
-
-                  {/* Caption del video (si tiene) */}
-                  {selectedVideo.free_text && (
-                    <Text className="text-zinc-300 text-base italic mb-4">
-                      "{selectedVideo.free_text}"
-                    </Text>
-                  )}
-
-                  {/* Spotify Track (si tiene) */}
-                  {selectedVideo.spotify?.enabled && (
-                    <TouchableOpacity
-                      className="flex-row items-center bg-black/50 rounded-full px-4 py-2 self-start mb-4"
-                      onPress={() => {
-                        if (spotifyPremium && selectedVideo.spotify?.trackUri) {
-                          // Sincronizar desde posición exacta
-                          spotify.syncWithVideo(
-                            selectedVideo.spotify.trackUri,
-                            selectedVideo.spotify.positionMs || 0
-                          );
-                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                        } else {
-                          // Sin Spotify Premium: Mostrar mensaje
-                          Alert.alert(
-                            '🎵 Spotify Sync',
-                            'Conecta Spotify Premium para reproducir la música exacta con la que se grabó este video.',
-                            [{ text: 'ENTENDIDO', style: 'default' }]
-                          );
-                        }
-                      }}
-                    >
-                      {spotifyPremium ? (
-                        <Volume2 color="#1DB954" size={16} />
-                      ) : (
-                        <Lock color="#71717A" size={16} />
-                      )}
-                      <Text className="text-green-500 text-sm font-bold ml-2">
-                        {selectedVideo.spotify.trackName}
-                      </Text>
-                      <Text className="text-zinc-500 text-sm ml-1">
-                        – {selectedVideo.spotify.artist}
-                      </Text>
-                    </TouchableOpacity>
-                  )}
-
-                  {/* Tags del video + Notas (en fila, todo presionable) */}
-                  <View className="flex-row flex-wrap gap-2 mb-4">
-                    {/* Tags predefinidos */}
-                    {selectedVideo.tags &&
-                      selectedVideo.tags.length > 0 &&
-                      selectedVideo.tags.map((tag: string) => {
-                        const tagInfo = EXERCISE_TAGS.find((t) => t.key === tag);
-                        if (!tagInfo) return null;
-                        return (
-                          <View
-                            key={tag}
-                            className="px-3 py-1.5 rounded-full"
-                            style={{ backgroundColor: tagInfo.color + '30' }}
-                          >
-                            <Text
-                              style={{ color: tagInfo.color, fontSize: 12, fontWeight: 'bold' }}
-                            >
-                              {tagInfo.label}
-                            </Text>
-                          </View>
-                        );
-                      })}
-
-                    {/* Notas (chip presionable para expandir) */}
-                    {(selectedVideo.exercise_notes || selectedVideo.notes) && (
-                      <TouchableOpacity
-                        onPress={() => setVideoNotesExpanded(!videoNotesExpanded)}
-                        style={{
-                          backgroundColor: videoNotesExpanded ? '#F97316' : '#F9731630',
-                          paddingHorizontal: 12,
-                          paddingVertical: 6,
-                          borderRadius: 9999,
-                          flexDirection: 'row',
-                          alignItems: 'center',
-                          gap: 4,
-                        }}
-                      >
-                        <Text style={{ fontSize: 12 }}>📝</Text>
-                        <Text
-                          style={{
-                            color: videoNotesExpanded ? '#000000' : '#F97316',
-                            fontSize: 12,
-                            fontWeight: 'bold',
-                          }}
-                        >
-                          {videoNotesExpanded ? 'Ocultar' : 'Ver notas'}
-                        </Text>
-                      </TouchableOpacity>
-                    )}
-                  </View>
-
-                  {/* Nota completa (solo si está expandida) */}
-                  {videoNotesExpanded && (selectedVideo.exercise_notes || selectedVideo.notes) && (
-                    <View
-                      className="bg-zinc-900/80 rounded-xl px-4 py-3 mt-3"
-                      style={{ borderLeftWidth: 3, borderLeftColor: '#F97316' }}
-                    >
-                      <Text className="text-zinc-300 text-sm">
-                        {selectedVideo.notes || selectedVideo.exercise_notes}
-                      </Text>
-                    </View>
-                  )}
-
-                  {/* Fecha */}
-                  <Text className="text-zinc-500 text-sm mt-3">{selectedVideo.date}</Text>
-
-                  {/* ACTIONS */}
-                  <View className="flex-row justify-around mt-6 pt-4 border-t border-zinc-800">
-                    {/* Delete */}
-                    <TouchableOpacity className="items-center" onPress={handleDeleteVideo}>
-                      <View className="bg-zinc-900 p-3 rounded-full border border-zinc-800 mb-1">
-                        <Trash2 color="#DC2626" size={20} />
-                      </View>
-                      <Text className="text-zinc-600 text-[10px]">ELIMINAR</Text>
-                    </TouchableOpacity>
-
-                    {/* Toggle Visibility */}
-                    <TouchableOpacity className="items-center" onPress={handleToggleVisibility}>
-                      <View
-                        className={`p-3 rounded-full border mb-1 ${
-                          selectedVideo.is_public
-                            ? 'bg-green-500/20 border-green-500/50'
-                            : 'bg-zinc-900 border-zinc-800'
-                        }`}
-                      >
-                        {selectedVideo.is_public ? (
-                          <Eye color="#22C55E" size={20} />
-                        ) : (
-                          <EyeOff color="#71717A" size={20} />
-                        )}
-                      </View>
-                      <Text className="text-zinc-600 text-[10px]">
-                        {selectedVideo.is_public ? 'EN TRENS' : 'OCULTO'}
-                      </Text>
-                    </TouchableOpacity>
-
-                    {/* Share - Screen Record Hint */}
-                    <TouchableOpacity className="items-center" onPress={handleShareVideo}>
-                      <View className="bg-savage-red p-3 rounded-full mb-1">
-                        <Share2 color="#FFFFFF" size={20} />
-                      </View>
-                      <Text className="text-zinc-600 text-[10px]">COMPARTIR</Text>
-                    </TouchableOpacity>
-                  </View>
-                </LinearGradient>
-              </View>
-            </View>
-          )}
-        </View>
-      </Modal>
-    );
-  };
-
-  const renderHistorialModal = () => {
-    if (!modalExercise) return null;
-
-    return (
-      <Modal
-        visible={historialModalVisible}
-        animationType="none"
-        transparent={true}
-        onRequestClose={() => setHistorialModalVisible(false)}
-      >
-        <View className="flex-1 bg-transparent justify-end">
-          <Animated.View
-            className="bg-black rounded-t-3xl"
-            style={[{ height: '85%', backgroundColor: '#000' }, animatedStyleHistorial]}
-          >
-            {/* Drag Handle + Header (Área para arrastrar) */}
-            <Animated.View
-              className="items-center pt-4 pb-4 border-b border-zinc-800"
-              {...panResponderHistorial.panHandlers}
+          {/* CAMERA VIEW - FORMATO CUADRADO CON DIMENSIONES FIJAS */}
+          <View className="flex-1 justify-center items-center bg-black px-4">
+            <View
+              className="w-full overflow-hidden rounded-lg bg-zinc-900"
+              style={{ aspectRatio: 1 }}
             >
-              <View className="w-12 h-1 bg-zinc-600 rounded-full mb-4" />
+              <CameraView
+                ref={cameraRef}
+                style={{ flex: 1, width: '100%', height: '100%' }}
+                facing={cameraFacing}
+                mode="picture"
+              />
+            </View>
+          </View>
 
-              {/* Header */}
-              <View className="px-6 pb-2 w-full">
-                <Text className="text-savage-text text-xl font-bold text-center">
-                  {modalExercise.name}
+          {/* PROCESSING/UPLOAD INDICATOR */}
+          {captureProcessing && (
+            <View className="absolute inset-0 bg-black/90 justify-center items-center z-50">
+              <View className="bg-zinc-900 rounded-2xl p-8 items-center border border-zinc-800">
+                <View className="w-20 h-20 rounded-full bg-savage-red/20 items-center justify-center mb-4">
+                  <ActivityIndicator size="large" color="#DC2626" />
+                </View>
+                <Text className="text-white text-lg font-bold tracking-wider">
+                  {uploadingMessage || 'PROCESANDO...'}
                 </Text>
-                <Text className="text-zinc-500 text-xs mt-1 tracking-wider text-center uppercase">
-                  Historial de Videos
+                <Text className="text-zinc-500 text-xs mt-2">
+                  {uploadingMessage ? 'Por favor espera' : 'Preparando archivo'}
                 </Text>
               </View>
-            </Animated.View>
+            </View>
+          )}
 
-            {/* Lista de Videos */}
-            <ScrollView className="flex-1 px-4 py-4" showsVerticalScrollIndicator={false}>
-              {loadingVideos ? (
-                <View className="flex-1 justify-center items-center py-20">
-                  <ActivityIndicator color="#DC2626" size="large" />
-                  <Text className="text-zinc-500 text-center mt-4 text-sm">Cargando videos...</Text>
-                </View>
-              ) : exerciseVideos.length === 0 ? (
-                <View className="flex-1 justify-center items-center py-20">
-                  <CameraIcon color="#3F3F46" size={48} />
-                  <Text className="text-zinc-600 text-center mt-4 text-base">
-                    Sin videos registrados
-                  </Text>
-                  <Text className="text-zinc-700 text-center mt-2 text-xs">
-                    Graba tu primer set desde el botón PRO
-                  </Text>
-                </View>
-              ) : (
-                exerciseVideos.map((video) => (
-                  <Pressable
-                    key={video.id}
-                    onPress={() => {
-                      setSelectedVideo(video);
-                      setVideoNotesExpanded(false);
-                      setVideoViewerVisible(true);
-                      setHistorialModalVisible(false);
-                    }}
-                    onLongPress={() => {
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-                      deleteVideoFromHistorial(video);
-                    }}
-                    delayLongPress={500}
-                    className="flex-row bg-zinc-900 rounded-xl mb-3 border border-zinc-800 overflow-hidden"
-                  >
-                    {/* Thumbnail - usa Image para fotos, VideoView para videos */}
-                    <View
-                      className="bg-zinc-800 w-24 justify-center items-center overflow-hidden"
-                      style={{ aspectRatio: 3 / 4 }}
-                    >
-                      {video.media_type === 'photo' ? (
-                        <Image
-                          source={{ uri: video.videoUrl || video.video_url || video.thumbnail_url }}
-                          style={{ width: 96, height: 128 }}
-                          contentFit="cover"
-                        />
-                      ) : video.videoUrl || video.video_url ? (
-                        <VideoThumbnail
-                          videoUrl={video.videoUrl || video.video_url || ''}
-                          width={96}
-                          height={128}
-                        />
-                      ) : (
-                        <Play color="#52525b" size={28} fill="#52525b" />
-                      )}
-                      {/* Icono de Play para videos, Camera para fotos */}
-                      <View className="absolute inset-0 items-center justify-center bg-black/30">
-                        {video.media_type === 'photo' ? (
-                          <CameraIcon color="#fff" size={20} />
-                        ) : (
-                          <Play color="#fff" size={20} fill="#fff" />
-                        )}
-                      </View>
-                    </View>
+          {/* CONTROLS */}
+          <View className="bg-black py-4 border-t border-zinc-900">
+            {/* BOTÓN GALERÍA + RESTAURAR DEFAULT */}
+            <View className="flex-row justify-center mb-4" style={{ gap: 12 }}>
+              <TouchableOpacity
+                onPress={() => {
+                  setCameraModalVisible(false);
+                  setTimeout(() => pickFromGallery(), 300);
+                }}
+                className="bg-zinc-900 px-6 py-3 rounded-full border border-zinc-700"
+              >
+                <Text className="text-white font-bold">📁 GALERÍA</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={restoreDefaultMedia}
+                className="bg-zinc-900 px-4 py-3 rounded-full border border-zinc-700 flex-row items-center"
+                style={{ gap: 6 }}
+                disabled={captureProcessing}
+              >
+                <Undo2 color="#DC2626" size={16} />
+                <Text className="text-savage-red font-bold">DEFAULT</Text>
+              </TouchableOpacity>
+            </View>
 
-                    {/* Datos */}
-                    <View className="flex-1 p-3 justify-center">
-                      <View className="flex-row items-baseline mb-1">
-                        <Text className="text-white font-bold text-2xl font-mono">
-                          {video.weight}
-                        </Text>
-                        <Text className="text-zinc-500 text-xs ml-1">kg</Text>
-                        <Text className="text-zinc-700 text-xl mx-1">×</Text>
-                        <Text className="text-white font-bold text-2xl font-mono">
-                          {video.reps}
-                        </Text>
-                        <Text className="text-zinc-500 text-xs ml-1">reps</Text>
-                      </View>
-                      <Text className="text-zinc-600 text-xs">{video.date}</Text>
-                      <View className="flex-row items-center mt-1">
-                        <View
-                          className={`w-1.5 h-1.5 rounded-full mr-1.5 ${
-                            video.is_public ? 'bg-green-500' : 'bg-zinc-700'
-                          }`}
-                        />
-                        <Text className="text-zinc-600 text-[10px] uppercase tracking-wider">
-                          {video.is_public ? 'Público' : 'Privado'}
-                        </Text>
-                        {video.spotify?.enabled && (
-                          <View className="flex-row items-center ml-2">
-                            <Music color="#1DB954" size={10} />
-                            <Text className="text-green-500 text-[10px] ml-1">
-                              {video.spotify.trackName}
-                            </Text>
-                          </View>
-                        )}
-                      </View>
-                    </View>
-                  </Pressable>
-                ))
-              )}
-            </ScrollView>
-          </Animated.View>
+            {/* CAPTURE BUTTON */}
+            <View className="items-center">
+              <TouchableOpacity
+                onPress={capturePhoto}
+                disabled={captureProcessing}
+                className="w-20 h-20 rounded-full border-4 border-white bg-transparent items-center justify-center"
+              >
+                <View className="w-16 h-16 rounded-full bg-white" />
+              </TouchableOpacity>
+              <Text className="text-zinc-500 text-xs mt-3 tracking-wider">TOCA PARA FOTO</Text>
+            </View>
+          </View>
         </View>
       </Modal>
     );
@@ -9903,7 +8008,6 @@ function GymScreen() {
               configId: item.id, // Guardar el user_exercise_config.id por si se necesita
               name: item.name || 'Sin nombre',
               image_url: item.image_url || '',
-              videos: item.videos || [],
               isMain: true,
             },
             ...validAlternatives.map((alt: ExerciseAlternative) => ({
@@ -10200,192 +8304,6 @@ function GymScreen() {
                           )}
                         </View>
                       </View>
-
-                      {/* SLIDER DE HISTORIAL */}
-                      <View
-                        className="px-4 pt-3"
-                        style={{
-                          backgroundColor: spotifyIsPlaying ? 'transparent' : '#000',
-                        }}
-                      >
-                        <View className="flex-row items-center justify-between mb-2">
-                          <View className="flex-row items-center gap-2">
-                            <View className="w-1 h-4 bg-fire-orange rounded-full" />
-                            <Text className="text-white font-bold text-sm uppercase tracking-wider">
-                              Historial
-                            </Text>
-                          </View>
-                          <Text className="text-zinc-500 text-xs font-mono">
-                            {
-                              variation.videos.filter((v: VideoRecord) => v.video_url || v.videoUrl)
-                                .length
-                            }{' '}
-                            registros
-                          </Text>
-                        </View>
-
-                        {variation.videos.filter((v: VideoRecord) => v.video_url || v.videoUrl)
-                          .length > 0 ? (
-                          <ScrollView
-                            horizontal
-                            showsHorizontalScrollIndicator={false}
-                            contentContainerStyle={{ paddingRight: 16 }}
-                            className="-mx-4 px-4"
-                          >
-                            {variation.videos
-                              .filter((v: VideoRecord) => v.video_url || v.videoUrl)
-                              .slice(0, 10)
-                              .map((video: VideoRecord, vIdx: number) => (
-                                <Pressable
-                                  key={video.id || vIdx}
-                                  onPress={() => {
-                                    setSelectedVideo(video);
-                                    setVideoNotesExpanded(false);
-                                    setVideoViewerVisible(true);
-                                  }}
-                                  onLongPress={() => {
-                                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-                                    deleteVideoFromHistorial(video);
-                                  }}
-                                  delayLongPress={500}
-                                  className="mr-3"
-                                  style={{
-                                    width: 75,
-                                    height: 133,
-                                    backgroundColor: spotifyIsPlaying
-                                      ? 'rgba(0,0,0,0.4)'
-                                      : '#0a0a0a',
-                                    borderRadius: 10,
-                                    borderWidth: 1.5,
-                                    borderColor:
-                                      vIdx === 0
-                                        ? '#F97316'
-                                        : spotifyIsPlaying
-                                          ? 'rgba(255,255,255,0.15)'
-                                          : '#27272a',
-                                    overflow: 'hidden',
-                                  }}
-                                >
-                                  <View className="relative flex-1">
-                                    {video.thumbnail_url || video.video_url ? (
-                                      <Image
-                                        source={{ uri: video.thumbnail_url || video.video_url }}
-                                        style={{ width: '100%', height: '100%' }}
-                                        contentFit="cover"
-                                      />
-                                    ) : (
-                                      <View className="w-full h-full bg-zinc-800 items-center justify-center">
-                                        <Video color="#52525b" size={20} />
-                                      </View>
-                                    )}
-
-                                    <LinearGradient
-                                      colors={['transparent', 'rgba(0,0,0,0.9)']}
-                                      className="absolute bottom-0 left-0 right-0 h-16"
-                                    />
-
-                                    <View className="absolute inset-0 items-center justify-center">
-                                      <View
-                                        className="w-8 h-8 rounded-full items-center justify-center"
-                                        style={{ backgroundColor: 'rgba(255,255,255,0.9)' }}
-                                      >
-                                        <Play color="#000" size={14} fill="#000" />
-                                      </View>
-                                    </View>
-
-                                    <View className="absolute top-1.5 left-1.5 right-1.5 flex-row justify-between">
-                                      <View
-                                        className="w-5 h-5 rounded-full items-center justify-center"
-                                        style={{ backgroundColor: 'rgba(0,0,0,0.7)' }}
-                                      >
-                                        {video.is_public ? (
-                                          <Eye color="#22c55e" size={11} />
-                                        ) : (
-                                          <EyeOff color="#71717a" size={11} />
-                                        )}
-                                      </View>
-
-                                      {video.spotify?.enabled && (
-                                        <View
-                                          className="w-5 h-5 rounded-full items-center justify-center"
-                                          style={{ backgroundColor: 'rgba(0,0,0,0.7)' }}
-                                        >
-                                          <Music color="#1DB954" size={11} />
-                                        </View>
-                                      )}
-                                    </View>
-
-                                    <View className="absolute bottom-1.5 left-1.5 right-1.5">
-                                      {(video.weight > 0 || video.reps > 0) && (
-                                        <Text
-                                          className="text-white font-bold text-[11px]"
-                                          numberOfLines={1}
-                                        >
-                                          {video.weight > 0 && video.reps > 0
-                                            ? `${video.weight}kg × ${video.reps}`
-                                            : video.weight > 0
-                                              ? `${video.weight}kg`
-                                              : `${video.reps} reps`}
-                                        </Text>
-                                      )}
-                                      {video.free_text && (
-                                        <Text
-                                          className="text-zinc-300 text-[9px] italic"
-                                          numberOfLines={1}
-                                        >
-                                          {video.free_text}
-                                        </Text>
-                                      )}
-                                      <Text className="text-zinc-400 text-[9px]">{video.date}</Text>
-                                    </View>
-                                  </View>
-                                </Pressable>
-                              ))}
-
-                            {variation.videos.length > 5 && (
-                              <TouchableOpacity
-                                onPress={() => {
-                                  setModalExercise(item);
-                                  setHistorialModalVisible(true);
-                                }}
-                                className="items-center justify-center"
-                                style={{
-                                  width: 75,
-                                  height: 133,
-                                  backgroundColor: spotifyIsPlaying ? 'rgba(0,0,0,0.4)' : '#18181b',
-                                  borderRadius: 10,
-                                  borderWidth: 1,
-                                  borderColor: spotifyIsPlaying
-                                    ? 'rgba(255,255,255,0.15)'
-                                    : '#27272a',
-                                }}
-                              >
-                                <Text className="text-zinc-400 text-[10px] font-bold">
-                                  Ver todo
-                                </Text>
-                                <Text className="text-fire-orange text-lg font-bold mt-0.5">
-                                  +{variation.videos.length - 5}
-                                </Text>
-                              </TouchableOpacity>
-                            )}
-                          </ScrollView>
-                        ) : (
-                          <View
-                            className="items-center justify-center py-4 rounded-xl"
-                            style={{
-                              backgroundColor: spotifyIsPlaying ? 'rgba(0,0,0,0.4)' : '#0a0a0a',
-                              borderWidth: 1,
-                              borderColor: spotifyIsPlaying ? 'rgba(255,255,255,0.1)' : '#1a1a1a',
-                            }}
-                          >
-                            <Video color="#52525b" size={24} />
-                            <Text className="text-zinc-600 text-xs mt-2">Sin registros aún</Text>
-                            <Text className="text-zinc-700 text-[10px] mt-0.5">
-                              Graba tu primera serie
-                            </Text>
-                          </View>
-                        )}
-                      </View>
                     </View>
                   );
                 }}
@@ -10450,10 +8368,7 @@ function GymScreen() {
 
       {/* MODALS */}
       {renderNotesModal()}
-      {renderVideoNotesModal()}
       {renderHankModal()}
-      {renderVideoViewer()}
-      {renderHistorialModal()}
       {renderStructureModal()}
       {renderAddDayModal()}
       {renderFocusSeriesModal()}

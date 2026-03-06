@@ -1,7 +1,7 @@
 // =============================================================================
 // PRO MEDIA EDITOR — Professional Video/Photo Editor
-// TRENS watermark ALWAYS visible. Crop inline. Preview via swipe.
-// Web-compatible: uses onLayout instead of .measure()
+// Instagram-style crop: pinch-to-zoom + pan within 9:16 frame.
+// TRENS watermark ALWAYS visible. Trim + Crop inline. Preview via swipe.
 // =============================================================================
 
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
@@ -15,29 +15,37 @@ import {
   GestureResponderEvent,
   TextInput,
   Dimensions,
-  Animated,
+  Animated as RNAnimated,
   LayoutChangeEvent,
   Platform,
 } from 'react-native';
-import {
-  X,
-  Play,
-  Scissors,
-  RotateCcw,
-  Download,
-  Lock,
-  Crop,
-  Dumbbell,
-  ChevronUp,
-  ChevronDown,
-  Globe,
-} from 'lucide-react-native';
+import { X, Play, Download, Dumbbell, ChevronUp, ChevronDown } from 'lucide-react-native';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { Image as ExpoImage } from 'expo-image';
+import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+  withTiming,
+  runOnJS,
+} from 'react-native-reanimated';
 import * as Haptics from '../../lib/haptics';
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 const BOTTOM_PANEL_HEIGHT = 280;
+// Preview card: always 9:16, width-driven
+const CARD_W = SCREEN_W * 0.92;
+const CARD_H = CARD_W * (16 / 9);
+// Smaller card when panel is open (fits above bottom panel + top bar)
+const TOP_BAR_H = 80;
+const AVAILABLE_H_WITH_PANEL = SCREEN_H - BOTTOM_PANEL_HEIGHT - TOP_BAR_H - 20;
+const CARD_SCALE_WITH_PANEL = Math.min(1, AVAILABLE_H_WITH_PANEL / CARD_H);
+const CROP_FRAME_W = CARD_W;
+const CROP_FRAME_H = CARD_H;
+const MIN_SCALE = 1;
+const MAX_SCALE = 5;
+const DISMISS_THRESHOLD = 100;
 
 // =============================================================================
 // TIPOS
@@ -81,6 +89,9 @@ export interface ProMediaEditorProps {
     filter: string;
     showOverlay: boolean;
     cropOffsetY?: number;
+    cropScale?: number;
+    cropTranslateX?: number;
+    cropTranslateY?: number;
   }) => void;
   saving: boolean;
   keepSpotifyPlaying?: boolean;
@@ -123,9 +134,15 @@ export function ProMediaEditor({
   const [videoTrimStart, setVideoTrimStart] = useState(0);
   const [videoTrimEnd, setVideoTrimEnd] = useState(100);
 
-  // --- Crop ---
-  const [cropOffsetY, setCropOffsetY] = useState(0);
-  const [activeTool, setActiveTool] = useState<'trim' | 'crop' | null>('trim');
+  // --- Crop (Instagram-style: pinch-to-zoom + pan) ---
+  const cropScale = useSharedValue(1);
+  const cropTranslateX = useSharedValue(0);
+  const cropTranslateY = useSharedValue(0);
+  const savedScale = useSharedValue(1);
+  const savedTranslateX = useSharedValue(0);
+  const savedTranslateY = useSharedValue(0);
+  const [displayScale, setDisplayScale] = useState(1);
+  const [cropModified, setCropModified] = useState(false);
 
   // --- Workout data ---
   const [isPublic, setIsPublic] = useState(true);
@@ -135,11 +152,50 @@ export function ProMediaEditor({
 
   // --- Preview mode (swipe) ---
   const [previewMode, setPreviewMode] = useState(false);
-  const panelAnim = useRef(new Animated.Value(0)).current;
+  const panelAnim = useRef(new RNAnimated.Value(0)).current;
+
+  // --- Dismiss gesture (swipe whole modal down) ---
+  const dismissY = useSharedValue(0);
+
+  const dismissAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: dismissY.value }],
+  }));
+
+  const dismissPanResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => false,
+        onMoveShouldSetPanResponder: (_evt, gs) => {
+          // Only capture vertical drags downward, not conflicting with crop/trim
+          return gs.dy > 10 && Math.abs(gs.dy) > Math.abs(gs.dx) * 2;
+        },
+        onPanResponderMove: (_evt, gs) => {
+          if (gs.dy > 0) {
+            dismissY.value = gs.dy;
+          }
+        },
+        onPanResponderRelease: (_evt, gs) => {
+          if (gs.dy > DISMISS_THRESHOLD || gs.vy > 0.5) {
+            // Dismiss: animate out and close
+            dismissY.value = withTiming(SCREEN_H, { duration: 200 });
+            setTimeout(() => {
+              dismissY.value = 0;
+              onClose();
+            }, 200);
+          } else {
+            // Snap back
+            dismissY.value = withSpring(0, { damping: 20, stiffness: 300 });
+          }
+        },
+        onPanResponderTerminate: () => {
+          dismissY.value = withSpring(0, { damping: 20, stiffness: 300 });
+        },
+      }),
+    [onClose]
+  );
 
   // --- Layout cache (web-compatible, no .measure()) ---
   const timelineLayout = useRef({ x: 0, y: 0, width: 0, pageX: 0 });
-  const cropLayout = useRef({ x: 0, y: 0, width: 0, pageX: 0 });
 
   // --- Refs ---
   const videoTimelineRef = useRef<View>(null);
@@ -197,13 +253,20 @@ export function ProMediaEditor({
       setCurrentVideoTime(0);
       setIsPlaying(isVideo);
       setPreviewMode(false);
-      setCropOffsetY(0);
+      cropScale.value = 1;
+      cropTranslateX.value = 0;
+      cropTranslateY.value = 0;
+      savedScale.value = 1;
+      savedTranslateX.value = 0;
+      savedTranslateY.value = 0;
+      setDisplayScale(1);
+      setCropModified(false);
       setWeightKg('');
       setReps('');
       setShowWorkoutFields(false);
-      setActiveTool(isVideo ? 'trim' : 'crop');
       setIsPublic(true);
       panelAnim.setValue(0);
+      dismissY.value = 0;
     } else if (!visible) {
       hasInitializedRef.current = false;
     }
@@ -221,16 +284,11 @@ export function ProMediaEditor({
     }
   }, []);
 
-  const handleCropLayout = useCallback((e: LayoutChangeEvent) => {
-    const { x, y, width } = e.nativeEvent.layout;
-    cropLayout.current = { x, y, width, pageX: 0 };
-  }, []);
-
   // --- Animate panel ---
   const animatePanel = useCallback(
     (toPreview: boolean) => {
       setPreviewMode(toPreview);
-      Animated.spring(panelAnim, {
+      RNAnimated.spring(panelAnim, {
         toValue: toPreview ? 1 : 0,
         useNativeDriver: true,
         tension: 80,
@@ -239,25 +297,6 @@ export function ProMediaEditor({
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     },
     [panelAnim]
-  );
-
-  // --- Swipe PanResponder for preview toggle ---
-  const swipePan = useMemo(
-    () =>
-      PanResponder.create({
-        onStartShouldSetPanResponder: () => false,
-        onMoveShouldSetPanResponder: (_evt, gs) => {
-          return Math.abs(gs.dy) > 20 && Math.abs(gs.dy) > Math.abs(gs.dx) * 1.5;
-        },
-        onPanResponderRelease: (_evt, gs) => {
-          if (gs.dy > 50 && !previewMode) {
-            animatePanel(true);
-          } else if (gs.dy < -50 && previewMode) {
-            animatePanel(false);
-          }
-        },
-      }),
-    [previewMode, animatePanel]
   );
 
   // --- Playback ---
@@ -378,36 +417,99 @@ export function ProMediaEditor({
     [restartPlayback, isVideo, getRelativeX]
   );
 
-  // --- Crop slider (web-compatible, uses accumulated dx) ---
-  const cropStartRef = useRef(0);
-  const cropValueRef = useRef(0);
-  // Keep ref in sync
-  useEffect(() => {
-    cropValueRef.current = cropOffsetY;
-  }, [cropOffsetY]);
+  // --- Instagram-style Crop Gestures (pinch-to-zoom + pan) ---
+  const updateDisplayScale = useCallback((s: number) => {
+    setDisplayScale(Math.round(s * 10) / 10);
+  }, []);
 
-  const cropPan = useMemo(
+  const markCropModified = useCallback(() => {
+    setCropModified(true);
+  }, []);
+
+  const triggerHaptic = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  }, []);
+
+  const pinchGesture = useMemo(
     () =>
-      PanResponder.create({
-        onStartShouldSetPanResponder: () => true,
-        onMoveShouldSetPanResponder: () => true,
-        onPanResponderGrant: () => {
-          cropStartRef.current = cropValueRef.current;
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-        },
-        onPanResponderMove: (_evt: GestureResponderEvent, gs) => {
-          // Use dx (accumulated horizontal delta) — works on web
-          const width = cropLayout.current.width || SCREEN_W - 32;
-          const delta = (gs.dx / width) * 100;
-          const newVal = Math.max(-50, Math.min(50, cropStartRef.current + delta));
-          setCropOffsetY(newVal);
-        },
-        onPanResponderRelease: () => {
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-        },
-      }),
-    [] // No dependencies — uses refs only
+      Gesture.Pinch()
+        .onStart(() => {
+          savedScale.value = cropScale.value;
+        })
+        .onUpdate((e) => {
+          const newScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, savedScale.value * e.scale));
+          cropScale.value = newScale;
+          // Clamp translation when scale changes
+          const maxTx = ((newScale - 1) * CROP_FRAME_W) / 2;
+          const maxTy = ((newScale - 1) * CROP_FRAME_H) / 2;
+          cropTranslateX.value = Math.max(-maxTx, Math.min(maxTx, cropTranslateX.value));
+          cropTranslateY.value = Math.max(-maxTy, Math.min(maxTy, cropTranslateY.value));
+          runOnJS(updateDisplayScale)(newScale);
+        })
+        .onEnd(() => {
+          savedScale.value = cropScale.value;
+          savedTranslateX.value = cropTranslateX.value;
+          savedTranslateY.value = cropTranslateY.value;
+          runOnJS(markCropModified)();
+          runOnJS(triggerHaptic)();
+        }),
+    []
   );
+
+  const panGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .minPointers(1)
+        .maxPointers(2)
+        .onStart(() => {
+          savedTranslateX.value = cropTranslateX.value;
+          savedTranslateY.value = cropTranslateY.value;
+        })
+        .onUpdate((e) => {
+          const s = cropScale.value;
+          const maxTx = ((s - 1) * CROP_FRAME_W) / 2;
+          const maxTy = ((s - 1) * CROP_FRAME_H) / 2;
+          cropTranslateX.value = Math.max(
+            -maxTx,
+            Math.min(maxTx, savedTranslateX.value + e.translationX)
+          );
+          cropTranslateY.value = Math.max(
+            -maxTy,
+            Math.min(maxTy, savedTranslateY.value + e.translationY)
+          );
+        })
+        .onEnd(() => {
+          savedTranslateX.value = cropTranslateX.value;
+          savedTranslateY.value = cropTranslateY.value;
+          runOnJS(markCropModified)();
+        }),
+    []
+  );
+
+  const cropGesture = useMemo(
+    () => Gesture.Simultaneous(pinchGesture, panGesture),
+    [pinchGesture, panGesture]
+  );
+
+  const resetCrop = useCallback(() => {
+    cropScale.value = withSpring(1, { damping: 15, stiffness: 120 });
+    cropTranslateX.value = withSpring(0, { damping: 15, stiffness: 120 });
+    cropTranslateY.value = withSpring(0, { damping: 15, stiffness: 120 });
+    savedScale.value = 1;
+    savedTranslateX.value = 0;
+    savedTranslateY.value = 0;
+    setDisplayScale(1);
+    setCropModified(false);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  }, []);
+
+  const cropAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [
+      { translateX: cropTranslateX.value },
+      { translateY: cropTranslateY.value },
+      { scale: cropScale.value },
+    ],
+  }));
 
   // --- Save ---
   const handleSave = useCallback(() => {
@@ -422,9 +524,12 @@ export function ProMediaEditor({
       caption: null,
       filter: 'RAW',
       showOverlay: true,
-      cropOffsetY,
+      cropOffsetY: 0,
+      cropScale: cropScale.value,
+      cropTranslateX: cropTranslateX.value,
+      cropTranslateY: cropTranslateY.value,
     });
-  }, [mediaData, videoTrimStart, videoTrimEnd, isPublic, weightKg, reps, cropOffsetY, onSave]);
+  }, [mediaData, videoTrimStart, videoTrimEnd, isPublic, weightKg, reps, onSave]);
 
   // --- Render ---
   if (!mediaData) return null;
@@ -437,6 +542,12 @@ export function ProMediaEditor({
     outputRange: [0, BOTTOM_PANEL_HEIGHT + 40],
   });
 
+  // Preview card scale: shrink when panel is visible, full when preview mode
+  const cardScale = panelAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [CARD_SCALE_WITH_PANEL, 1],
+  });
+
   // =======================================================================
   // RENDER
   // =======================================================================
@@ -447,42 +558,46 @@ export function ProMediaEditor({
       presentationStyle="fullScreen"
       statusBarTranslucent
     >
-      <View className="flex-1 bg-black">
+      <GestureHandlerRootView style={{ flex: 1 }}>
+      <Animated.View
+        style={[{ flex: 1, backgroundColor: '#000' }, dismissAnimatedStyle]}
+        {...dismissPanResponder.panHandlers}
+      >
         {/* ================================================================ */}
         {/* MEDIA PREVIEW — 9:16 aspect ratio                                */}
         {/* ================================================================ */}
         <View
           className="flex-1 items-center justify-center"
           style={{ backgroundColor: '#000' }}
-          {...swipePan.panHandlers}
         >
-          <View
+          <RNAnimated.View
             style={{
-              width: previewMode ? SCREEN_W : SCREEN_W * 0.92,
-              aspectRatio: 9 / 16,
-              maxHeight: previewMode ? SCREEN_H : SCREEN_H * 0.62,
-              borderRadius: previewMode ? 0 : 12,
+              width: CARD_W,
+              height: CARD_H,
+              borderRadius: 12,
               overflow: 'hidden',
               backgroundColor: '#0A0A0A',
+              transform: [{ scale: cardScale }],
             }}
           >
-            {isVideo ? (
-              <VideoView
-                player={videoPlayer}
-                style={{
-                  flex: 1,
-                  transform: [{ translateY: cropOffsetY * 3 }],
-                }}
-                contentFit="cover"
-                nativeControls={false}
-              />
-            ) : (
-              <ExpoImage
-                source={{ uri: mediaData.uri }}
-                style={{ flex: 1, transform: [{ translateY: cropOffsetY * 3 }] }}
-                contentFit="cover"
-              />
-            )}
+            <GestureDetector gesture={cropGesture}>
+              <Animated.View style={[{ flex: 1 }, cropAnimatedStyle]}>
+                {isVideo ? (
+                  <VideoView
+                    player={videoPlayer}
+                    style={{ flex: 1 }}
+                    contentFit="cover"
+                    nativeControls={false}
+                  />
+                ) : (
+                  <ExpoImage
+                    source={{ uri: mediaData.uri }}
+                    style={{ flex: 1 }}
+                    contentFit="cover"
+                  />
+                )}
+              </Animated.View>
+            </GestureDetector>
 
             {/* TRENS Watermark — SIEMPRE visible */}
             <View className="absolute bottom-6 left-0 right-0 items-center" pointerEvents="none">
@@ -547,18 +662,50 @@ export function ProMediaEditor({
               )}
             </View>
 
-            {/* Crop guide lines (solo cuando crop activo) */}
-            {activeTool === 'crop' && (
-              <View className="absolute inset-0 items-center justify-center" pointerEvents="none">
+            {/* Guide lines — siempre visibles */}
+            <View className="absolute inset-0" pointerEvents="none">
+              {/* Grid lines */}
+              <View
+                className="absolute left-0 right-0"
+                style={{ top: '33.3%', height: 1, backgroundColor: 'rgba(255,255,255,0.2)' }}
+              />
+              <View
+                className="absolute left-0 right-0"
+                style={{ top: '66.6%', height: 1, backgroundColor: 'rgba(255,255,255,0.2)' }}
+              />
+              <View
+                className="absolute top-0 bottom-0"
+                style={{ left: '33.3%', width: 1, backgroundColor: 'rgba(255,255,255,0.2)' }}
+              />
+              <View
+                className="absolute top-0 bottom-0"
+                style={{ left: '66.6%', width: 1, backgroundColor: 'rgba(255,255,255,0.2)' }}
+              />
+              {/* Corner brackets */}
+              {[
+                { top: 0, left: 0 },
+                { top: 0, right: 0 },
+                { bottom: 0, left: 0 },
+                { bottom: 0, right: 0 },
+              ].map((pos, i) => (
                 <View
-                  className="absolute left-4 right-4"
-                  style={{ top: '33%', height: 1, backgroundColor: 'rgba(220,38,38,0.3)' }}
+                  key={i}
+                  style={{
+                    position: 'absolute',
+                    ...pos,
+                    width: 24,
+                    height: 24,
+                    borderColor: '#DC2626',
+                    borderTopWidth: pos.top === 0 ? 3 : 0,
+                    borderBottomWidth: pos.bottom === 0 ? 3 : 0,
+                    borderLeftWidth: pos.left === 0 ? 3 : 0,
+                    borderRightWidth: pos.right === 0 ? 3 : 0,
+                  }}
                 />
-                <View
-                  className="absolute left-4 right-4"
-                  style={{ top: '66%', height: 1, backgroundColor: 'rgba(220,38,38,0.3)' }}
-                />
-                {cropOffsetY !== 0 && (
+              ))}
+              {/* Scale indicator */}
+              {displayScale > 1 && (
+                <View className="absolute top-3 left-0 right-0 items-center">
                   <View
                     className="px-3 py-1.5 rounded-full"
                     style={{ backgroundColor: 'rgba(0,0,0,0.7)' }}
@@ -571,15 +718,14 @@ export function ProMediaEditor({
                         fontFamily: 'monospace',
                       }}
                     >
-                      {cropOffsetY > 0 ? '+' : ''}
-                      {Math.round(cropOffsetY)}
+                      {displayScale.toFixed(1)}×
                     </Text>
                   </View>
-                )}
-              </View>
-            )}
+                </View>
+              )}
+            </View>
 
-            {/* Play/Pause overlay */}
+            {/* Play/Pause overlay (video) or tap-to-preview (photo) */}
             {isVideo && (
               <TouchableOpacity
                 onPress={togglePlayback}
@@ -596,7 +742,14 @@ export function ProMediaEditor({
                 )}
               </TouchableOpacity>
             )}
-          </View>
+            {!isVideo && (
+              <TouchableOpacity
+                onPress={() => animatePanel(!previewMode)}
+                className="absolute inset-0"
+                activeOpacity={1}
+              />
+            )}
+          </RNAnimated.View>
         </View>
 
         {/* ================================================================ */}
@@ -604,7 +757,7 @@ export function ProMediaEditor({
         {/* ================================================================ */}
         <View
           className="absolute top-0 left-0 right-0 pt-14 px-3 pb-2"
-          style={{ backgroundColor: 'rgba(0,0,0,0.45)' }}
+          style={{ backgroundColor: 'transparent' }}
         >
           <View className="flex-row items-center justify-between">
             <TouchableOpacity
@@ -634,22 +787,6 @@ export function ProMediaEditor({
                   <Text className="text-white text-[10px] font-bold ml-1.5">DATOS</Text>
                 </TouchableOpacity>
               )}
-
-              <TouchableOpacity
-                onPress={() => {
-                  setIsPublic(!isPublic);
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                }}
-                className="flex-row items-center px-3 py-2 rounded-full"
-                style={{
-                  backgroundColor: isPublic ? 'rgba(220,38,38,0.85)' : 'rgba(0,0,0,0.6)',
-                }}
-              >
-                {isPublic ? <Globe color="#FFF" size={14} /> : <Lock color="#FFF" size={14} />}
-                <Text className="text-white text-[10px] font-bold ml-1.5">
-                  {isPublic ? 'PÚBLICO' : 'BÓVEDA'}
-                </Text>
-              </TouchableOpacity>
             </View>
           </View>
         </View>
@@ -826,7 +963,7 @@ export function ProMediaEditor({
         {/* ================================================================ */}
         {/* BOTTOM PANEL (animated)                                          */}
         {/* ================================================================ */}
-        <Animated.View
+        <RNAnimated.View
           style={{
             backgroundColor: '#0A0A0A',
             borderTopWidth: 1,
@@ -864,63 +1001,10 @@ export function ProMediaEditor({
             )}
           </View>
 
-          {/* TOOL TABS */}
-          <View className="flex-row px-4 mb-2 gap-2">
-            {isVideo && (
-              <TouchableOpacity
-                onPress={() => {
-                  setActiveTool('trim');
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                }}
-                className="flex-row items-center px-4 py-2 rounded-full"
-                style={{
-                  backgroundColor: activeTool === 'trim' ? '#DC2626' : 'rgba(255,255,255,0.06)',
-                  borderWidth: activeTool === 'trim' ? 0 : 1,
-                  borderColor: 'rgba(255,255,255,0.08)',
-                }}
-              >
-                <Scissors color="#FFF" size={13} />
-                <Text className="text-white text-xs font-bold ml-1.5">CORTAR</Text>
-              </TouchableOpacity>
-            )}
-            <TouchableOpacity
-              onPress={() => {
-                setActiveTool('crop');
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              }}
-              className="flex-row items-center px-4 py-2 rounded-full"
-              style={{
-                backgroundColor: activeTool === 'crop' ? '#DC2626' : 'rgba(255,255,255,0.06)',
-                borderWidth: activeTool === 'crop' ? 0 : 1,
-                borderColor: 'rgba(255,255,255,0.08)',
-              }}
-            >
-              <Crop color="#FFF" size={13} />
-              <Text className="text-white text-xs font-bold ml-1.5">ENCUADRE</Text>
-              {cropOffsetY !== 0 && (
-                <View
-                  className="ml-1.5 px-1.5 rounded-full"
-                  style={{ backgroundColor: 'rgba(255,255,255,0.2)', paddingVertical: 1 }}
-                >
-                  <Text
-                    style={{
-                      color: '#FFF',
-                      fontSize: 9,
-                      fontWeight: '800',
-                      fontFamily: 'monospace',
-                    }}
-                  >
-                    {Math.round(Math.abs(cropOffsetY))}
-                  </Text>
-                </View>
-              )}
-            </TouchableOpacity>
-          </View>
-
           {/* TOOL CONTENT */}
           <View style={{ minHeight: 90, paddingHorizontal: 16 }}>
             {/* ---- TRIM TOOL ---- */}
-            {activeTool === 'trim' && isVideo && (
+            {isVideo && (
               <View>
                 <View className="flex-row items-center justify-between mb-2">
                   <Text
@@ -1103,122 +1187,6 @@ export function ProMediaEditor({
                 </View>
               </View>
             )}
-
-            {/* ---- CROP TOOL (inline, con dx acumulado — funciona en web) ---- */}
-            {activeTool === 'crop' && (
-              <View>
-                <View className="flex-row items-center justify-between mb-3">
-                  <Text
-                    style={{ color: '#A1A1AA', fontSize: 11, fontWeight: '700', letterSpacing: 1 }}
-                  >
-                    ENCUADRE 9:16
-                  </Text>
-                  {cropOffsetY !== 0 && (
-                    <TouchableOpacity
-                      onPress={() => {
-                        setCropOffsetY(0);
-                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                      }}
-                      className="flex-row items-center px-2.5 py-1 rounded-full"
-                      style={{ backgroundColor: 'rgba(255,255,255,0.06)' }}
-                    >
-                      <RotateCcw color="#A1A1AA" size={11} />
-                      <Text
-                        style={{ color: '#A1A1AA', fontSize: 10, fontWeight: '700', marginLeft: 4 }}
-                      >
-                        CENTRAR
-                      </Text>
-                    </TouchableOpacity>
-                  )}
-                </View>
-
-                {/* Crop slider — usa dx acumulado en vez de .measure() */}
-                <View
-                  onLayout={handleCropLayout}
-                  {...cropPan.panHandlers}
-                  style={{
-                    height: 48,
-                    borderRadius: 12,
-                    backgroundColor: 'rgba(255,255,255,0.04)',
-                    borderWidth: 1,
-                    borderColor: 'rgba(255,255,255,0.06)',
-                    justifyContent: 'center',
-                    paddingHorizontal: 16,
-                    position: 'relative',
-                    cursor: 'ew-resize' as any,
-                  }}
-                >
-                  {/* Track line */}
-                  <View
-                    style={{
-                      height: 3,
-                      borderRadius: 2,
-                      backgroundColor: 'rgba(255,255,255,0.1)',
-                    }}
-                  >
-                    <View
-                      style={{
-                        position: 'absolute',
-                        left: cropOffsetY < 0 ? `${50 + cropOffsetY * 0.4}%` : '50%',
-                        width: `${Math.abs(cropOffsetY) * 0.4}%`,
-                        height: 3,
-                        backgroundColor: '#DC2626',
-                        borderRadius: 2,
-                      }}
-                    />
-                  </View>
-
-                  {/* Thumb */}
-                  <View
-                    style={{
-                      position: 'absolute',
-                      left: `${50 + cropOffsetY * 0.4}%`,
-                      marginLeft: -14,
-                      width: 28,
-                      height: 28,
-                      borderRadius: 14,
-                      backgroundColor: '#DC2626',
-                      borderWidth: 2,
-                      borderColor: '#FF4444',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      shadowColor: '#DC2626',
-                      shadowOffset: { width: 0, height: 2 },
-                      shadowOpacity: 0.5,
-                      shadowRadius: 6,
-                    }}
-                  >
-                    <View
-                      style={{
-                        width: 8,
-                        height: 2,
-                        backgroundColor: 'rgba(255,255,255,0.8)',
-                        borderRadius: 1,
-                      }}
-                    />
-                  </View>
-
-                  {/* Labels */}
-                  <View style={{ position: 'absolute', left: 12, top: 4 }}>
-                    <Text style={{ color: '#3F3F46', fontSize: 8, fontWeight: '700' }}>ARRIBA</Text>
-                  </View>
-                  <View style={{ position: 'absolute', right: 12, top: 4 }}>
-                    <Text style={{ color: '#3F3F46', fontSize: 8, fontWeight: '700' }}>ABAJO</Text>
-                  </View>
-                  <View
-                    style={{
-                      position: 'absolute',
-                      left: 0,
-                      right: 0,
-                      top: 4,
-                      alignItems: 'center',
-                    }}
-                  >
-                    <Text style={{ color: '#3F3F46', fontSize: 8, fontWeight: '700' }}>CENTRO</Text>
-                  </View>
-                </View>
-              </View>
-            )}
           </View>
 
           {/* EXPORT BUTTON */}
@@ -1252,14 +1220,15 @@ export function ProMediaEditor({
                       marginLeft: 8,
                     }}
                   >
-                    {isPublic ? 'EXPORTAR' : 'GUARDAR EN BÓVEDA'}
+                    COMPARTIR
                   </Text>
                 </>
               )}
             </TouchableOpacity>
           </View>
-        </Animated.View>
-      </View>
+        </RNAnimated.View>
+      </Animated.View>
+      </GestureHandlerRootView>
     </Modal>
   );
 }

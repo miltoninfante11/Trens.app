@@ -11,17 +11,27 @@
       "resizeMode": "contain",
       "backgroundColor": "#000000"
     },
-    "assetBundlePatterns": ["**/*"],
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.trens.app",
       "buildNumber": "1",
-      "associatedDomains": ["applinks:share.trens.app", "applinks:trens.app"],
+      "associatedDomains": [
+        "applinks:share.trens.app",
+        "applinks:trens.app"
+      ],
       "infoPlist": {
-        "LSApplicationQueriesSchemes": ["spotify", "instagram"],
+        "LSApplicationQueriesSchemes": [
+          "spotify",
+          "instagram"
+        ],
         "CFBundleURLTypes": [
           {
-            "CFBundleURLSchemes": ["trensdev"]
+            "CFBundleURLSchemes": [
+              "trensdev"
+            ]
           }
         ]
       }
@@ -31,9 +41,12 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#000000"
       },
-      "versionCode": 1,
+      "versionCode": 5,
       "package": "com.trens.app",
-      "permissions": ["CAMERA", "RECORD_AUDIO"],
+      "permissions": [
+        "CAMERA",
+        "RECORD_AUDIO"
+      ],
       "intentFilters": [
         {
           "action": "VIEW",
@@ -58,7 +71,10 @@
               "host": "instagram-callback"
             }
           ],
-          "category": ["BROWSABLE", "DEFAULT"]
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
         }
       ]
     },

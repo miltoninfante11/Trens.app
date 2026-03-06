@@ -857,7 +857,8 @@ export default function LandingPage() {
             <Text style={{ color: PREMIUM_COLORS.fireRed }}>atleta profesional</Text>
           </Text>
           <Text className="text-zinc-400 text-lg md:text-xl text-center mt-6 max-w-2xl leading-relaxed">
-            IA entrenador, cámara PRO, rutinas, nutrición, suplementos, récords automáticos, Spotify sync, feed social — todo en una sola app.
+            IA entrenador, cámara PRO, rutinas, nutrición, suplementos, récords automáticos, Spotify
+            sync, feed social — todo en una sola app.
           </Text>
         </Animated.View>
 
@@ -1102,7 +1103,10 @@ export default function LandingPage() {
         {/* ================================================================== */}
         {/* MULTI-SPORT SECTION */}
         {/* ================================================================== */}
-        <View className="mt-16 items-center" style={{ maxWidth: 1000, alignSelf: 'center', width: '100%' }}>
+        <View
+          className="mt-16 items-center"
+          style={{ maxWidth: 1000, alignSelf: 'center', width: '100%' }}
+        >
           <Animated.View entering={FadeInUp.delay(900).duration(600)} className="items-center mb-8">
             <Text
               className="text-white font-bold text-center px-2"
@@ -1115,7 +1119,10 @@ export default function LandingPage() {
             </Text>
           </Animated.View>
 
-          <View className="flex-row flex-wrap justify-center gap-3" style={{ paddingHorizontal: 8 }}>
+          <View
+            className="flex-row flex-wrap justify-center gap-3"
+            style={{ paddingHorizontal: 8 }}
+          >
             {[
               { icon: Dumbbell, name: 'FITNESS', color: '#DC2626', desc: 'GYM + PLAN' },
               { icon: Warehouse, name: 'MOTO', color: '#F97316', desc: 'GARAJE + RACE' },
@@ -1144,8 +1151,14 @@ export default function LandingPage() {
         {/* ================================================================== */}
         {/* 5 MÓDULOS SECTION */}
         {/* ================================================================== */}
-        <View className="mt-16 items-center" style={{ maxWidth: 1100, alignSelf: 'center', width: '100%' }}>
-          <Animated.View entering={FadeInUp.delay(1100).duration(600)} className="items-center mb-8">
+        <View
+          className="mt-16 items-center"
+          style={{ maxWidth: 1100, alignSelf: 'center', width: '100%' }}
+        >
+          <Animated.View
+            entering={FadeInUp.delay(1100).duration(600)}
+            className="items-center mb-8"
+          >
             <Text
               className="text-white font-bold text-center px-2"
               style={{ fontSize: SCREEN_WIDTH < 640 ? 20 : 28 }}
@@ -1156,11 +1169,36 @@ export default function LandingPage() {
 
           <View className="flex-row flex-wrap justify-center gap-3 px-4">
             {[
-              { icon: Play, name: 'FEED', desc: 'Videos sociales de la comunidad, likes, comentarios y saves', color: '#DC2626' },
-              { icon: Dna, name: 'ADN', desc: 'Tu perfil atlético completo con records, medidas y progreso', color: '#F97316' },
-              { icon: Camera, name: 'PRO', desc: 'Cámara profesional, editor de video, filtros y publicación', color: '#FBBF24' },
-              { icon: Dumbbell, name: 'GYM', desc: 'Constructor de rutinas con +500 ejercicios y series configurables', color: '#22C55E' },
-              { icon: Utensils, name: 'PLAN', desc: 'Nutrición, suplementos, macros y lista de compras automática', color: '#0EA5E9' },
+              {
+                icon: Play,
+                name: 'FEED',
+                desc: 'Videos sociales de la comunidad, likes, comentarios y saves',
+                color: '#DC2626',
+              },
+              {
+                icon: Dna,
+                name: 'ADN',
+                desc: 'Tu perfil atlético completo con records, medidas y progreso',
+                color: '#F97316',
+              },
+              {
+                icon: Camera,
+                name: 'PRO',
+                desc: 'Cámara profesional, editor de video, filtros y publicación',
+                color: '#FBBF24',
+              },
+              {
+                icon: Dumbbell,
+                name: 'GYM',
+                desc: 'Constructor de rutinas con +500 ejercicios y series configurables',
+                color: '#22C55E',
+              },
+              {
+                icon: Utensils,
+                name: 'PLAN',
+                desc: 'Nutrición, suplementos, macros y lista de compras automática',
+                color: '#0EA5E9',
+              },
             ].map((mod, i) => (
               <Animated.View
                 key={mod.name}
@@ -1186,7 +1224,10 @@ export default function LandingPage() {
         {/* ================================================================== */}
         {/* HANK AI SECTION */}
         {/* ================================================================== */}
-        <View className="mt-16 items-center" style={{ maxWidth: 800, alignSelf: 'center', width: '100%' }}>
+        <View
+          className="mt-16 items-center"
+          style={{ maxWidth: 800, alignSelf: 'center', width: '100%' }}
+        >
           <Animated.View entering={FadeInUp.delay(1400).duration(600)} className="items-center">
             <LinearGradient
               colors={[PREMIUM_COLORS.fireRed, PREMIUM_COLORS.fireOrange]}
@@ -1207,7 +1248,9 @@ export default function LandingPage() {
               Conoce a <Text style={{ color: PREMIUM_COLORS.fireRed }}>HANK</Text>
             </Text>
             <Text className="text-zinc-400 text-center max-w-lg px-4 mb-6 leading-relaxed">
-              Tu entrenador de IA con más de 150 herramientas especializadas. HANK puede crear tu rutina completa, calcular tus macros, sugerir comidas, analizar tu progreso con fotos, y mucho más — todo con comandos de texto o voz.
+              Tu entrenador de IA con más de 150 herramientas especializadas. HANK puede crear tu
+              rutina completa, calcular tus macros, sugerir comidas, analizar tu progreso con fotos,
+              y mucho más — todo con comandos de texto o voz.
             </Text>
             <View className="flex-row flex-wrap justify-center gap-2">
               {[
@@ -1218,7 +1261,10 @@ export default function LandingPage() {
                 '"Calcula mis macros"',
                 '"Sugiere un pre-workout"',
               ].map((cmd, i) => (
-                <View key={i} className="bg-zinc-800/50 border border-zinc-700/30 rounded-full px-3 py-1.5">
+                <View
+                  key={i}
+                  className="bg-zinc-800/50 border border-zinc-700/30 rounded-full px-3 py-1.5"
+                >
                   <Text className="text-zinc-300 text-xs font-mono">{cmd}</Text>
                 </View>
               ))}
@@ -1229,13 +1275,20 @@ export default function LandingPage() {
         {/* ================================================================== */}
         {/* PLATFORM SECTION */}
         {/* ================================================================== */}
-        <View className="mt-16 items-center" style={{ maxWidth: 800, alignSelf: 'center', width: '100%' }}>
-          <Animated.View entering={FadeInUp.delay(1500).duration(600)} className="items-center mb-6">
+        <View
+          className="mt-16 items-center"
+          style={{ maxWidth: 800, alignSelf: 'center', width: '100%' }}
+        >
+          <Animated.View
+            entering={FadeInUp.delay(1500).duration(600)}
+            className="items-center mb-6"
+          >
             <Text
               className="text-white font-bold text-center"
               style={{ fontSize: SCREEN_WIDTH < 640 ? 18 : 24 }}
             >
-              Disponible en <Text style={{ color: PREMIUM_COLORS.fireRed }}>todas las plataformas</Text>
+              Disponible en{' '}
+              <Text style={{ color: PREMIUM_COLORS.fireRed }}>todas las plataformas</Text>
             </Text>
           </Animated.View>
           <View className="flex-row flex-wrap justify-center gap-4">
@@ -1244,7 +1297,10 @@ export default function LandingPage() {
               { icon: Smartphone, name: 'Android', sub: 'Google Play' },
               { icon: Globe, name: 'Web', sub: 'trens.app (PWA)' },
             ].map((platform, i) => (
-              <View key={i} className="bg-zinc-900/40 border border-zinc-800/40 rounded-xl px-5 py-3 flex-row items-center gap-3">
+              <View
+                key={i}
+                className="bg-zinc-900/40 border border-zinc-800/40 rounded-xl px-5 py-3 flex-row items-center gap-3"
+              >
                 <platform.icon size={20} color={PREMIUM_COLORS.fireRed} />
                 <View>
                   <Text className="text-white font-bold text-sm">{platform.name}</Text>
