@@ -231,3 +231,16 @@ index 381c0cf..931dc3a 100644
 -//    implementation project(path: ':react-native-events')
 -//    implementation 'com.facebook.react:react-native:+'
 -//}
+diff --git a/node_modules/react-native-spotify-remote/android/src/main/AndroidManifest.xml b/node_modules/react-native-spotify-remote/android/src/main/AndroidManifest.xml
+index 41a92ab..a2f47b6 100644
+--- a/node_modules/react-native-spotify-remote/android/src/main/AndroidManifest.xml
++++ b/node_modules/react-native-spotify-remote/android/src/main/AndroidManifest.xml
+@@ -1,6 +1,2 @@
+-
+-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+-          package="com.reactlibrary">
+-
++<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+ </manifest>
+-  
+\ No newline at end of file

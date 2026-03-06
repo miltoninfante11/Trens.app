@@ -48,3 +48,15 @@ index 28089b7..2240bba 100644
      api 'com.facebook.react:react-native:+'
  }
 -  
+diff --git a/node_modules/react-native-events/android/src/main/AndroidManifest.xml b/node_modules/react-native-events/android/src/main/AndroidManifest.xml
+index 0960301..a2f47b6 100644
+--- a/node_modules/react-native-events/android/src/main/AndroidManifest.xml
++++ b/node_modules/react-native-events/android/src/main/AndroidManifest.xml
+@@ -1,6 +1,2 @@
+-
+-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+-          package="com.lufinkey.react.eventemitter">
+-
++<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+ </manifest>
+-  
