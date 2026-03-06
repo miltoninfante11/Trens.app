@@ -45,7 +45,6 @@ if (!isWeb) {
   const audioModule = require('expo-av');
   Audio = audioModule.Audio;
 }
-import { supabase } from '../../../lib/supabase';
 import { compressVideo, compressImage } from '../../../lib/webCamera';
 import { useUserRoleContext } from '../../../context/UserRoleContext';
 import { useProContext } from '../../../context/ProContext';
@@ -54,14 +53,11 @@ import { useHank } from '../../../context/HankContext';
 import { useSaveGuard } from '../../_layout';
 import { ProUpgradeModal } from '../../../components/pro/ProUpgradeModal';
 import { ProMediaEditor, MediaData, SpotifyMetadata } from '../../../components/pro/ProMediaEditor';
-import { PRNotificationModal } from '../../../components/pro/PRNotificationModal';
 import { ShareSuccessModal } from '../../../components/pro/ShareSuccessModal';
 
 import spotify from '../../../services/spotify/spotify';
 import cloudflareStream from '../../../services/cloudflare/stream';
 import cloudflareR2 from '../../../services/cloudflare/r2';
-import { detectRecordsForNewVideo } from '../../../services/records/recordDetection';
-import type { RecordDetectionResult } from '../../../types/records';
 
 // ============================================================================
 // MAIN COMPONENT
@@ -130,16 +126,9 @@ function ProScreenContent() {
   const [showShareModal, setShowShareModal] = useState(false);
   const [savedMediaInfo, setSavedMediaInfo] = useState<{
     mediaType: 'video' | 'photo';
-    exerciseName?: string | null;
-    weight?: number | null;
-    reps?: number | null;
     isPublic: boolean;
-    videoId?: string;
+    localUri?: string;
   } | null>(null);
-
-  // PR Notification State
-  const [prResult, setPrResult] = useState<RecordDetectionResult | null>(null);
-  const [showPRModal, setShowPRModal] = useState(false);
 
   // Timer ref
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -676,9 +665,8 @@ function ProScreenContent() {
   }, [spotifyMetadata, setSpotifyState]);
 
   useEffect(() => {
-    const name = proContext.type === 'tactical' ? proContext.exerciseName || null : null;
-    setExerciseState(name);
-  }, [proContext, setExerciseState]);
+    setExerciseState(null);
+  }, [setExerciseState]);
 
   // -------------------------------------------------------------------------
   // EDITOR HANDLERS
@@ -727,11 +715,7 @@ function ProScreenContent() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
     try {
-      let videoUrl = '';
-      let thumbnailUrl = '';
-      let cloudflareVideoId = '';
-
-      // Subir a Cloudflare Stream (video) o Storage (foto)
+      // Subir a Cloudflare Stream (video) o R2 (foto) para generar URL compartible
       if (data.mediaType === 'video') {
         let uploadResult;
 
@@ -754,7 +738,6 @@ function ProScreenContent() {
 
           uploadResult = await cloudflareStream.uploadVideoFromBlob(blob, {
             name: `TRENS_${user.id}_${Date.now()}`,
-            exerciseName: proContext.type === 'tactical' ? proContext.exerciseName : undefined,
             userId: user.id,
             isPublic: data.isPublic,
           });
@@ -762,7 +745,6 @@ function ProScreenContent() {
           // Nativo: usar URI directo
           uploadResult = await cloudflareStream.uploadVideo(capturedMedia.uri, {
             name: `TRENS_${user.id}_${Date.now()}`,
-            exerciseName: proContext.type === 'tactical' ? proContext.exerciseName : undefined,
             userId: user.id,
             isPublic: data.isPublic,
           });
@@ -771,11 +753,6 @@ function ProScreenContent() {
         if (!uploadResult.success || !uploadResult.videoId) {
           throw new Error(uploadResult.error || 'Error subiendo video');
         }
-
-        const playbackUrls = cloudflareStream.getPlaybackUrls(uploadResult.videoId);
-        videoUrl = playbackUrls.hls;
-        thumbnailUrl = playbackUrls.thumbnail;
-        cloudflareVideoId = uploadResult.videoId;
       } else {
         // Foto: subir a Cloudflare R2
         console.log('📸 Subiendo foto a Cloudflare R2...');
@@ -812,96 +789,21 @@ function ProScreenContent() {
         }
 
         console.log('✅ R2 Upload success:', r2Result.url);
-
-        videoUrl = r2Result.url;
-        thumbnailUrl = r2Result.url;
-        console.log('📸 Public URL:', videoUrl);
       }
 
-      // Guardar en tabla pro_videos
-      const { data: insertedData, error: insertError } = await supabase
-        .from('pro_videos')
-        .insert({
-          user_id: user.id,
-          video_url: videoUrl,
-          thumbnail_url: thumbnailUrl,
-          cloudflare_video_id: cloudflareVideoId || null,
-          duration_seconds:
-            data.mediaType === 'video' ? Math.round(capturedMedia.duration || 0) : 0,
-          media_type: data.mediaType,
-          context_type: proContext.type,
-          exercise_id: proContext.type === 'tactical' ? proContext.exerciseId : null,
-          exercise_name: proContext.type === 'tactical' ? proContext.exerciseName : null,
-          exercise_notes: proContext.type === 'tactical' ? proContext.exerciseNotes : null,
-          tags: proContext.type === 'tactical' ? proContext.exerciseTags : null,
-          weight_kg: data.weightKg,
-          reps: data.reps,
-          free_text: data.caption,
-          spotify: data.spotifyTrack
-            ? {
-                enabled: true,
-                trackUri: data.spotifyTrack.trackUri,
-                positionMs: data.spotifyTrack.positionMs,
-                trackName: data.spotifyTrack.trackName,
-                artist: data.spotifyTrack.artist,
-              }
-            : { enabled: false },
-          ambient_audio: true,
-          is_public: data.isPublic,
-          trim_start_percent: Math.round(data.videoTrimStart),
-          trim_end_percent: Math.round(data.videoTrimEnd),
-          filter: data.filter,
-          show_overlay: data.showOverlay,
-        })
-        .select()
-        .single();
-
-      if (insertError) throw insertError;
-
-      // Detectar PRs (solo video táctico con peso y reps)
-      if (
-        data.mediaType === 'video' &&
-        proContext.type === 'tactical' &&
-        proContext.exerciseId &&
-        proContext.exerciseName &&
-        data.weightKg &&
-        data.reps
-      ) {
-        try {
-          const recordResult = await detectRecordsForNewVideo(
-            user.id,
-            proContext.exerciseId,
-            proContext.exerciseName,
-            data.weightKg,
-            data.reps
-          );
-
-          if (recordResult.hasRecord) {
-            setPrResult(recordResult);
-            setShowPRModal(true);
-          }
-        } catch (prError) {
-          console.warn('Error detectando PRs:', prError);
-        }
-      }
-
-      triggerRefresh();
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
       // Guardar info para share modal
       setSavedMediaInfo({
         mediaType: data.mediaType,
-        exerciseName: proContext.type === 'tactical' ? proContext.exerciseName : null,
-        weight: data.weightKg,
-        reps: data.reps,
         isPublic: data.isPublic,
-        videoId: insertedData?.id,
+        localUri: capturedMedia.uri,
       });
 
       setKeepSpotifyPlaying(true);
       discardMedia();
 
-      // Mostrar share modal
+      // Mostrar share modal para compartir en la app de preferencia
       setShowShareModal(true);
     } catch (error) {
       console.error('Error saving:', error);
@@ -928,10 +830,7 @@ function ProScreenContent() {
   };
 
   const getContextLabel = (): string => {
-    if (proContext.type === 'tactical' && proContext.exerciseName) {
-      return `🔥 ${proContext.exerciseName.toUpperCase()}`;
-    }
-    return '🔥 CÁMARA LIBRE';
+    return '🔥 PRO';
   };
 
   // -------------------------------------------------------------------------
@@ -1072,21 +971,6 @@ function ProScreenContent() {
                 {getContextLabel()}
               </Text>
             </View>
-
-            {/* Herramientas Rápidas */}
-            <View className="flex-row items-center gap-4">
-              <TouchableOpacity
-                onPress={webFlipCamera}
-                className="p-2 rounded-full"
-                style={{
-                  backgroundColor: 'rgba(10, 0, 0, 0.8)',
-                  borderWidth: 1,
-                  borderColor: '#F97316',
-                }}
-              >
-                <RotateCcw color="#F97316" size={24} />
-              </TouchableOpacity>
-            </View>
           </View>
 
           {/* CONTADOR TIEMPO (Solo grabando) */}
@@ -1171,14 +1055,28 @@ function ProScreenContent() {
             </TouchableOpacity>
           </View>
 
+          <View className="absolute bottom-8 right-6">
+            <TouchableOpacity
+              onPress={webFlipCamera}
+              className="w-14 h-14 rounded-2xl items-center justify-center"
+              style={{
+                backgroundColor: 'rgba(10, 0, 0, 0.8)',
+                borderWidth: 1,
+                borderColor: '#71717A',
+              }}
+            >
+              <RotateCcw color="#A1A1AA" size={24} />
+            </TouchableOpacity>
+          </View>
+
           {/* PRO MEDIA EDITOR */}
           <ProMediaEditor
             visible={editorVisible}
             mediaData={capturedMedia}
             spotifyMetadata={spotifyMetadata}
             spotifyConnected={spotifyConnected}
-            exerciseName={proContext.type === 'tactical' ? proContext.exerciseName : null}
-            isTactical={proContext.type === 'tactical'}
+            exerciseName={(proContext as any).type === 'tactical' ? (proContext as any).exerciseName : null}
+            isTactical={(proContext as any).type === 'tactical'}
             onClose={discardMedia}
             onSave={handleEditorSave}
             saving={saving}
@@ -1192,16 +1090,6 @@ function ProScreenContent() {
             feature="camera"
           />
 
-          {/* PR NOTIFICATION MODAL */}
-          <PRNotificationModal
-            visible={showPRModal}
-            result={prResult}
-            onClose={() => {
-              setShowPRModal(false);
-              setPrResult(null);
-            }}
-          />
-
           {/* SHARE SUCCESS MODAL */}
           <ShareSuccessModal
             visible={showShareModal}
@@ -1210,11 +1098,7 @@ function ProScreenContent() {
               setSavedMediaInfo(null);
             }}
             mediaType={savedMediaInfo?.mediaType || 'video'}
-            exerciseName={savedMediaInfo?.exerciseName}
-            weight={savedMediaInfo?.weight}
-            reps={savedMediaInfo?.reps}
             isPublic={savedMediaInfo?.isPublic || false}
-            videoId={savedMediaInfo?.videoId}
           />
         </View>
       </GestureHandlerRootView>
@@ -1336,17 +1220,6 @@ function ProScreenContent() {
             >
               {getFlashIcon()}
             </TouchableOpacity>
-            <TouchableOpacity
-              onPress={flipCamera}
-              className="p-2 rounded-full"
-              style={{
-                backgroundColor: 'rgba(10, 0, 0, 0.8)',
-                borderWidth: 1,
-                borderColor: '#F97316',
-              }}
-            >
-              <RotateCcw color="#F97316" size={24} />
-            </TouchableOpacity>
           </View>
         </View>
 
@@ -1432,14 +1305,28 @@ function ProScreenContent() {
           </TouchableOpacity>
         </View>
 
+        <View className="absolute bottom-8 right-6">
+          <TouchableOpacity
+            onPress={flipCamera}
+            className="w-14 h-14 rounded-2xl items-center justify-center"
+            style={{
+              backgroundColor: 'rgba(10, 0, 0, 0.8)',
+              borderWidth: 1,
+              borderColor: '#71717A',
+            }}
+          >
+            <RotateCcw color="#A1A1AA" size={24} />
+          </TouchableOpacity>
+        </View>
+
         {/* PRO MEDIA EDITOR */}
         <ProMediaEditor
           visible={editorVisible}
           mediaData={capturedMedia}
           spotifyMetadata={spotifyMetadata}
           spotifyConnected={spotifyConnected}
-          exerciseName={proContext.type === 'tactical' ? proContext.exerciseName : null}
-          isTactical={proContext.type === 'tactical'}
+          exerciseName={(proContext as any).type === 'tactical' ? (proContext as any).exerciseName : null}
+          isTactical={(proContext as any).type === 'tactical'}
           onClose={discardMedia}
           onSave={handleEditorSave}
           saving={saving}
@@ -1453,16 +1340,6 @@ function ProScreenContent() {
           feature="camera"
         />
 
-        {/* PR NOTIFICATION MODAL */}
-        <PRNotificationModal
-          visible={showPRModal}
-          result={prResult}
-          onClose={() => {
-            setShowPRModal(false);
-            setPrResult(null);
-          }}
-        />
-
         {/* SHARE SUCCESS MODAL */}
         <ShareSuccessModal
           visible={showShareModal}
@@ -1471,11 +1348,7 @@ function ProScreenContent() {
             setSavedMediaInfo(null);
           }}
           mediaType={savedMediaInfo?.mediaType || 'video'}
-          exerciseName={savedMediaInfo?.exerciseName}
-          weight={savedMediaInfo?.weight}
-          reps={savedMediaInfo?.reps}
           isPublic={savedMediaInfo?.isPublic || false}
-          videoId={savedMediaInfo?.videoId}
         />
       </View>
     </GestureHandlerRootView>

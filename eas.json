@@ -45,12 +45,8 @@
       "android": {
         "serviceAccountKeyPath": "./google-service-account.json",
         "track": "internal",
-        "releaseStatus": "draft"
-      },
-      "ios": {
-        "appleId": "TU_APPLE_ID@email.com",
-        "ascAppId": "TU_APP_STORE_CONNECT_APP_ID",
-        "appleTeamId": "TU_APPLE_TEAM_ID"
+        "releaseStatus": "draft",
+        "changesNotSentForReview": true
       }
     }
   }

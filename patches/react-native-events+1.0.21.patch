@@ -1,0 +1,50 @@
+diff --git a/node_modules/react-native-events/android/build.gradle b/node_modules/react-native-events/android/build.gradle
+index 28089b7..2240bba 100644
+--- a/node_modules/react-native-events/android/build.gradle
++++ b/node_modules/react-native-events/android/build.gradle
+@@ -2,28 +2,34 @@
+ buildscript {
+     repositories {
+         google()
+-        jcenter()
++        mavenCentral()
+     }
+ 
+     dependencies {
+-        classpath 'com.android.tools.build:gradle:3.2.1'
++        classpath 'com.android.tools.build:gradle:8.0.0'
+     }
+ }
+ 
+ apply plugin: 'com.android.library'
+ 
+ android {
+-    compileSdkVersion 26
+-    buildToolsVersion '28.0.3'
++    namespace "com.lufinkey.react.eventemitter"
++    compileSdk 34
++    buildToolsVersion '34.0.0'
+ 
+     defaultConfig {
+-        targetSdkVersion 26
++        minSdkVersion 24
++        targetSdkVersion 34
+         versionCode 1
+         versionName "1.0"
+     }
+-    lintOptions {
++    lint {
+         abortOnError false
+     }
++    compileOptions {
++        sourceCompatibility JavaVersion.VERSION_17
++        targetCompatibility JavaVersion.VERSION_17
++    }
+ }
+ 
+ repositories {
+@@ -33,4 +39,3 @@ repositories {
+ dependencies {
+     api 'com.facebook.react:react-native:+'
+ }
+-  
