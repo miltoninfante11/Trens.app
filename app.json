@@ -41,7 +41,7 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#000000"
       },
-      "versionCode": 5,
+      "versionCode": 6,
       "package": "com.trens.app",
       "permissions": [
         "CAMERA",

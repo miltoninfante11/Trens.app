@@ -40,9 +40,7 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-// Network-first strategy - NEVER cache anything
+// Pass all requests through to network - no caching
 self.addEventListener('fetch', (event) => {
-  // Let all requests pass through to network
-  // Do not intercept or cache anything
-  return;
+  event.respondWith(fetch(event.request));
 });
