@@ -415,6 +415,38 @@ serve(async (req) => {
           }
         }
 
+        // Asignar deporte GYM por defecto
+        const { data: gymSport } = await supabase
+          .from('sports')
+          .select('id')
+          .eq('code', 'GYM')
+          .eq('is_active', true)
+          .single();
+
+        if (gymSport) {
+          // Crear user_profile con active_sport_id
+          await supabase.from('user_profiles').upsert(
+            {
+              user_id: newUserId,
+              active_sport_id: gymSport.id,
+            },
+            { onConflict: 'user_id' }
+          );
+
+          // Asignar GYM como deporte del usuario
+          await supabase.from('user_sports').upsert(
+            {
+              user_id: newUserId,
+              sport_id: gymSport.id,
+              is_active: true,
+              is_primary: true,
+            },
+            { onConflict: 'user_id,sport_id' }
+          );
+
+          console.log('✅ GYM sport assigned to new user:', newUserId);
+        }
+
         console.log('✅ User created successfully:', {
           id: newUserId,
           email: createData.email,

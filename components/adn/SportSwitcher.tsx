@@ -35,7 +35,7 @@ import { useSport, Sport } from '../../context/SportContext';
 import { Alert } from '../../lib/alert';
 
 // Deportes disponibles actualmente (los demás están "próximamente")
-const AVAILABLE_SPORTS = ['GYM', 'SURF'];
+const AVAILABLE_SPORTS = ['GYM'];
 
 // ============================================================================
 // MAPA DE ICONOS POR DEPORTE

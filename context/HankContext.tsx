@@ -89,6 +89,18 @@ const TOOL_CLASSIFICATIONS: Record<string, ToolClassification> = {
     triggersAnimation: true,
     triggersRefresh: true,
   },
+  GYM_CREATE_EXERCISE_GROUP: {
+    category: 'write',
+    impact: 'high',
+    triggersAnimation: true,
+    triggersRefresh: true,
+  },
+  GYM_REMOVE_EXERCISE_GROUP: {
+    category: 'write',
+    impact: 'high',
+    triggersAnimation: true,
+    triggersRefresh: true,
+  },
 
   // ASSET - Modificar series y datos
   ASSET_UPDATE_FIELD: {

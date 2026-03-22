@@ -11,6 +11,8 @@ import {
   gymListExercises,
   gymGetExerciseDetails,
   gymUpdateSeriesDetail,
+  gymCreateExerciseGroup,
+  gymRemoveExerciseGroup,
   assetUpdateField,
   assetRead,
   assetGetSchema,
@@ -234,6 +236,25 @@ export const useHankExecutor = (
             );
             break;
           }
+
+          case 'GYM_CREATE_EXERCISE_GROUP':
+            result = await gymCreateExerciseGroup(
+              userId,
+              p.exerciseNames as string[],
+              p.groupType as 'SUPERSET' | 'TRISET' | 'CIRCUIT' | 'GIANT_SET',
+              (p.trainingDay as number) ?? currentTrainingDay,
+              p.restBetween as number | undefined,
+              p.restAfter as number | undefined
+            );
+            break;
+
+          case 'GYM_REMOVE_EXERCISE_GROUP':
+            result = await gymRemoveExerciseGroup(
+              userId,
+              p.exerciseNames as string[],
+              (p.trainingDay as number) ?? currentTrainingDay
+            );
+            break;
 
           case 'ASSET_UPDATE_FIELD':
             result = await assetUpdateField(

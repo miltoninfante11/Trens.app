@@ -39,6 +39,11 @@ import {
   Volume2,
   Zap,
   Undo2,
+  Link2,
+  Layers,
+  Check,
+  ChevronUp,
+  Target,
 } from 'lucide-react-native';
 import * as Haptics from '../../../lib/haptics';
 import { CameraView, useCameraPermissions } from 'expo-camera';
@@ -74,6 +79,19 @@ import spotify, { SpotifyTrack } from '../../../services/spotify/spotify';
 import cloudflareStream from '../../../services/cloudflare/stream';
 import { DraggableExerciseCard } from '../../../components/gym/DraggableExerciseCard';
 import { SeriesCard } from '../../../components/gym/SeriesCard';
+import { ExerciseGroupCard } from '../../../components/gym/ExerciseGroupCard';
+import { GroupSelectionBar } from '../../../components/gym/GroupSelectionBar';
+import { FocusGroupView } from '../../../components/gym/FocusGroupView';
+import {
+  ExerciseGroup,
+  ExerciseGroupType,
+  GROUP_TYPE_CONFIG,
+  generateGroupId,
+  getDefaultRest,
+  inferGroupType,
+  findGroupForExercise,
+  getGroupedExerciseIds,
+} from '../../../types/exerciseGroups';
 import { useUserRoleContext } from '../../../context/UserRoleContext';
 import { useSaveGuard } from '../../_layout';
 import cloudflareR2 from '../../../services/cloudflare/r2';
@@ -590,6 +608,10 @@ function GymScreen() {
   const [modalVisible, setModalVisible] = useState(false);
   const [adding, setAdding] = useState(false);
 
+  // Catalog Group Mode - Para crear super series/circuitos desde el catálogo
+  const [catalogGroupMode, setCatalogGroupMode] = useState(false);
+  const [catalogGroupTemplates, setCatalogGroupTemplates] = useState<AssetTemplate[]>([]);
+
   // Catalog Tabs State
   const [catalogTab, setCatalogTab] = useState<'SUGERIDOS' | string>('SUGERIDOS');
   const [categories, setCategories] = useState<string[]>([]);
@@ -898,6 +920,19 @@ function GymScreen() {
   // BUGFIX: Ref para capturar el día seleccionado actual (evita closure stale en panResponder)
   const selectedDayIndexRef = useRef(0);
 
+  // ============================================================================
+  // EXERCISE GROUPS STATE (Super Series / Circuitos)
+  // ============================================================================
+  const [exerciseGroups, setExerciseGroups] = useState<ExerciseGroup[]>([]);
+  const exerciseGroupsRef = useRef<ExerciseGroup[]>([]);
+  const [groupSelectionMode, setGroupSelectionMode] = useState(false);
+  const [selectedExerciseIds, setSelectedExerciseIds] = useState<string[]>([]);
+
+  // Sincronizar ref con estado para que siempre tenga el valor más reciente
+  useEffect(() => {
+    exerciseGroupsRef.current = exerciseGroups;
+  }, [exerciseGroups]);
+
   // Estado para editar nombre de rutina
   const [editingRoutineName, setEditingRoutineName] = useState(false);
   const [tempRoutineName, setTempRoutineName] = useState('');
@@ -949,6 +984,38 @@ function GymScreen() {
 
   // Trackear alternativa activa por cada ejercicio (exerciseIndex -> alternativeIndex)
   const [activeAlternatives, setActiveAlternatives] = useState<Record<number, number>>({});
+
+  // ============================================================================
+  // FOCUS ITEMS - Computed list that merges groups into single items
+  // ============================================================================
+  type FocusItem =
+    | { type: 'single'; exercise: Exercise; originalIndex: number }
+    | { type: 'group'; group: ExerciseGroup; exercises: Exercise[]; originalIndex: number };
+
+  const focusItems: FocusItem[] = useMemo(() => {
+    const items: FocusItem[] = [];
+    const processedGroupIds = new Set<string>();
+
+    // Usar ref como fallback si el estado aún no se sincronizó
+    const groups = exerciseGroups.length > 0 ? exerciseGroups : exerciseGroupsRef.current;
+
+    exercises.forEach((exercise, index) => {
+      const group = findGroupForExercise(groups, exercise.exercise_id);
+
+      if (group) {
+        if (processedGroupIds.has(group.id)) return;
+        processedGroupIds.add(group.id);
+        const groupExercises = group.exercise_ids
+          .map((eid) => exercises.find((e) => e.exercise_id === eid))
+          .filter(Boolean) as Exercise[];
+        items.push({ type: 'group', group, exercises: groupExercises, originalIndex: index });
+      } else {
+        items.push({ type: 'single', exercise, originalIndex: index });
+      }
+    });
+
+    return items;
+  }, [exercises, exerciseGroups]);
   // Ref para persistir el estado de alternativas durante re-renders (evita pérdida en modales)
   const activeAlternativesRef = useRef<Record<number, number>>({});
 
@@ -1489,6 +1556,10 @@ function GymScreen() {
     setDragTargetIndex(null);
     setDraggingFromIndex(null);
 
+    // Limpiar estado de selección de grupos
+    setGroupSelectionMode(false);
+    setSelectedExerciseIds([]);
+
     // Guardar la configuración del día (igual que el botón ENTRENAR)
     if (user) {
       const today = new Date();
@@ -1537,6 +1608,12 @@ function GymScreen() {
     // BUGFIX: Esperar a que termine el guardado antes de cerrar para evitar race conditions
     await saveFocusSeriesRef.current();
     setStructureModalVisible(false);
+
+    // CRITICAL FIX: Recargar ejercicios Y grupos juntos desde Supabase
+    // Solo restaurar desde ref no es suficiente — hay que recargar datos frescos
+    const targetDay = selectedDayIndexRef.current;
+    await loadExercises(targetDay, true);
+    setListRefreshKey((prev) => prev + 1);
   };
 
   const panResponderStructure = useRef(
@@ -2675,6 +2752,11 @@ function GymScreen() {
           );
         });
 
+        // CRITICAL: Cargar grupos ANTES de setExercises para evitar race condition
+        // Si setExercises dispara re-render con grupos vacíos, focusItems los separa
+        const loadedGroups = await loadExerciseGroups(targetDayIndex);
+        exerciseGroupsRef.current = loadedGroups;
+        setExerciseGroups(loadedGroups);
         setExercises(mappedExercises);
 
         // BUGFIX: Limpiar activeAlternatives para empezar siempre en el ejercicio principal
@@ -2782,6 +2864,222 @@ function GymScreen() {
     } catch (error) {
       console.error('💥 Error loading all user exercises:', error);
     }
+  };
+
+  // ============================================================================
+  // EXERCISE GROUPS - Load / Save / Manage
+  // ============================================================================
+  const loadExerciseGroups = async (dayIndex: number): Promise<ExerciseGroup[]> => {
+    if (!user) return exerciseGroupsRef.current;
+    try {
+      const { data, error } = await supabase
+        .from('user_profiles')
+        .select('exercise_groups')
+        .eq('user_id', user.id)
+        .single();
+
+      if (error) {
+        console.error('💥 Error LEYENDO exercise_groups:', error.message, error.code);
+        return exerciseGroupsRef.current;
+      }
+
+      const allGroups = (data?.exercise_groups as Record<string, ExerciseGroup[]>) || {};
+      const dayGroups = allGroups[String(dayIndex)] || [];
+      setExerciseGroups(dayGroups);
+      exerciseGroupsRef.current = dayGroups;
+      console.log(`🔗 Grupos cargados para día ${dayIndex}:`, dayGroups.length, dayGroups.map(g => g.id));
+      return dayGroups;
+    } catch (error) {
+      console.error('💥 Error loading exercise groups:', error);
+      // NO resetear a [] en error - mantener los grupos que ya tenemos
+      return exerciseGroupsRef.current;
+    }
+  };
+
+  const saveExerciseGroups = async (dayIndex: number, groups: ExerciseGroup[]) => {
+    if (!user) return;
+    try {
+      // Cargar grupos existentes de otros días
+      const { data, error: readError } = await supabase
+        .from('user_profiles')
+        .select('exercise_groups')
+        .eq('user_id', user.id)
+        .single();
+
+      if (readError) {
+        console.error('💥 Error LEYENDO grupos antes de guardar:', readError.message, readError.code);
+        return;
+      }
+
+      const allGroups = (data?.exercise_groups as Record<string, ExerciseGroup[]>) || {};
+      allGroups[String(dayIndex)] = groups;
+
+      console.log(`💾 Guardando grupos día ${dayIndex}:`, JSON.stringify(groups.map(g => ({ id: g.id, type: g.type, ids: g.exercise_ids }))));
+
+      const { error: writeError } = await supabase
+        .from('user_profiles')
+        .update({ exercise_groups: allGroups })
+        .eq('user_id', user.id);
+
+      if (writeError) {
+        console.error('💥 Error ESCRIBIENDO grupos:', writeError.message, writeError.code);
+        return;
+      }
+
+      console.log(`✅ Grupos guardados OK para día ${dayIndex}:`, groups.length);
+    } catch (error) {
+      console.error('💥 Error saving exercise groups:', error);
+    }
+  };
+
+  const createExerciseGroup = async (type: ExerciseGroupType) => {
+    if (selectedExerciseIds.length < 2) return;
+
+    const defaults = getDefaultRest(type);
+    const newGroup: ExerciseGroup = {
+      id: generateGroupId(),
+      type,
+      exercise_ids: [...selectedExerciseIds],
+      rest_between: defaults.rest_between,
+      rest_after: defaults.rest_after,
+      rounds: 1,
+    };
+
+    const updatedGroups = [...exerciseGroups, newGroup];
+    setExerciseGroups(updatedGroups);
+    await saveExerciseGroups(selectedDayIndex, updatedGroups);
+
+    // Limpiar selección
+    setSelectedExerciseIds([]);
+    setGroupSelectionMode(false);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    console.log(`✅ Grupo ${type} creado con ${newGroup.exercise_ids.length} ejercicios`);
+  };
+
+  const removeExerciseGroup = async (groupId: string) => {
+    const updatedGroups = exerciseGroups.filter((g) => g.id !== groupId);
+    setExerciseGroups(updatedGroups);
+    await saveExerciseGroups(selectedDayIndex, updatedGroups);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    console.log(`🗑️ Grupo ${groupId} eliminado`);
+  };
+
+  const toggleExerciseSelection = (exerciseId: string) => {
+    setSelectedExerciseIds((prev) => {
+      if (prev.includes(exerciseId)) {
+        return prev.filter((id) => id !== exerciseId);
+      }
+      return [...prev, exerciseId];
+    });
+  };
+
+  // ============================================================================
+  // CATALOG GROUP MODE - Crear super series/circuitos desde el catálogo
+  // ============================================================================
+  const toggleCatalogGroupTemplate = (template: AssetTemplate) => {
+    setCatalogGroupTemplates((prev) => {
+      const exists = prev.find((t) => t.id === template.id);
+      if (exists) {
+        return prev.filter((t) => t.id !== template.id);
+      }
+      return [...prev, template];
+    });
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  };
+
+  const confirmCatalogGroup = async (type: ExerciseGroupType) => {
+    if (!user || catalogGroupTemplates.length < 2) return;
+
+    setAdding(true);
+    try {
+      const targetDay = selectedDayIndex;
+      const groupExerciseIds: string[] = [];
+
+      // 1. Agregar cada ejercicio del grupo al día (si no existe ya)
+      for (const template of catalogGroupTemplates) {
+        // Guardar el exercise_id (template.id) para el grupo
+        groupExerciseIds.push(template.id);
+
+        // Verificar si ya existe configuración para este ejercicio en este día
+        const { data: existingConfig } = await supabase
+          .from('user_exercise_config')
+          .select('id, training_days')
+          .eq('user_id', user.id)
+          .eq('exercise_id', template.id)
+          .maybeSingle();
+
+        if (existingConfig) {
+          const currentDays = existingConfig.training_days || [0];
+          if (!currentDays.includes(targetDay)) {
+            // Agregar día al ejercicio existente
+            await supabase
+              .from('user_exercise_config')
+              .update({
+                training_days: [...currentDays, targetDay].sort(),
+                updated_at: new Date().toISOString(),
+              })
+              .eq('id', existingConfig.id);
+          }
+        } else {
+          // Crear nueva configuración
+          await supabase
+            .from('user_exercise_config')
+            .insert({
+              user_id: user.id,
+              exercise_id: template.id,
+              training_days: [targetDay],
+              display_order: exercises.length + groupExerciseIds.length - 1,
+              config: {
+                sets: template.default_metadata.sets,
+                rest: template.default_metadata.rest,
+                series_by_day: {},
+              },
+            });
+        }
+      }
+
+      // 2. Crear el grupo con exercise_ids (IDs de tabla exercises, no user_exercise_config)
+      if (groupExerciseIds.length >= 2) {
+        const defaults = getDefaultRest(type);
+        const newGroup: ExerciseGroup = {
+          id: generateGroupId(),
+          type,
+          exercise_ids: groupExerciseIds,
+          rest_between: defaults.rest_between,
+          rest_after: defaults.rest_after,
+          rounds: 1,
+        };
+
+        const updatedGroups = [...exerciseGroups, newGroup];
+        setExerciseGroups(updatedGroups);
+        exerciseGroupsRef.current = updatedGroups;
+        await saveExerciseGroups(targetDay, updatedGroups);
+        console.log(`✅ Grupo ${type} creado desde catálogo con IDs:`, groupExerciseIds);
+      }
+
+      // 3. Recargar ejercicios para reflejar cambios
+      await loadExercises(targetDay, true);
+
+      // 4. Limpiar estado
+      setCatalogGroupMode(false);
+      setCatalogGroupTemplates([]);
+      setModalVisible(false);
+      setCatalogTab('SUGERIDOS');
+      setCatalogSearch('');
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (error) {
+      console.error('💥 Error creando grupo desde catálogo:', error);
+    } finally {
+      setAdding(false);
+    }
+  };
+
+  const cancelCatalogGroupMode = () => {
+    setCatalogGroupMode(false);
+    setCatalogGroupTemplates([]);
+    setModalVisible(false);
+    setCatalogTab('SUGERIDOS');
+    setCatalogSearch('');
   };
 
   // ============================================================================
@@ -4636,6 +4934,10 @@ function GymScreen() {
           setModalVisible(false);
           setCatalogTab('SUGERIDOS');
           setCatalogSearch('');
+          if (catalogGroupMode) {
+            setCatalogGroupMode(false);
+            setCatalogGroupTemplates([]);
+          }
         }}
       >
         <View className="flex-1 bg-transparent justify-end">
@@ -4684,12 +4986,21 @@ function GymScreen() {
                 <View className="flex-row justify-between items-start mb-3">
                   <View className="flex-1">
                     <View className="flex-row items-center gap-2 mb-1">
-                      <Text className="text-savage-red text-2xl font-bold">CATÁLOGO</Text>
+                      <Text className="text-savage-red text-2xl font-bold">
+                        {catalogGroupMode ? 'SUPER SERIE' : 'CATÁLOGO'}
+                      </Text>
                       <View className="bg-savage-red/20 px-2 py-0.5 rounded-full">
                         <Text className="text-savage-red text-[10px] font-bold">
                           DÍA {selectedDayIndex + 1}
                         </Text>
                       </View>
+                      {catalogGroupMode && (
+                        <View className="bg-zinc-800 px-2 py-0.5 rounded-full">
+                          <Text className="text-zinc-400 text-[10px] font-bold">
+                            SELECCIONA 2+
+                          </Text>
+                        </View>
+                      )}
                     </View>
                     {/* Badges de grupos musculares con colores */}
                     <View className="flex-row flex-wrap gap-1 mt-1">
@@ -4736,6 +5047,64 @@ function GymScreen() {
                     </TouchableOpacity>
                   )}
                 </View>
+
+                {/* BARRA DE EJERCICIOS SELECCIONADOS - Solo en modo grupo */}
+                {catalogGroupMode && catalogGroupTemplates.length > 0 && (
+                  <View
+                    className="mb-3 rounded-xl overflow-hidden"
+                    style={{
+                      backgroundColor: '#18181b',
+                      borderWidth: 1,
+                      borderColor: '#DC262650',
+                    }}
+                  >
+                    <View className="flex-row items-center justify-between px-3 pt-2 pb-1">
+                      <View className="flex-row items-center gap-1.5">
+                        <Layers size={12} color="#DC2626" />
+                        <Text className="text-savage-red text-[10px] font-bold tracking-wider">
+                          {catalogGroupTemplates.length} EJERCICIO{catalogGroupTemplates.length !== 1 ? 'S' : ''} EN GRUPO
+                        </Text>
+                      </View>
+                      <TouchableOpacity
+                        onPress={() => {
+                          setCatalogGroupTemplates([]);
+                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        }}
+                      >
+                        <Text className="text-zinc-500 text-[10px] font-bold">LIMPIAR</Text>
+                      </TouchableOpacity>
+                    </View>
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      className="px-2 pb-2 pt-1"
+                      contentContainerStyle={{ gap: 6 }}
+                    >
+                      {catalogGroupTemplates.map((t, idx) => (
+                        <TouchableOpacity
+                          key={t.id}
+                          onPress={() => toggleCatalogGroupTemplate(t)}
+                          className="flex-row items-center rounded-lg px-2 py-1.5"
+                          style={{
+                            backgroundColor: '#27272a',
+                            borderWidth: 1,
+                            borderColor: '#DC262640',
+                          }}
+                        >
+                          <Image
+                            source={{ uri: t.image_url }}
+                            style={{ width: 24, height: 24, borderRadius: 6 }}
+                            contentFit="cover"
+                          />
+                          <Text className="text-white text-[11px] font-bold ml-1.5 mr-1" numberOfLines={1}>
+                            {t.name}
+                          </Text>
+                          <X size={10} color="#71717a" />
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
+                  </View>
+                )}
 
                 {/* TABS - Scroll horizontal con mejor diseño */}
                 <ScrollView
@@ -4844,17 +5213,28 @@ function GymScreen() {
                 const showCategoryColor = catalogTab === 'SUGERIDOS';
                 const catColor = showCategoryColor ? getMuscleGroupColor(item.category) : null;
 
+                // Modo grupo: verificar si está seleccionado
+                const isSelectedForGroup = catalogGroupMode && catalogGroupTemplates.some((t) => t.id === item.id);
+
                 return (
-                  <View
+                  <TouchableOpacity
+                    activeOpacity={catalogGroupMode ? 0.7 : 1}
+                    onPress={() => {
+                      if (catalogGroupMode) {
+                        toggleCatalogGroupTemplate(item);
+                      }
+                    }}
                     className="mb-2 rounded-2xl overflow-hidden"
                     style={{
-                      backgroundColor: alreadyAdded ? '#052e16' : '#0a0a0a',
-                      borderWidth: 1,
-                      borderColor: alreadyAdded
-                        ? '#22c55e40'
-                        : showCategoryColor && catColor
-                          ? `${catColor.color}30`
-                          : '#1a1a1a',
+                      backgroundColor: isSelectedForGroup ? '#1a0505' : alreadyAdded ? '#052e16' : '#0a0a0a',
+                      borderWidth: isSelectedForGroup ? 2 : 1,
+                      borderColor: isSelectedForGroup
+                        ? '#DC2626'
+                        : alreadyAdded
+                          ? '#22c55e40'
+                          : showCategoryColor && catColor
+                            ? `${catColor.color}30`
+                            : '#1a1a1a',
                     }}
                   >
                     <View className="flex-row p-3 items-center">
@@ -4865,7 +5245,15 @@ function GymScreen() {
                           style={{ width: 60, height: 60, borderRadius: 12 }}
                           contentFit="cover"
                         />
-                        {alreadyAdded && (
+                        {isSelectedForGroup && (
+                          <View
+                            className="absolute -top-1 -right-1 w-6 h-6 rounded-full items-center justify-center"
+                            style={{ backgroundColor: '#DC2626' }}
+                          >
+                            <Check color="#FFFFFF" size={14} />
+                          </View>
+                        )}
+                        {!catalogGroupMode && alreadyAdded && (
                           <View
                             className="absolute -top-1 -right-1 w-5 h-5 rounded-full items-center justify-center"
                             style={{ backgroundColor: '#22c55e' }}
@@ -4904,75 +5292,188 @@ function GymScreen() {
                         </View>
                       </View>
 
-                      {/* ACTIONS */}
-                      <View className="flex-row gap-2">
-                        {/* Quick Add Button */}
+                      {/* ACTIONS - Cambiar según modo */}
+                      {catalogGroupMode ? (
                         <TouchableOpacity
-                          onPress={() => quickAddExercise(item)}
-                          disabled={adding || alreadyAdded}
+                          onPress={() => toggleCatalogGroupTemplate(item)}
                           className="w-11 h-11 rounded-xl items-center justify-center"
                           style={{
-                            backgroundColor: alreadyAdded ? '#18181b' : '#DC2626',
-                            shadowColor: alreadyAdded ? 'transparent' : '#DC2626',
-                            shadowOffset: { width: 0, height: 4 },
-                            shadowOpacity: 0.4,
-                            shadowRadius: 8,
+                            backgroundColor: isSelectedForGroup ? '#DC2626' : '#18181b',
+                            borderWidth: isSelectedForGroup ? 0 : 1,
+                            borderColor: '#DC262650',
                           }}
                         >
-                          {adding ? (
-                            <ActivityIndicator color="#FFFFFF" size="small" />
+                          {isSelectedForGroup ? (
+                            <Check color="#FFFFFF" size={20} />
                           ) : (
-                            <Plus color={alreadyAdded ? '#52525b' : '#FFFFFF'} size={20} />
+                            <Plus color="#DC2626" size={20} />
                           )}
                         </TouchableOpacity>
+                      ) : (
+                        <View className="flex-row gap-2">
+                          {/* Quick Add Button */}
+                          <TouchableOpacity
+                            onPress={() => quickAddExercise(item)}
+                            disabled={adding || alreadyAdded}
+                            className="w-11 h-11 rounded-xl items-center justify-center"
+                            style={{
+                              backgroundColor: alreadyAdded ? '#18181b' : '#DC2626',
+                              shadowColor: alreadyAdded ? 'transparent' : '#DC2626',
+                              shadowOffset: { width: 0, height: 4 },
+                              shadowOpacity: 0.4,
+                              shadowRadius: 8,
+                            }}
+                          >
+                            {adding ? (
+                              <ActivityIndicator color="#FFFFFF" size="small" />
+                            ) : (
+                              <Plus color={alreadyAdded ? '#52525b' : '#FFFFFF'} size={20} />
+                            )}
+                          </TouchableOpacity>
 
-                        {/* Config Button */}
-                        <TouchableOpacity
-                          onPress={() => openSeriesConfigModal(item)}
-                          disabled={adding}
-                          className="w-11 h-11 rounded-xl items-center justify-center"
-                          style={{
-                            backgroundColor: '#18181b',
-                            borderWidth: 1,
-                            borderColor: '#27272a',
-                          }}
-                        >
-                          <Sliders color="#a1a1aa" size={18} />
-                        </TouchableOpacity>
-                      </View>
+                          {/* Config Button */}
+                          <TouchableOpacity
+                            onPress={() => openSeriesConfigModal(item)}
+                            disabled={adding}
+                            className="w-11 h-11 rounded-xl items-center justify-center"
+                            style={{
+                              backgroundColor: '#18181b',
+                              borderWidth: 1,
+                              borderColor: '#27272a',
+                            }}
+                          >
+                            <Sliders color="#a1a1aa" size={18} />
+                          </TouchableOpacity>
+                        </View>
+                      )}
                     </View>
-                  </View>
+                  </TouchableOpacity>
                 );
               }}
             />
 
-            {/* FOOTER INFO - MEJORADO */}
-            <View
-              className="px-4 pt-3 border-t border-zinc-800/50"
-              style={{
-                paddingBottom: insets.bottom + 16,
-                backgroundColor: 'rgba(10, 10, 10, 0.95)',
-              }}
-            >
-              <View className="flex-row justify-center items-center gap-4">
-                <View className="flex-row items-center gap-1.5">
-                  <View className="w-6 h-6 rounded-lg bg-savage-red items-center justify-center">
-                    <Plus size={14} color="#fff" />
+            {/* FOOTER - Cambia según modo */}
+            {catalogGroupMode ? (
+              <View
+                className="px-4 pt-3 border-t"
+                style={{
+                  paddingBottom: insets.bottom + 16,
+                  backgroundColor: '#0a0a0a',
+                  borderTopColor: catalogGroupTemplates.length >= 2 ? '#DC2626' : '#27272a',
+                }}
+              >
+                {catalogGroupTemplates.length >= 2 ? (
+                  <View>
+                    {/* Tipo de grupo - scroll horizontal */}
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      className="mb-3"
+                      contentContainerStyle={{ gap: 8 }}
+                    >
+                      {(() => {
+                        const count = catalogGroupTemplates.length;
+                        const types: ExerciseGroupType[] = [];
+                        if (count === 2) types.push('SUPERSET');
+                        if (count === 3) types.push('TRISET');
+                        if (count >= 3) types.push('CIRCUIT');
+                        if (count >= 4) types.push('GIANT_SET');
+                        const recommended = inferGroupType(count);
+
+                        return types.map((type) => {
+                          const config = GROUP_TYPE_CONFIG[type];
+                          const isRecommended = type === recommended;
+                          return (
+                            <TouchableOpacity
+                              key={type}
+                              onPress={() => {
+                                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                                confirmCatalogGroup(type);
+                              }}
+                              disabled={adding}
+                              className="rounded-xl px-4 py-3 items-center"
+                              style={{
+                                backgroundColor: config.bgColor,
+                                borderWidth: isRecommended ? 2 : 1,
+                                borderColor: isRecommended ? config.color : `${config.color}50`,
+                                minWidth: 110,
+                                opacity: adding ? 0.5 : 1,
+                              }}
+                            >
+                              {isRecommended && (
+                                <View
+                                  className="absolute -top-2 px-2 py-0.5 rounded"
+                                  style={{ backgroundColor: config.color }}
+                                >
+                                  <Text className="text-white text-[7px] font-bold">IDEAL</Text>
+                                </View>
+                              )}
+                              <Text className="text-lg mb-1">{config.icon}</Text>
+                              <Text
+                                className="font-bold text-[10px] tracking-wider"
+                                style={{ color: config.color }}
+                              >
+                                {config.label}
+                              </Text>
+                              <Text className="text-zinc-500 text-[8px] mt-0.5 text-center" numberOfLines={2}>
+                                {adding ? 'Creando...' : config.description}
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        });
+                      })()}
+                    </ScrollView>
+
+                    {/* Botón cancelar */}
+                    <TouchableOpacity
+                      onPress={cancelCatalogGroupMode}
+                      className="items-center py-2"
+                    >
+                      <Text className="text-zinc-500 text-xs font-bold">CANCELAR</Text>
+                    </TouchableOpacity>
                   </View>
-                  <Text className="text-zinc-400 text-[10px]">
-                    Estructura recomendada por{' '}
-                    <Text className="text-savage-red font-bold">HANK</Text>
-                  </Text>
-                </View>
-                <View className="w-px h-4 bg-zinc-700" />
-                <View className="flex-row items-center gap-1.5">
-                  <View className="w-6 h-6 rounded-lg bg-zinc-800 items-center justify-center border border-zinc-700">
-                    <Sliders size={12} color="#a1a1aa" />
+                ) : (
+                  <View className="items-center py-2">
+                    <Text className="text-zinc-500 text-xs">
+                      Selecciona al menos <Text className="text-savage-red font-bold">2 ejercicios</Text> para crear un grupo
+                    </Text>
+                    <TouchableOpacity
+                      onPress={cancelCatalogGroupMode}
+                      className="mt-2"
+                    >
+                      <Text className="text-zinc-500 text-[11px] font-bold">CANCELAR</Text>
+                    </TouchableOpacity>
                   </View>
-                  <Text className="text-zinc-400 text-[10px]">Configurar manualmente</Text>
+                )}
+              </View>
+            ) : (
+              <View
+                className="px-4 pt-3 border-t border-zinc-800/50"
+                style={{
+                  paddingBottom: insets.bottom + 16,
+                  backgroundColor: 'rgba(10, 10, 10, 0.95)',
+                }}
+              >
+                <View className="flex-row justify-center items-center gap-4">
+                  <View className="flex-row items-center gap-1.5">
+                    <View className="w-6 h-6 rounded-lg bg-savage-red items-center justify-center">
+                      <Plus size={14} color="#fff" />
+                    </View>
+                    <Text className="text-zinc-400 text-[10px]">
+                      Estructura recomendada por{' '}
+                      <Text className="text-savage-red font-bold">HANK</Text>
+                    </Text>
+                  </View>
+                  <View className="w-px h-4 bg-zinc-700" />
+                  <View className="flex-row items-center gap-1.5">
+                    <View className="w-6 h-6 rounded-lg bg-zinc-800 items-center justify-center border border-zinc-700">
+                      <Sliders size={12} color="#a1a1aa" />
+                    </View>
+                    <Text className="text-zinc-400 text-[10px]">Configurar manualmente</Text>
+                  </View>
                 </View>
               </View>
-            </View>
+            )}
           </Animated.View>
         </View>
       </Modal>
@@ -5471,7 +5972,7 @@ function GymScreen() {
                                   }`}
                                   numberOfLines={1}
                                 >
-                                  {day.muscleGroups}
+                                  {day.muscleGroups.replace(/^D[íi]a\s*\d+\s*:\s*/i, '')}
                                 </Text>
                                 {isCurrent && (
                                   <Text
@@ -5557,27 +6058,50 @@ function GymScreen() {
 
                     {/* Botón solo cuando hay días pero no ejercicios */}
                     {trainingProgram.days.length > 0 && (
-                      <TouchableOpacity
-                        onPress={() => {
-                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                          setModalVisible(true);
-                        }}
-                        className="py-4 px-8 rounded-2xl flex-row items-center justify-center gap-2"
-                        style={{
-                          backgroundColor: '#0a0000',
-                          borderWidth: 2,
-                          borderColor: '#F97316',
-                          shadowColor: '#F97316',
-                          shadowOffset: { width: 0, height: 4 },
-                          shadowOpacity: 0.5,
-                          shadowRadius: 16,
-                        }}
-                      >
-                        <Plus size={20} color="#F97316" strokeWidth={2.5} />
-                        <Text className="text-fire-orange font-bold text-base">
-                          Agregar Ejercicio
-                        </Text>
-                      </TouchableOpacity>
+                      <View className="items-center gap-3">
+                        <TouchableOpacity
+                          onPress={() => {
+                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                            setModalVisible(true);
+                          }}
+                          className="py-4 px-8 rounded-2xl flex-row items-center justify-center gap-2"
+                          style={{
+                            backgroundColor: '#0a0000',
+                            borderWidth: 2,
+                            borderColor: '#F97316',
+                            shadowColor: '#F97316',
+                            shadowOffset: { width: 0, height: 4 },
+                            shadowOpacity: 0.5,
+                            shadowRadius: 16,
+                          }}
+                        >
+                          <Plus size={20} color="#F97316" strokeWidth={2.5} />
+                          <Text className="text-fire-orange font-bold text-base">
+                            Agregar Ejercicio
+                          </Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                          onPress={() => {
+                            setCatalogGroupMode(true);
+                            setCatalogGroupTemplates([]);
+                            setModalVisible(true);
+                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                          }}
+                          className="py-3 px-6 rounded-xl flex-row items-center justify-center gap-2"
+                          style={{
+                            borderWidth: 1.5,
+                            borderColor: '#DC2626',
+                            backgroundColor: '#1a0505',
+                            borderStyle: 'dashed',
+                          }}
+                        >
+                          <Layers size={16} color="#DC2626" />
+                          <Text className="text-savage-red font-bold text-xs tracking-wider">
+                            CREAR SUPER SERIE
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
                     )}
 
                     {/* Texto secundario - solo cuando no hay días */}
@@ -5598,13 +6122,16 @@ function GymScreen() {
                     scrollEnabled={!isDraggingExercise}
                   >
                     <>
-                      {/* Header de lista con consejos */}
+                      {/* Header de lista */}
                       <View className="mb-3 px-1">
                         <View className="flex-row items-center justify-between mb-2">
                           <View className="flex-row items-center gap-2">
                             <View className="w-2 h-2 rounded-full bg-fire-orange" />
                             <Text className="text-zinc-400 text-xs font-bold uppercase tracking-wider">
                               {exercises.length} EJERCICIO{exercises.length !== 1 ? 'S' : ''}
+                              {exerciseGroups.length > 0
+                                ? ` • ${exerciseGroups.length} GRUPO${exerciseGroups.length !== 1 ? 'S' : ''}`
+                                : ''}
                             </Text>
                           </View>
                         </View>
@@ -5622,138 +6149,259 @@ function GymScreen() {
                         </View>
                       </View>
 
-                      {/* Lista de ejercicios arrastrables */}
-                      {exercises.map((item, index) => {
-                        // Calcular offset de animación basado en la posición del drag
-                        const ITEM_HEIGHT = 88;
-                        const getAnimatedOffset = (): number => {
-                          if (
-                            !isDraggingExercise ||
-                            dragTargetIndex === null ||
-                            draggingFromIndex === null
-                          )
+                      {/* Lista de ejercicios arrastrables - con soporte para grupos */}
+                      {(() => {
+                        // Calcular qué ejercicios están agrupados
+                        const groupedIds = getGroupedExerciseIds(exerciseGroups);
+                        // Tracking de grupos ya renderizados
+                        const renderedGroups = new Set<string>();
+
+                        return exercises.map((item, index) => {
+                          // Verificar si pertenece a un grupo
+                          const group = findGroupForExercise(exerciseGroups, item.exercise_id);
+
+                          // Si pertenece a un grupo que ya fue renderizado, saltar
+                          if (group && renderedGroups.has(group.id)) {
+                            return null;
+                          }
+
+                          // Si pertenece a un grupo, renderizar el grupo completo aquí
+                          if (group) {
+                            renderedGroups.add(group.id);
+                            // Obtener los ejercicios del grupo en orden
+                            const groupExercises = group.exercise_ids
+                              .map((eid) => exercises.find((e) => e.exercise_id === eid))
+                              .filter(Boolean) as Exercise[];
+
+                            return (
+                              <View key={`group-${group.id}`} className="mb-2">
+                                <ExerciseGroupCard
+                                  group={group}
+                                  exercises={groupExercises.map((e) => ({
+                                    id: e.exercise_id,
+                                    name: e.name,
+                                    image_url: e.image_url,
+                                    series: e.series as any,
+                                  }))}
+                                  onRemoveGroup={() => {
+                                    Alert.alert(
+                                      '🔗 Deshacer grupo',
+                                      `¿Desagrupar estos ${groupExercises.length} ejercicios? No se eliminarán, solo se separarán.`,
+                                      [
+                                        { text: 'Cancelar', style: 'cancel' },
+                                        {
+                                          text: 'Desagrupar',
+                                          style: 'destructive',
+                                          onPress: () => removeExerciseGroup(group.id),
+                                        },
+                                      ]
+                                    );
+                                  }}
+                                  onRemoveExerciseFromGroup={(exerciseId) => {
+                                    // Quitar un ejercicio del grupo
+                                    const updatedGroup = {
+                                      ...group,
+                                      exercise_ids: group.exercise_ids.filter(
+                                        (id) => id !== exerciseId
+                                      ),
+                                    };
+                                    if (updatedGroup.exercise_ids.length < 2) {
+                                      // Si queda menos de 2, eliminar el grupo
+                                      removeExerciseGroup(group.id);
+                                    } else {
+                                      const updatedGroups = exerciseGroups.map((g) =>
+                                        g.id === group.id ? updatedGroup : g
+                                      );
+                                      setExerciseGroups(updatedGroups);
+                                      saveExerciseGroups(selectedDayIndex, updatedGroups);
+                                    }
+                                  }}
+                                  onEditExercise={(exerciseId) => {
+                                    const ex = exercises.find((e) => e.exercise_id === exerciseId);
+                                    if (!ex) return;
+                                    // Editar ejercicio individual del grupo
+                                    (async () => {
+                                      const { data } = await supabase
+                                        .from('user_exercise_config')
+                                        .select(
+                                          `id, config, custom_media_url, exercises:exercise_id (id, name, description, muscle_group, difficulty, default_media_url)`
+                                        )
+                                        .eq('id', ex.id)
+                                        .single();
+
+                                      if (data) {
+                                        const exerciseInfo = data.exercises as unknown as {
+                                          id: string;
+                                          name: string;
+                                          description: string | null;
+                                          muscle_group: string | null;
+                                          difficulty: string | null;
+                                          default_media_url: string | null;
+                                        } | null;
+                                        const template: AssetTemplate = {
+                                          id: data.id,
+                                          name: exerciseInfo?.name || ex.name,
+                                          description: exerciseInfo?.description || '',
+                                          image_url:
+                                            data.custom_media_url ||
+                                            exerciseInfo?.default_media_url ||
+                                            '',
+                                          category: exerciseInfo?.muscle_group || 'OTRO',
+                                          difficulty: exerciseInfo?.difficulty || 'INTERMEDIO',
+                                          default_metadata: data.config || {},
+                                        };
+                                        const seriesByDay = data.config?.series_by_day as
+                                          | Record<string, SeriesConfig[]>
+                                          | undefined;
+                                        const existingSeries: SeriesConfig[] =
+                                          seriesByDay?.[String(selectedDayIndex)] ||
+                                          (data.config?.custom_series as
+                                            | SeriesConfig[]
+                                            | undefined) ||
+                                          [];
+                                        setSeriesConfig(existingSeries);
+                                        setSelectedTemplate(template);
+                                        setSeriesConfigFromCatalog(false);
+                                        seriesConfigFromCatalogRef.current = false;
+                                        setSeriesConfigDayIndex(selectedDayIndex);
+                                        setSeriesConfigModalVisible(true);
+                                      }
+                                    })();
+                                  }}
+                                />
+                              </View>
+                            );
+                          }
+
+                          // Calcular offset de animación basado en la posición del drag
+                          const ITEM_HEIGHT = 88;
+                          const getAnimatedOffset = (): number => {
+                            if (
+                              !isDraggingExercise ||
+                              dragTargetIndex === null ||
+                              draggingFromIndex === null
+                            )
+                              return 0;
+                            if (index === draggingFromIndex) return 0;
+
+                            if (dragTargetIndex > draggingFromIndex) {
+                              if (index > draggingFromIndex && index <= dragTargetIndex) {
+                                return -ITEM_HEIGHT;
+                              }
+                            } else if (dragTargetIndex < draggingFromIndex) {
+                              if (index >= dragTargetIndex && index < draggingFromIndex) {
+                                return ITEM_HEIGHT;
+                              }
+                            }
                             return 0;
-                          if (index === draggingFromIndex) return 0; // El item arrastrado no necesita offset
+                          };
 
-                          // Si el target está DESPUÉS del origen (arrastrando hacia abajo)
-                          if (dragTargetIndex > draggingFromIndex) {
-                            // Los items entre origen+1 y target deben subir
-                            if (index > draggingFromIndex && index <= dragTargetIndex) {
-                              return -ITEM_HEIGHT;
-                            }
-                          }
-                          // Si el target está ANTES del origen (arrastrando hacia arriba)
-                          else if (dragTargetIndex < draggingFromIndex) {
-                            // Los items entre target y origen-1 deben bajar
-                            if (index >= dragTargetIndex && index < draggingFromIndex) {
-                              return ITEM_HEIGHT;
-                            }
-                          }
-                          return 0;
-                        };
+                          const offset = getAnimatedOffset();
+                          const belongsToGroup = groupedIds.has(item.exercise_id);
+                          const itemGroup = findGroupForExercise(exerciseGroups, item.exercise_id);
 
-                        const offset = getAnimatedOffset();
-
-                        return (
-                          <AnimatedExerciseItem
-                            key={item.id}
-                            offset={offset}
-                            isDragging={draggingFromIndex === index}
-                          >
-                            <DraggableExerciseCard
-                              exercise={item}
-                              index={index}
-                              totalItems={exercises.length}
-                              onEdit={async () => {
-                                // NUEVA ARQUITECTURA: Cargar config del ejercicio para editarlo
-                                const { data } = await supabase
-                                  .from('user_exercise_config')
-                                  .select(
-                                    `
-                          id,
-                          config,
-                          custom_media_url,
-                          exercises:exercise_id (
+                          return (
+                            <AnimatedExerciseItem
+                              key={item.id}
+                              offset={offset}
+                              isDragging={draggingFromIndex === index}
+                            >
+                              <DraggableExerciseCard
+                                exercise={item}
+                                index={index}
+                                totalItems={exercises.length}
+                                selectionMode={false}
+                                isSelected={false}
+                                onSelect={() => {}}
+                                groupColor={undefined}
+                                onEdit={async () => {
+                                  const { data } = await supabase
+                                    .from('user_exercise_config')
+                                    .select(
+                                      `
                             id,
-                            name,
-                            description,
-                            muscle_group,
-                            difficulty,
-                            default_media_url
-                          )
-                        `
-                                  )
-                                  .eq('id', item.id)
-                                  .single();
+                            config,
+                            custom_media_url,
+                            exercises:exercise_id (
+                              id,
+                              name,
+                              description,
+                              muscle_group,
+                              difficulty,
+                              default_media_url
+                            )
+                          `
+                                    )
+                                    .eq('id', item.id)
+                                    .single();
 
-                                if (data) {
-                                  const exerciseInfo = data.exercises as unknown as {
-                                    id: string;
-                                    name: string;
-                                    description: string | null;
-                                    muscle_group: string | null;
-                                    difficulty: string | null;
-                                    default_media_url: string | null;
-                                  } | null;
+                                  if (data) {
+                                    const exerciseInfo = data.exercises as unknown as {
+                                      id: string;
+                                      name: string;
+                                      description: string | null;
+                                      muscle_group: string | null;
+                                      difficulty: string | null;
+                                      default_media_url: string | null;
+                                    } | null;
 
-                                  const template: AssetTemplate = {
-                                    id: data.id,
-                                    name: exerciseInfo?.name || item.name,
-                                    description: exerciseInfo?.description || '',
-                                    image_url:
-                                      data.custom_media_url ||
-                                      exerciseInfo?.default_media_url ||
-                                      '',
-                                    category: exerciseInfo?.muscle_group || 'OTRO',
-                                    difficulty: exerciseInfo?.difficulty || 'INTERMEDIO',
-                                    default_metadata: data.config || {},
-                                  };
+                                    const template: AssetTemplate = {
+                                      id: data.id,
+                                      name: exerciseInfo?.name || item.name,
+                                      description: exerciseInfo?.description || '',
+                                      image_url:
+                                        data.custom_media_url ||
+                                        exerciseInfo?.default_media_url ||
+                                        '',
+                                      category: exerciseInfo?.muscle_group || 'OTRO',
+                                      difficulty: exerciseInfo?.difficulty || 'INTERMEDIO',
+                                      default_metadata: data.config || {},
+                                    };
 
-                                  const seriesByDay = data.config?.series_by_day as
-                                    | Record<string, SeriesConfig[]>
-                                    | undefined;
-                                  const existingSeries: SeriesConfig[] =
-                                    seriesByDay?.[String(selectedDayIndex)] ||
-                                    (data.config?.custom_series as SeriesConfig[] | undefined) ||
-                                    [];
-                                  setSeriesConfig(existingSeries);
-                                  setSelectedTemplate(template);
-                                  // NO viene del catálogo, viene de editar ejercicio existente
-                                  setSeriesConfigFromCatalog(false);
-                                  seriesConfigFromCatalogRef.current = false;
-                                  // BUGFIX: Capturar el día actual al abrir el modal
-                                  setSeriesConfigDayIndex(selectedDayIndex);
-                                  setSeriesConfigModalVisible(true);
-                                }
-                              }}
-                              onDelete={() => deleteExercise(item.id)}
-                              onDragStart={() => {
-                                setIsDraggingExercise(true);
-                                setDraggingFromIndex(index);
-                              }}
-                              onDragEnd={(newIndex) => {
-                                setIsDraggingExercise(false);
-                                setDragTargetIndex(null);
-                                setDraggingFromIndex(null);
-                                reorderExercises(index, newIndex);
-                              }}
-                              onDragCancel={() => {
-                                setIsDraggingExercise(false);
-                                setDragTargetIndex(null);
-                                setDraggingFromIndex(null);
-                              }}
-                              onPositionChange={(targetIndex) => setDragTargetIndex(targetIndex)}
-                              itemHeight={88}
-                            />
-                          </AnimatedExerciseItem>
-                        );
-                      })}
+                                    const seriesByDay = data.config?.series_by_day as
+                                      | Record<string, SeriesConfig[]>
+                                      | undefined;
+                                    const existingSeries: SeriesConfig[] =
+                                      seriesByDay?.[String(selectedDayIndex)] ||
+                                      (data.config?.custom_series as SeriesConfig[] | undefined) ||
+                                      [];
+                                    setSeriesConfig(existingSeries);
+                                    setSelectedTemplate(template);
+                                    setSeriesConfigFromCatalog(false);
+                                    seriesConfigFromCatalogRef.current = false;
+                                    setSeriesConfigDayIndex(selectedDayIndex);
+                                    setSeriesConfigModalVisible(true);
+                                  }
+                                }}
+                                onDelete={() => deleteExercise(item.id)}
+                                onDragStart={() => {
+                                  setIsDraggingExercise(true);
+                                  setDraggingFromIndex(index);
+                                }}
+                                onDragEnd={(newIndex) => {
+                                  setIsDraggingExercise(false);
+                                  setDragTargetIndex(null);
+                                  setDraggingFromIndex(null);
+                                  reorderExercises(index, newIndex);
+                                }}
+                                onDragCancel={() => {
+                                  setIsDraggingExercise(false);
+                                  setDragTargetIndex(null);
+                                  setDraggingFromIndex(null);
+                                }}
+                                onPositionChange={(targetIndex) => setDragTargetIndex(targetIndex)}
+                                itemHeight={88}
+                              />
+                            </AnimatedExerciseItem>
+                          );
+                        });
+                      })()}
 
                       {/* BOTÓN AGREGAR EJERCICIO - Dentro del scroll */}
                       <TouchableOpacity
                         onPress={() => setModalVisible(true)}
                         disabled={trainingProgram.days.length === 0}
-                        className="mt-2 mb-4 p-4 rounded-xl items-center flex-row justify-center gap-2"
+                        className="mt-2 mb-2 p-4 rounded-xl items-center flex-row justify-center gap-2"
                         style={{
                           borderWidth: 2,
                           borderColor: trainingProgram.days.length === 0 ? '#3f3f46' : '#F97316',
@@ -5772,6 +6420,37 @@ function GymScreen() {
                           }`}
                         >
                           AGREGAR EJERCICIO
+                        </Text>
+                      </TouchableOpacity>
+
+                      {/* BOTÓN CREAR SUPER SERIE / CIRCUITO */}
+                      <TouchableOpacity
+                        onPress={() => {
+                          setCatalogGroupMode(true);
+                          setCatalogGroupTemplates([]);
+                          setModalVisible(true);
+                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                        }}
+                        disabled={trainingProgram.days.length === 0}
+                        className="mb-4 p-3 rounded-xl items-center flex-row justify-center gap-2"
+                        style={{
+                          borderWidth: 1.5,
+                          borderColor: trainingProgram.days.length === 0 ? '#3f3f46' : '#DC2626',
+                          backgroundColor:
+                            trainingProgram.days.length === 0 ? '#18181b' : '#1a0505',
+                          borderStyle: 'dashed',
+                        }}
+                      >
+                        <Layers
+                          color={trainingProgram.days.length === 0 ? '#71717a' : '#DC2626'}
+                          size={16}
+                        />
+                        <Text
+                          className={`font-bold text-xs tracking-wider ${
+                            trainingProgram.days.length === 0 ? 'text-zinc-500' : 'text-savage-red'
+                          }`}
+                        >
+                          CREAR SUPER SERIE
                         </Text>
                       </TouchableOpacity>
                     </>
@@ -7791,21 +8470,47 @@ function GymScreen() {
         <LinearGradient
           colors={['rgba(10,0,0,0.98)', 'rgba(10,0,0,0.85)', 'transparent']}
           className="px-4 pb-6"
-          style={{ paddingTop: insets.top + 12 }}
+          style={{ paddingTop: insets.top + 8 }}
         >
           <View className="flex-row items-center justify-between">
             <View className="flex-1">
-              <Text
-                className="text-fire-orange text-lg font-bold tracking-wider uppercase"
+              {/* BADGE GRUPO MUSCULAR */}
+              <View
+                className="self-start px-3 py-1.5 rounded-lg flex-row items-center gap-1.5"
                 style={{
-                  textShadowColor: '#F97316',
-                  textShadowOffset: { width: 0, height: 0 },
-                  textShadowRadius: 8,
+                  backgroundColor: 'rgba(249,115,22,0.15)',
+                  borderWidth: 1,
+                  borderColor: 'rgba(249,115,22,0.35)',
                 }}
               >
-                🔥 {trainingProgram.days[selectedDayIndex]?.muscleGroups || 'ENTRENAMIENTO'}
-              </Text>
-              <Text className="text-zinc-500 text-xs font-mono mt-0.5">{getCurrentTime()}</Text>
+                <Target size={12} color="#F97316" />
+                <Text className="text-fire-orange text-sm font-bold uppercase tracking-wider">
+                  {(trainingProgram.days[selectedDayIndex]?.muscleGroups || 'ENTRENAMIENTO').replace(/^D[íi]a\s*\d+\s*:\s*/i, '')}
+                </Text>
+              </View>
+              <View className="flex-row items-center gap-2 mt-1.5">
+                <Text className="text-zinc-500 text-xs font-mono">{getCurrentTime()}</Text>
+                {focusItems.length > 0 && (
+                  <View className="flex-row items-center gap-1.5">
+                    <View className="w-1 h-1 bg-zinc-600 rounded-full" />
+                    <Text className="text-zinc-400 text-xs font-mono font-bold">
+                      {activeExerciseIndex + 1}/{focusItems.length}
+                    </Text>
+                  </View>
+                )}
+              </View>
+              {/* PROGRESS BAR */}
+              {focusItems.length > 0 && (
+                <View className="mt-2 rounded-full overflow-hidden" style={{ height: 3, backgroundColor: '#1a1a1a' }}>
+                  <View
+                    className="h-full rounded-full"
+                    style={{
+                      width: `${((activeExerciseIndex + 1) / focusItems.length) * 100}%`,
+                      backgroundColor: '#F97316',
+                    }}
+                  />
+                </View>
+              )}
             </View>
             <TouchableOpacity
               onPress={() => setStructureModalOpen(true)}
@@ -7821,6 +8526,33 @@ function GymScreen() {
           </View>
         </LinearGradient>
       </View>
+
+      {/* VERTICAL NAV DOTS - Instagram Stories style */}
+      {focusItems.length > 1 && (
+        <View
+          style={{
+            position: 'absolute',
+            right: 6,
+            top: '50%',
+            zIndex: 45,
+            transform: [{ translateY: -((focusItems.length * 14) / 2) }],
+          }}
+        >
+          {focusItems.map((_, dotIdx) => (
+            <View
+              key={dotIdx}
+              style={{
+                width: dotIdx === activeExerciseIndex ? 6 : 4,
+                height: dotIdx === activeExerciseIndex ? 14 : 4,
+                borderRadius: dotIdx === activeExerciseIndex ? 3 : 2,
+                backgroundColor: dotIdx === activeExerciseIndex ? '#F97316' : 'rgba(255,255,255,0.25)',
+                marginVertical: 3,
+                alignSelf: 'center',
+              }}
+            />
+          ))}
+        </View>
+      )}
 
       {/* HUD TÁCTICO - Timer justo encima de Spotify (12px gap) */}
       <View
@@ -7889,20 +8621,23 @@ function GymScreen() {
         ref={exerciseListRef}
         // BUGFIX: Key dinámica para forzar re-mount completo
         // listRefreshKey se incrementa después de loadExercises para garantizar remontaje
-        key={`exercise-list-${listRefreshKey}-${exercises.length}`}
-        data={exercises}
+        key={`exercise-list-${listRefreshKey}-${focusItems.length}`}
+        data={focusItems}
         // BUGFIX: Forzar re-render cuando cambian las alternativas de los ejercicios
         // El extraData incluye un hash completo de las alternativas (id, cantidad, y nombres)
         // para que React detecte cualquier cambio en los datos de alternativas
-        extraData={exercises
-          .map(
-            (e) =>
-              `${e.id}:${e.alternatives?.length || 0}:${e.alternatives?.map((a) => a.name).join(',') || ''}`
+        extraData={focusItems
+          .map((fi) =>
+            fi.type === 'single'
+              ? `${fi.exercise.id}:${fi.exercise.alternatives?.length || 0}:${fi.exercise.alternatives?.map((a) => a.name).join(',') || ''}`
+              : `group-${fi.group.id}:${fi.exercises.length}`
           )
           .join('|')}
-        keyExtractor={(item) => item.id}
-        pagingEnabled={Platform.OS !== 'web' && exercises.length > 0}
-        scrollEnabled={Platform.OS !== 'web' && exercises.length > 0}
+        keyExtractor={(item) =>
+          item.type === 'single' ? item.exercise.id : `group-${item.group.id}`
+        }
+        pagingEnabled={Platform.OS !== 'web' && focusItems.length > 0}
+        scrollEnabled={Platform.OS !== 'web' && focusItems.length > 0}
         decelerationRate="fast"
         snapToInterval={CONTENT_HEIGHT}
         snapToAlignment="start"
@@ -7928,7 +8663,7 @@ function GymScreen() {
         }}
         style={Platform.OS === 'web' ? { overflow: 'hidden', flex: 1 } : { flex: 1 }}
         contentContainerStyle={
-          exercises.length === 0
+          focusItems.length === 0
             ? { flex: 1 }
             : Platform.OS === 'web'
               ? ({
@@ -7982,7 +8717,55 @@ function GymScreen() {
             </TouchableOpacity>
           </View>
         }
-        renderItem={({ item, index }) => {
+        renderItem={({ item: focusItem, index }) => {
+          // ============================================================
+          // GROUP ITEM - Render FocusGroupView
+          // ============================================================
+          if (focusItem.type === 'group') {
+            return (
+              <View
+                style={{
+                  width: SCREEN_WIDTH,
+                  height: CONTENT_HEIGHT,
+                  backgroundColor: '#000',
+                }}
+              >
+                <FocusGroupView
+                  group={focusItem.group}
+                  exercises={focusItem.exercises.map((e: Exercise) => ({
+                    id: e.id,
+                    exercise_id: e.exercise_id,
+                    name: e.name,
+                    image_url: e.image_url,
+                    series: (e.series || []).map((s: any) => ({
+                      id: s.id,
+                      reps: parseInt(s.reps) || 0,
+                      weight: s.weight || 0,
+                      type: s.type,
+                      note: s.note,
+                    })),
+                  }))}
+                  screenWidth={SCREEN_WIDTH}
+                  contentHeight={CONTENT_HEIGHT}
+                  spotifyMode={spotifyIsPlaying}
+                  onEditSeries={(exerciseId) => {
+                    const ex = exercises.find(
+                      (e) => e.id === exerciseId || e.exercise_id === exerciseId
+                    );
+                    if (!ex) return;
+                    setModalExercise(ex);
+                    setFocusSeriesDayIndex(selectedDayIndex);
+                    setStructureModalVisible(true);
+                  }}
+                />
+              </View>
+            );
+          }
+
+          // ============================================================
+          // SINGLE ITEM - Original exercise rendering
+          // ============================================================
+          const item = focusItem.exercise;
           // Preparar array de ejercicios: principal + alternativas
           // IMPORTANTE: Para notas usamos exercise_id (de tabla exercises)
           // BUGFIX: Usar fallback seguro para evitar keys vacíos que crashean React Native
@@ -8053,7 +8836,7 @@ function GymScreen() {
                 <View
                   style={{
                     position: 'absolute',
-                    top: SCREEN_WIDTH * 0.85, // Debajo de la imagen del ejercicio
+                    top: SCREEN_WIDTH, // Debajo de la imagen del ejercicio
                     left: 0,
                     right: 0,
                     bottom: 0,
@@ -8103,7 +8886,7 @@ function GymScreen() {
                 }}
                 style={{
                   width: SCREEN_WIDTH,
-                  height: SCREEN_WIDTH * 0.85 + 170,
+                  height: SCREEN_WIDTH + 120,
                   overflow: 'hidden',
                   flexGrow: 0,
                 }}
@@ -8136,7 +8919,7 @@ function GymScreen() {
                       }}
                     >
                       {/* IMAGEN/VIDEO HERO */}
-                      <View className="relative" style={{ height: SCREEN_WIDTH * 0.85 }}>
+                      <View className="relative" style={{ height: SCREEN_WIDTH }}>
                         {isVideoUrl(variation.image_url) ? (
                           <VideoHero
                             videoUrl={variation.image_url!}
@@ -8282,26 +9065,37 @@ function GymScreen() {
 
                         {/* TÍTULO EJERCICIO */}
                         <View className="absolute bottom-4 left-4 right-20">
+                          {/* Badge alternativa */}
+                          {!variation.isMain && (
+                            <View className="flex-row items-center gap-2 mb-2">
+                              <View
+                                className="px-2 py-1 rounded-md flex-row items-center gap-1"
+                                style={{
+                                  backgroundColor: 'rgba(249,115,22,0.15)',
+                                  borderWidth: 1,
+                                  borderColor: 'rgba(249,115,22,0.3)',
+                                }}
+                              >
+                                <View className="w-1.5 h-1.5 bg-fire-orange rounded-full" />
+                                <Text className="text-fire-orange text-[9px] uppercase tracking-widest font-bold">
+                                  ALT
+                                </Text>
+                              </View>
+                            </View>
+                          )}
                           <Text
                             className="text-white font-bold uppercase tracking-wider"
                             style={{
-                              fontSize: 28,
-                              textShadowColor: 'rgba(0,0,0,0.8)',
+                              fontSize: 26,
+                              textShadowColor: 'rgba(0,0,0,0.9)',
                               textShadowOffset: { width: 0, height: 2 },
-                              textShadowRadius: 8,
+                              textShadowRadius: 10,
+                              lineHeight: 32,
                             }}
                             numberOfLines={2}
                           >
                             {variation.name}
                           </Text>
-                          {!variation.isMain && (
-                            <View className="flex-row items-center mt-1">
-                              <View className="w-2 h-2 bg-fire-orange rounded-full mr-2" />
-                              <Text className="text-fire-orange text-xs uppercase tracking-widest font-bold">
-                                Alternativa
-                              </Text>
-                            </View>
-                          )}
                         </View>
                       </View>
                     </View>
@@ -8338,26 +9132,54 @@ function GymScreen() {
                 style={{ backgroundColor: spotifyIsPlaying ? 'transparent' : '#000' }}
               />
 
-              {/* FOOTER "PRÓXIMO" */}
-              {index < exercises.length - 1 && (
+              {/* FOOTER "PRÓXIMO" MEJORADO */}
+              {index < focusItems.length - 1 && (
                 <View
-                  className="py-3 px-4"
+                  className="py-2.5 px-4"
                   style={{
                     backgroundColor: spotifyIsPlaying
-                      ? 'rgba(0, 0, 0, 0.5)'
-                      : 'rgba(23, 23, 23, 0.95)',
+                      ? 'rgba(0, 0, 0, 0.6)'
+                      : 'rgba(15, 15, 15, 0.98)',
                     borderTopWidth: 1,
-                    borderTopColor: spotifyIsPlaying ? 'rgba(255,255,255,0.1)' : '#27272a',
+                    borderTopColor: spotifyIsPlaying ? 'rgba(255,255,255,0.08)' : '#1a1a1a',
                   }}
                 >
-                  <View className="flex-row items-center gap-2">
-                    <ChevronDown color="#F97316" size={16} />
-                    <Text className="text-zinc-500 text-xs tracking-wider uppercase">
-                      Siguiente:
-                    </Text>
-                    <Text className="text-white text-xs font-bold flex-1" numberOfLines={1}>
-                      {exercises[index + 1]?.name || 'Siguiente ejercicio'}
-                    </Text>
+                  <View className="flex-row items-center gap-3">
+                    {/* Thumbnail del siguiente ejercicio */}
+                    {(() => {
+                      const next = focusItems[index + 1];
+                      const nextImage = next?.type === 'single'
+                        ? next.exercise.image_url
+                        : next?.exercises?.[0]?.image_url;
+                      return nextImage ? (
+                        <View className="rounded-lg overflow-hidden" style={{ width: 36, height: 36, borderWidth: 1, borderColor: '#27272a' }}>
+                          <Image
+                            source={{ uri: nextImage }}
+                            style={{ width: 36, height: 36 }}
+                            contentFit="cover"
+                          />
+                        </View>
+                      ) : (
+                        <View className="rounded-lg items-center justify-center" style={{ width: 36, height: 36, backgroundColor: '#1a1a1a', borderWidth: 1, borderColor: '#27272a' }}>
+                          <ChevronDown color="#F97316" size={16} />
+                        </View>
+                      );
+                    })()}
+                    <View className="flex-1">
+                      <Text className="text-zinc-500 text-[10px] tracking-wider uppercase">
+                        Siguiente · {index + 2}/{focusItems.length}
+                      </Text>
+                      <Text className="text-white text-sm font-bold" numberOfLines={1}>
+                        {(() => {
+                          const next = focusItems[index + 1];
+                          if (!next) return 'Siguiente ejercicio';
+                          return next.type === 'single'
+                            ? next.exercise.name
+                            : `⚡ ${next.exercises.map((e) => e.name).join(' + ')}`;
+                        })()}
+                      </Text>
+                    </View>
+                    <ChevronDown color="#F97316" size={18} />
                   </View>
                 </View>
               )}

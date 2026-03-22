@@ -406,21 +406,26 @@ export const SeriesCard = ({
           .filter((s) => s && typeof s === 'object')
           .map((s, idx) => {
             const config = typeConfig[s.type] || typeConfig.EFECTIVA;
+            const hasWeight = s.weight > 0;
             return (
               <TouchableOpacity
                 key={String(idx)}
                 onPress={onPress}
-                className="items-center justify-center rounded-lg"
+                className="items-center justify-center rounded-xl"
                 style={{
-                  width: 44,
-                  height: 44,
+                  width: hasWeight ? 56 : 50,
+                  height: 50,
                   backgroundColor: config.bg,
-                  borderWidth: 1,
+                  borderWidth: 1.5,
                   borderColor: config.border,
                 }}
               >
-                <Text className="text-white font-bold text-sm">{String(s.reps || 0)}</Text>
-                <Text className="text-zinc-400 text-[8px] font-bold -mt-0.5">{config.label}</Text>
+                <Text className="text-white font-bold" style={{ fontSize: 15 }}>{String(s.reps || 0)}</Text>
+                {hasWeight ? (
+                  <Text className="text-zinc-300 text-[9px] font-mono font-bold -mt-0.5">{s.weight}kg</Text>
+                ) : (
+                  <Text className="text-zinc-400 text-[9px] font-bold -mt-0.5">{config.label}</Text>
+                )}
               </TouchableOpacity>
             );
           })}
@@ -428,12 +433,12 @@ export const SeriesCard = ({
         {/* Agregar serie */}
         <TouchableOpacity
           onPress={onPress}
-          className="items-center justify-center rounded-lg"
+          className="items-center justify-center rounded-xl"
           style={{
-            width: 44,
-            height: 44,
+            width: 50,
+            height: 50,
             backgroundColor: 'transparent',
-            borderWidth: 1,
+            borderWidth: 1.5,
             borderColor: '#3f3f46',
             borderStyle: 'dashed',
           }}

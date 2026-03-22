@@ -55,6 +55,11 @@ interface DraggableExerciseCardProps {
   onDragCancel?: () => void;
   onPositionChange?: (targetIndex: number) => void;
   itemHeight?: number;
+  // Selection mode for creating groups
+  selectionMode?: boolean;
+  isSelected?: boolean;
+  onSelect?: () => void;
+  groupColor?: string; // Color del grupo al que pertenece
 }
 
 // ============================================================================
@@ -95,6 +100,10 @@ const WebDraggableExerciseCard: React.FC<DraggableExerciseCardProps> = ({
   onDragCancel,
   onPositionChange,
   itemHeight = ITEM_HEIGHT_DEFAULT,
+  selectionMode = false,
+  isSelected = false,
+  onSelect,
+  groupColor,
 }) => {
   // Estado mínimo
   const [isDragging, setIsDragging] = useState(false);
@@ -488,12 +497,16 @@ const WebDraggableExerciseCard: React.FC<DraggableExerciseCardProps> = ({
         // finishDrag ya resetea activePointerId, pero por si acaso
         activePointerId.current = null;
       } else {
-        // Tap = editar
+        // Tap = seleccionar (si selectionMode) o editar
         const deltaX = Math.abs(e.clientX - pressStartX.current);
         const deltaY = Math.abs(e.clientY - pressStartY.current);
         if (deltaX < 10 && deltaY < 10) {
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-          onEdit();
+          if (selectionMode && onSelect) {
+            onSelect();
+          } else {
+            onEdit();
+          }
         }
         activePointerId.current = null;
       }
@@ -533,9 +546,9 @@ const WebDraggableExerciseCard: React.FC<DraggableExerciseCardProps> = ({
   const cardStyle: React.CSSProperties = {
     transform: isSwiping || isSwipeOpen ? `translateX(${translateX}px)` : 'none',
     transition: isSwiping ? 'none' : 'transform 0.2s ease-out',
-    backgroundColor: isDragging ? '#1a1a1a' : '#0a0a0a',
-    borderWidth: isDragging ? 2 : 1,
-    borderColor: isDragging ? '#F97316' : '#27272a',
+    backgroundColor: isSelected ? '#1a0a0a' : isDragging ? '#1a1a1a' : '#0a0a0a',
+    borderWidth: isSelected ? 2 : isDragging ? 2 : 1,
+    borderColor: isSelected ? groupColor || '#DC2626' : isDragging ? '#F97316' : '#27272a',
     borderRadius: 16,
     overflow: 'hidden',
     position: 'relative' as const,
@@ -620,10 +633,26 @@ const WebDraggableExerciseCard: React.FC<DraggableExerciseCardProps> = ({
       <View ref={targetRef as any} onLayout={onLayout} style={cardStyle as any}>
         <HankInlineHighlight isActive={isHighlighted} phase={animationPhase} borderRadius={16} />
         <View className="flex-row items-center p-3">
+          {/* SELECTION CHECKBOX */}
+          {selectionMode && (
+            <View
+              className="mr-2 w-6 h-6 rounded-lg items-center justify-center"
+              style={{
+                backgroundColor: isSelected ? groupColor || '#DC2626' : 'transparent',
+                borderWidth: 2,
+                borderColor: isSelected ? groupColor || '#DC2626' : '#3f3f46',
+              }}
+            >
+              {isSelected && <Text className="text-white text-xs font-bold">✓</Text>}
+            </View>
+          )}
+
           {/* DRAG HANDLE */}
-          <View className="mr-2 opacity-30">
-            <GripVertical size={16} color="#71717a" />
-          </View>
+          {!selectionMode && (
+            <View className="mr-2 opacity-30">
+              <GripVertical size={16} color="#71717a" />
+            </View>
+          )}
 
           {/* EXERCISE IMAGE */}
           <Image
@@ -691,6 +720,10 @@ const NativeDraggableExerciseCard: React.FC<DraggableExerciseCardProps> = ({
   onDragCancel,
   onPositionChange,
   itemHeight = 88,
+  selectionMode = false,
+  isSelected = false,
+  onSelect,
+  groupColor,
 }) => {
   // Drag states
   const translateY = useSharedValue(0);
@@ -832,13 +865,17 @@ const NativeDraggableExerciseCard: React.FC<DraggableExerciseCardProps> = ({
       }
     });
 
-  // Tap gesture for edit
+  // Tap gesture for edit or select
   const tapGesture = Gesture.Tap()
     .maxDuration(250)
     .onEnd(() => {
       if (!isSwipingShared.value && Math.abs(translateX.value) < 10) {
         runOnJS(triggerLightHaptic)();
-        runOnJS(onEdit)();
+        if (selectionMode && onSelect) {
+          runOnJS(onSelect)();
+        } else {
+          runOnJS(onEdit)();
+        }
       }
     });
 
@@ -899,9 +936,13 @@ const NativeDraggableExerciseCard: React.FC<DraggableExerciseCardProps> = ({
           <View
             className="rounded-2xl overflow-hidden"
             style={{
-              backgroundColor: isDragging ? '#1a1a1a' : '#0a0a0a',
-              borderWidth: isDragging ? 2 : 1,
-              borderColor: isDragging ? '#F97316' : '#27272a',
+              backgroundColor: isSelected ? '#1a0a0a' : isDragging ? '#1a1a1a' : '#0a0a0a',
+              borderWidth: isSelected ? 2 : isDragging ? 2 : 1,
+              borderColor: isSelected
+                ? groupColor || '#DC2626'
+                : isDragging
+                  ? '#F97316'
+                  : '#27272a',
               shadowColor: isDragging ? '#F97316' : 'transparent',
               shadowOffset: { width: 0, height: isDragging ? 12 : 0 },
               shadowOpacity: isDragging ? 0.6 : 0,
@@ -910,10 +951,26 @@ const NativeDraggableExerciseCard: React.FC<DraggableExerciseCardProps> = ({
             }}
           >
             <View className="flex-row items-center p-3">
+              {/* SELECTION CHECKBOX */}
+              {selectionMode && (
+                <View
+                  className="mr-2 w-6 h-6 rounded-lg items-center justify-center"
+                  style={{
+                    backgroundColor: isSelected ? groupColor || '#DC2626' : 'transparent',
+                    borderWidth: 2,
+                    borderColor: isSelected ? groupColor || '#DC2626' : '#3f3f46',
+                  }}
+                >
+                  {isSelected && <Text className="text-white text-xs font-bold">✓</Text>}
+                </View>
+              )}
+
               {/* DRAG HANDLE */}
-              <View className="mr-2 opacity-30">
-                <GripVertical size={16} color="#71717a" />
-              </View>
+              {!selectionMode && (
+                <View className="mr-2 opacity-30">
+                  <GripVertical size={16} color="#71717a" />
+                </View>
+              )}
 
               {/* EXERCISE IMAGE */}
               <Image

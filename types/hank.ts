@@ -137,7 +137,9 @@ export type HankToolName =
   | 'ANALYZE_PROGRESS_PHOTO'
   | 'COMPARE_PROGRESS_PHOTOS'
   | 'ANALYZE_FOOD_PHOTO'
-  | 'GENERATE_PROGRESS_TIMELINE';
+  | 'GENERATE_PROGRESS_TIMELINE'
+  | 'GYM_CREATE_EXERCISE_GROUP'
+  | 'GYM_REMOVE_EXERCISE_GROUP';
 
 // ============================================================================
 // TOOL PARAMETER DEFINITIONS (Para Function Calling del LLM)

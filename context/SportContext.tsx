@@ -207,6 +207,33 @@ export function SportProvider({ children }: { children: ReactNode }) {
       if (userSportsError) throw userSportsError;
       setUserSports(userSportsData || []);
 
+      // Si el usuario no tiene deportes, asignar GYM por defecto
+      if (!userSportsData || userSportsData.length === 0) {
+        const gym = allSports.find((s) => s.code === 'GYM');
+        if (gym) {
+          const { data: newSport, error: insertError } = await supabase
+            .from('user_sports')
+            .insert({
+              user_id: user.id,
+              sport_id: gym.id,
+              is_active: true,
+              is_primary: true,
+            })
+            .select()
+            .single();
+
+          if (!insertError && newSport) {
+            setUserSports([newSport]);
+          }
+
+          // Actualizar active_sport_id en perfil
+          await supabase
+            .from('user_profiles')
+            .update({ active_sport_id: gym.id })
+            .eq('user_id', user.id);
+        }
+      }
+
       // Cargar perfil para obtener deporte activo
       const { data: profile, error: profileError } = await supabase
         .from('user_profiles')

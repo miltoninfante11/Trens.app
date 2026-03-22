@@ -1199,6 +1199,193 @@ export async function gymUpdateSeriesDetail(
 }
 
 // ============================================================================
+// GYM TOOL: Crear Grupo de Ejercicios (Super Serie, Tri-Serie, Circuito)
+// ============================================================================
+export async function gymCreateExerciseGroup(
+  userId: string,
+  exerciseNames: string[],
+  groupType: 'SUPERSET' | 'TRISET' | 'CIRCUIT' | 'GIANT_SET',
+  trainingDay: number,
+  restBetween?: number,
+  restAfter?: number
+): Promise<HankToolResult> {
+  try {
+    // Buscar los exercise_config IDs para cada nombre
+    const { data: configs, error: configError } = await supabase
+      .from('user_exercise_config')
+      .select('id, exercise_id, exercises!inner(name)')
+      .eq('user_id', userId)
+      .contains('training_days', [trainingDay]);
+
+    if (configError || !configs || configs.length === 0) {
+      return { success: false, message: 'No se encontraron ejercicios en este día.' };
+    }
+
+    // Mapear nombres a config IDs
+    const matchedIds: string[] = [];
+    const matchedNames: string[] = [];
+    for (const name of exerciseNames) {
+      const match = configs.find((c: Record<string, unknown>) =>
+        (((c.exercises as Record<string, unknown>)?.name as string) || '')
+          .toLowerCase()
+          .includes(name.toLowerCase())
+      );
+      if (match) {
+        matchedIds.push(match.id);
+        matchedNames.push(((match as unknown as Record<string, unknown>)?.name as string) || name);
+      }
+    }
+
+    if (matchedIds.length < 2) {
+      return {
+        success: false,
+        message: `Solo se encontraron ${matchedIds.length} ejercicios. Se necesitan al menos 2 para crear un grupo.`,
+      };
+    }
+
+    // Calcular descansos por defecto según tipo
+    const defaults: Record<string, { rb: number; ra: number }> = {
+      SUPERSET: { rb: 0, ra: 120 },
+      TRISET: { rb: 0, ra: 120 },
+      CIRCUIT: { rb: 15, ra: 90 },
+      GIANT_SET: { rb: 0, ra: 150 },
+    };
+    const d = defaults[groupType] || defaults.SUPERSET;
+
+    const newGroup = {
+      id: `grp-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`,
+      type: groupType,
+      exercise_ids: matchedIds,
+      rest_between: restBetween ?? d.rb,
+      rest_after: restAfter ?? d.ra,
+    };
+
+    // Leer grupos existentes
+    const { data: profile } = await supabase
+      .from('user_profiles')
+      .select('exercise_groups')
+      .eq('user_id', userId)
+      .single();
+
+    const allGroups = (profile?.exercise_groups as Record<string, unknown[]>) || {};
+    const dayGroups = (allGroups[String(trainingDay)] || []) as Record<string, unknown>[];
+
+    // Verificar que ningún ejercicio ya esté en otro grupo
+    for (const dg of dayGroups) {
+      const existingIds = (dg.exercise_ids as string[]) || [];
+      const overlap = matchedIds.filter((id) => existingIds.includes(id));
+      if (overlap.length > 0) {
+        return {
+          success: false,
+          message: 'Algunos ejercicios ya están en otro grupo. Elimina el grupo existente primero.',
+        };
+      }
+    }
+
+    dayGroups.push(newGroup);
+    allGroups[String(trainingDay)] = dayGroups;
+
+    const { error: updateError } = await supabase
+      .from('user_profiles')
+      .update({ exercise_groups: allGroups })
+      .eq('user_id', userId);
+
+    if (updateError) throw updateError;
+
+    const typeLabels: Record<string, string> = {
+      SUPERSET: 'SUPER SERIE',
+      TRISET: 'TRI-SERIE',
+      CIRCUIT: 'CIRCUITO',
+      GIANT_SET: 'GIANT SET',
+    };
+
+    return {
+      success: true,
+      message: `✅ ${typeLabels[groupType]} creada: ${matchedNames.join(' + ')}`,
+      data: { groupId: newGroup.id, type: groupType, exercises: matchedNames },
+      affectedRecords: 1,
+    };
+  } catch (error) {
+    console.error('gymCreateExerciseGroup error:', error);
+    return { success: false, message: 'Error al crear el grupo de ejercicios.' };
+  }
+}
+
+// ============================================================================
+// GYM TOOL: Eliminar Grupo de Ejercicios
+// ============================================================================
+export async function gymRemoveExerciseGroup(
+  userId: string,
+  exerciseNames: string[],
+  trainingDay: number
+): Promise<HankToolResult> {
+  try {
+    // Leer grupos existentes
+    const { data: profile } = await supabase
+      .from('user_profiles')
+      .select('exercise_groups')
+      .eq('user_id', userId)
+      .single();
+
+    const allGroups = (profile?.exercise_groups as Record<string, unknown[]>) || {};
+    const dayGroups = (allGroups[String(trainingDay)] || []) as Array<{
+      id: string;
+      type: string;
+      exercise_ids: string[];
+    }>;
+
+    if (dayGroups.length === 0) {
+      return { success: false, message: 'No hay grupos de ejercicios en este día.' };
+    }
+
+    // Buscar configs que coincidan con los nombres dados
+    const { data: configs } = await supabase
+      .from('user_exercise_config')
+      .select('id, exercises!inner(name)')
+      .eq('user_id', userId)
+      .contains('training_days', [trainingDay]);
+
+    const matchedIds = (exerciseNames || [])
+      .map((name) => {
+        const match = (configs || []).find((c: Record<string, unknown>) =>
+          (((c.exercises as Record<string, unknown>)?.name as string) || '')
+            .toLowerCase()
+            .includes(name.toLowerCase())
+        );
+        return match?.id;
+      })
+      .filter(Boolean) as string[];
+
+    // Encontrar el grupo que contiene estos ejercicios
+    const groupToRemove = dayGroups.find((g) =>
+      matchedIds.some((id) => g.exercise_ids.includes(id))
+    );
+
+    if (!groupToRemove) {
+      return { success: false, message: 'No se encontró un grupo con esos ejercicios.' };
+    }
+
+    allGroups[String(trainingDay)] = dayGroups.filter((g) => g.id !== groupToRemove.id);
+
+    const { error: updateError } = await supabase
+      .from('user_profiles')
+      .update({ exercise_groups: allGroups })
+      .eq('user_id', userId);
+
+    if (updateError) throw updateError;
+
+    return {
+      success: true,
+      message: `✅ Grupo ${groupToRemove.type} eliminado. Los ejercicios ahora son independientes.`,
+      affectedRecords: 1,
+    };
+  } catch (error) {
+    console.error('gymRemoveExerciseGroup error:', error);
+    return { success: false, message: 'Error al eliminar el grupo.' };
+  }
+}
+
+// ============================================================================
 // ASSET TOOL: Leer Schema de Templates (LIQUID DATA)
 // ============================================================================
 export async function assetGetSchema(assetType: string): Promise<HankToolResult> {
@@ -8965,6 +9152,60 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       },
     },
     requiredParams: ['exerciseName', 'seriesIndex', 'trainingDay'],
+  },
+  {
+    name: 'GYM_CREATE_EXERCISE_GROUP',
+    description:
+      'Crea una super serie, tri-serie, circuito o giant set agrupando ejercicios. Usa cuando diga "haz super serie de X con Y", "crea circuito", "agrupa estos ejercicios", "combina X con Y".',
+    parameters: {
+      exerciseNames: {
+        type: 'array',
+        description:
+          'Lista de nombres de ejercicios a agrupar (ej: ["Press Banca", "Aperturas"]). Mínimo 2.',
+        required: true,
+      },
+      groupType: {
+        type: 'string',
+        description: 'Tipo de grupo a crear',
+        enum: ['SUPERSET', 'TRISET', 'CIRCUIT', 'GIANT_SET'],
+        required: true,
+      },
+      trainingDay: {
+        type: 'number',
+        description: 'Día de entrenamiento (0-based)',
+        required: true,
+      },
+      restBetween: {
+        type: 'number',
+        description: 'Segundos de descanso entre ejercicios del grupo (default según tipo)',
+        required: false,
+      },
+      restAfter: {
+        type: 'number',
+        description: 'Segundos de descanso al terminar la ronda (default según tipo)',
+        required: false,
+      },
+    },
+    requiredParams: ['exerciseNames', 'groupType', 'trainingDay'],
+  },
+  {
+    name: 'GYM_REMOVE_EXERCISE_GROUP',
+    description:
+      'Elimina un grupo (super serie, circuito, etc.), dejando los ejercicios como individuales. Usa cuando diga "quita la super serie", "desagrupa", "separa los ejercicios".',
+    parameters: {
+      exerciseNames: {
+        type: 'array',
+        description:
+          'Nombres de ejercicios que están en el grupo a eliminar (basta con 1 para identificar el grupo)',
+        required: true,
+      },
+      trainingDay: {
+        type: 'number',
+        description: 'Día de entrenamiento (0-based)',
+        required: true,
+      },
+    },
+    requiredParams: ['exerciseNames', 'trainingDay'],
   },
   {
     name: 'ASSET_UPDATE_FIELD',
