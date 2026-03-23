@@ -265,16 +265,18 @@ export const StackCard: React.FC<StackCardProps> = ({
                 {stack.items.slice(0, 4).map((item) => (
                   <View
                     key={item.id}
-                    className="flex-row items-center gap-1.5 px-2 py-1 rounded-lg"
+                    className="flex-row items-center gap-1.5 px-2 py-1 rounded-lg shrink-0"
                     style={{ backgroundColor: 'rgba(168, 85, 247, 0.12)' }}
                   >
                     {getTypeIcon(item.type, 12)}
-                    <Text className="text-zinc-300 text-[11px]">{item.name}</Text>
+                    <Text className="text-zinc-300 text-[11px]" numberOfLines={1}>
+                      {item.name}
+                    </Text>
                   </View>
                 ))}
                 {stack.items.length > 4 && (
                   <View
-                    className="px-2 py-1 rounded-lg"
+                    className="px-2 py-1 rounded-lg shrink-0"
                     style={{ backgroundColor: 'rgba(168, 85, 247, 0.12)' }}
                   >
                     <Text className="text-purple-300 text-[11px]">+{stack.items.length - 4}</Text>

@@ -301,8 +301,10 @@ export const TodayCards: React.FC<TodayCardsProps> = ({ userId }) => {
         );
 
         if (todayTraining) {
+          // Limpiar prefijo "Día X:" si ya viene incluido en el valor
+          const cleanTraining = todayTraining.replace(/^Día\s*\d+\s*:\s*/i, '');
           setWorkout({
-            routineName: `${dayName}: ${todayTraining}`,
+            routineName: cleanTraining,
             exercises: externalExercises,
             isRestDay: false,
             isExternalMode: true,
@@ -327,7 +329,9 @@ export const TodayCards: React.FC<TodayCardsProps> = ({ userId }) => {
 
         const currentTrainingDay = profileData?.training_current_day ?? 0;
         const routineNames = profileData?.training_routine_names || {};
-        const routineName = routineNames[String(currentTrainingDay)] || 'ENTRENAMIENTO';
+        // Limpiar prefijo "Día X:" si ya viene incluido
+        const rawRoutineName = routineNames[String(currentTrainingDay)] || 'ENTRENAMIENTO';
+        const routineName = rawRoutineName.replace(/^Día\s*\d+\s*:\s*/i, '');
         const frequency = profileData?.training_frequency ?? 0;
         const planSource = profileData?.plan_source;
 

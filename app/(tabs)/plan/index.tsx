@@ -819,9 +819,11 @@ function PlanScreen() {
         console.warn('   Schedule:', scheduleEntries.map(([d, m]) => `${d}:${m}`).join(', '));
 
         if (todayMuscle) {
-          setTodayRoutine(`${dayName}: ${todayMuscle}`);
+          // Limpiar prefijo "Día X:" si ya viene incluido en el valor
+          const cleanMuscle = todayMuscle.replace(/^Día\s*\d+\s*:\s*/i, '');
+          setTodayRoutine(cleanMuscle);
           setTodayExercises([]); // Modo personalizado - ejercicios pendientes de agregar
-          console.warn(`🏋️ PLAN [PERSONALIZADO]: Mostrando ${dayName}: ${todayMuscle}`);
+          console.warn(`🏋️ PLAN [PERSONALIZADO]: Mostrando ${cleanMuscle}`);
         } else {
           setTodayRoutine('DESCANSO');
           setTodayExercises([]);
@@ -917,8 +919,13 @@ function PlanScreen() {
           // Usar nombre de rutina guardado de la base de datos
           const savedRoutineName = routineNames[String(currentTrainingDay)];
 
+          // Limpiar prefijo "Día X:" si ya viene incluido
+          const cleanRoutineName = savedRoutineName
+            ? savedRoutineName.replace(/^Día\s*\d+\s*:\s*/i, '')
+            : null;
+
           // Si no hay nombre guardado, usar 'ENTRENAMIENTO' simple
-          const finalRoutineName = savedRoutineName || 'ENTRENAMIENTO';
+          const finalRoutineName = cleanRoutineName || 'ENTRENAMIENTO';
 
           setTodayRoutine(finalRoutineName);
 
@@ -2111,15 +2118,21 @@ function PlanScreen() {
     const stacksByTime: Record<string, StackItem[]> = {};
 
     stackItems.forEach((item) => {
-      // Skip pre/post workout items (handled separately)
-      if (item.isPreWorkout || item.isPostWorkout) return;
-
       // Check if item is for today
       if (item.daysOfWeek && !item.daysOfWeek.includes(today)) return;
+
+      // Pre/post workout items: only show in timeline if they have additional times
+      // Their pre/post role is handled separately in the workout block
+      const isPurePrePost = item.isPreWorkout || item.isPostWorkout;
 
       // Get all times for this item (support both times array and single time)
       const itemTimes =
         item.times && item.times.length > 0 ? item.times : item.time ? [item.time] : [];
+
+      // Skip if pre/post with no additional times (only handled in workout block)
+      if (isPurePrePost && itemTimes.length === 0) return;
+      // Skip non-pre/post items with no times
+      if (!isPurePrePost && itemTimes.length === 0) return;
 
       // Create an entry for each time
       itemTimes.forEach((time) => {

@@ -336,6 +336,9 @@ const EditItemView: React.FC<EditItemViewProps> = ({ item, onSave, onCancel, onD
   const [times, setTimes] = useState<string[]>(item.times || (item.time ? [item.time] : ['08:00']));
   const [isPreWorkout, setIsPreWorkout] = useState(item.isPreWorkout || false);
   const [isPostWorkout, setIsPostWorkout] = useState(item.isPostWorkout || false);
+  const [showAdditionalTimes, setShowAdditionalTimes] = useState(
+    (item.isPreWorkout || item.isPostWorkout) && item.times && item.times.length > 0
+  );
   const [selectedDays, setSelectedDays] = useState<number[]>(
     item.daysOfWeek || [0, 1, 2, 3, 4, 5, 6]
   );
@@ -374,13 +377,17 @@ const EditItemView: React.FC<EditItemViewProps> = ({ item, onSave, onCancel, onD
 
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
+    // For pre/post workout: only include times if user toggled additional times on
+    const finalTimes = (isPreWorkout || isPostWorkout) && !showAdditionalTimes ? undefined : times;
+    const finalTime = finalTimes ? finalTimes[0] : undefined;
+
     onSave({
       name: name.trim(),
       dose: dose.trim(),
       type,
       notes: notes.trim() || undefined,
-      times: !isPreWorkout && !isPostWorkout ? times : undefined,
-      time: !isPreWorkout && !isPostWorkout ? times[0] : undefined,
+      times: finalTimes,
+      time: finalTime,
       isPreWorkout,
       isPostWorkout,
       daysOfWeek: selectedDays,
@@ -508,7 +515,55 @@ const EditItemView: React.FC<EditItemViewProps> = ({ item, onSave, onCancel, onD
       </View>
 
       {/* Times - Multiple Time Pickers */}
-      {!isPreWorkout && !isPostWorkout && (
+      {isPreWorkout || isPostWorkout ? (
+        <>
+          {!showAdditionalTimes ? (
+            <Pressable
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                setShowAdditionalTimes(true);
+                setTimes(['08:00']);
+              }}
+              className="flex-row items-center justify-center gap-2 py-3 border border-dashed border-purple-500/30 rounded-xl mb-4 active:bg-purple-500/10"
+            >
+              <Plus size={16} color="#A855F7" />
+              <Text className="text-purple-400 font-bold text-sm">AGREGAR HORARIO ADICIONAL</Text>
+            </Pressable>
+          ) : (
+            <>
+              <Text className="text-zinc-500 text-xs mb-2 font-bold uppercase">
+                Horarios adicionales ({times.length})
+              </Text>
+              <View className="gap-3 mb-2">
+                {times.map((t, index) => (
+                  <InlineTimePicker
+                    key={index}
+                    time={t}
+                    onTimeChange={(newTime) => updateTime(index, newTime)}
+                    label={times.length > 1 ? `Toma ${index + 1}` : undefined}
+                    showRemove={true}
+                    onRemove={() => {
+                      if (times.length <= 1) {
+                        setShowAdditionalTimes(false);
+                        setTimes(['08:00']);
+                      } else {
+                        removeTime(index);
+                      }
+                    }}
+                  />
+                ))}
+              </View>
+              <Pressable
+                onPress={addTime}
+                className="flex-row items-center justify-center gap-2 py-3 border border-dashed border-purple-500/50 rounded-xl mb-4 active:bg-purple-500/10"
+              >
+                <Plus size={16} color="#A855F7" />
+                <Text className="text-purple-400 font-bold text-sm">AGREGAR HORARIO</Text>
+              </Pressable>
+            </>
+          )}
+        </>
+      ) : (
         <>
           <Text className="text-zinc-500 text-xs mb-2 font-bold uppercase">
             Horarios de toma ({times.length})
@@ -612,6 +667,7 @@ export const StackManagerModal: React.FC<StackManagerModalProps> = ({
   const [times, setTimes] = useState<string[]>(['08:00']);
   const [isPreWorkout, setIsPreWorkout] = useState(false);
   const [isPostWorkout, setIsPostWorkout] = useState(false);
+  const [showAdditionalTimes, setShowAdditionalTimes] = useState(false);
   const [selectedDays, setSelectedDays] = useState<number[]>([0, 1, 2, 3, 4, 5, 6]);
 
   // Reset form and view when modal closes
@@ -637,6 +693,7 @@ export const StackManagerModal: React.FC<StackManagerModalProps> = ({
     setTimes(['08:00']);
     setIsPreWorkout(false);
     setIsPostWorkout(false);
+    setShowAdditionalTimes(false);
     setSelectedDays([0, 1, 2, 3, 4, 5, 6]);
   };
 
@@ -674,13 +731,17 @@ export const StackManagerModal: React.FC<StackManagerModalProps> = ({
 
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
+    // For pre/post workout: only include times if user toggled additional times on
+    const finalTimes = (isPreWorkout || isPostWorkout) && !showAdditionalTimes ? undefined : times;
+    const finalTime = finalTimes ? finalTimes[0] : undefined;
+
     onAddItem({
       name: name.trim(),
       dose: dose.trim(),
       type,
       notes: notes.trim() || undefined,
-      times: !isPreWorkout && !isPostWorkout ? times : undefined,
-      time: !isPreWorkout && !isPostWorkout ? times[0] : undefined,
+      times: finalTimes,
+      time: finalTime,
       isPreWorkout,
       isPostWorkout,
       daysOfWeek: selectedDays,
@@ -844,22 +905,17 @@ export const StackManagerModal: React.FC<StackManagerModalProps> = ({
                                 )}
                               </View>
                               {/* Multiple times display */}
-                              {itemTimes.length > 0 &&
-                                !item.isPreWorkout &&
-                                !item.isPostWorkout && (
-                                  <View className="flex-row flex-wrap gap-1 mt-2">
-                                    {itemTimes.map((t, idx) => (
-                                      <View
-                                        key={idx}
-                                        className="bg-purple-500/10 px-2 py-1 rounded"
-                                      >
-                                        <Text className="text-purple-400 text-xs font-mono">
-                                          {formatTimeToAMPM(t)}
-                                        </Text>
-                                      </View>
-                                    ))}
-                                  </View>
-                                )}
+                              {itemTimes.length > 0 && (
+                                <View className="flex-row flex-wrap gap-1 mt-2">
+                                  {itemTimes.map((t, idx) => (
+                                    <View key={idx} className="bg-purple-500/10 px-2 py-1 rounded">
+                                      <Text className="text-purple-400 text-xs font-mono">
+                                        {formatTimeToAMPM(t)}
+                                      </Text>
+                                    </View>
+                                  ))}
+                                </View>
+                              )}
                             </View>
                           </View>
                           <View className="flex-row items-center gap-2">
@@ -1031,7 +1087,57 @@ export const StackManagerModal: React.FC<StackManagerModalProps> = ({
                 </View>
 
                 {/* Times - Multiple Time Pickers */}
-                {!isPreWorkout && !isPostWorkout && (
+                {isPreWorkout || isPostWorkout ? (
+                  <>
+                    {!showAdditionalTimes ? (
+                      <Pressable
+                        onPress={() => {
+                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                          setShowAdditionalTimes(true);
+                          setTimes(['08:00']);
+                        }}
+                        className="flex-row items-center justify-center gap-2 py-3 border border-dashed border-purple-500/30 rounded-xl mb-4 active:bg-purple-500/10"
+                      >
+                        <Plus size={16} color="#A855F7" />
+                        <Text className="text-purple-400 font-bold text-sm">
+                          AGREGAR HORARIO ADICIONAL
+                        </Text>
+                      </Pressable>
+                    ) : (
+                      <>
+                        <Text className="text-zinc-500 text-xs mb-2 font-bold uppercase">
+                          Horarios adicionales ({times.length})
+                        </Text>
+                        <View className="gap-3 mb-2">
+                          {times.map((t, index) => (
+                            <InlineTimePicker
+                              key={index}
+                              time={t}
+                              onTimeChange={(newTime) => updateTime(index, newTime)}
+                              label={times.length > 1 ? `Toma ${index + 1}` : undefined}
+                              showRemove={true}
+                              onRemove={() => {
+                                if (times.length <= 1) {
+                                  setShowAdditionalTimes(false);
+                                  setTimes(['08:00']);
+                                } else {
+                                  removeTime(index);
+                                }
+                              }}
+                            />
+                          ))}
+                        </View>
+                        <Pressable
+                          onPress={addTime}
+                          className="flex-row items-center justify-center gap-2 py-3 border border-dashed border-purple-500/50 rounded-xl mb-4 active:bg-purple-500/10"
+                        >
+                          <Plus size={16} color="#A855F7" />
+                          <Text className="text-purple-400 font-bold text-sm">AGREGAR HORARIO</Text>
+                        </Pressable>
+                      </>
+                    )}
+                  </>
+                ) : (
                   <>
                     <Text className="text-zinc-500 text-xs mb-2 font-bold uppercase">
                       Horarios de toma ({times.length})

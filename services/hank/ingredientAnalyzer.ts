@@ -459,7 +459,7 @@ const ALL_KNOWN_KEYWORDS = [
 // GEMINI API CONFIG (para análisis con IA)
 // ============================================================================
 const GEMINI_API_URL =
-  'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
+  'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
 
 // ============================================================================
 // HELPER: Detectar ingredientes no reconocidos

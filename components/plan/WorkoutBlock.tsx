@@ -4,7 +4,7 @@
 // El drag se activa SOLO desde el header "BLOQUE ENTRENO"
 // ============================================================================
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, Pressable, ScrollView, Image, Platform } from 'react-native';
 import { GestureDetector, GestureType } from 'react-native-gesture-handler';
 import Animated, {
@@ -81,6 +81,10 @@ interface WorkoutBlockProps {
   };
   // Gesture para el header (Native)
   nativeGesture?: GestureType;
+  // Callback para informar al padre del estado expandido/colapsado
+  onBlockExpandedChange?: (expanded: boolean) => void;
+  // Ref que el padre usa para triggear expand desde fuera (tap-to-expand en web)
+  expandToggleRef?: React.MutableRefObject<(() => void) | null>;
 }
 
 // ============================================================================
@@ -164,15 +168,46 @@ export const WorkoutBlock: React.FC<WorkoutBlockProps> = ({
   isCompressed = false,
   dragHandleProps,
   nativeGesture,
+  onBlockExpandedChange,
+  expandToggleRef,
 }) => {
   // ============================================================================
   // HOOKS - Siempre deben llamarse primero
   // ============================================================================
+  const [blockExpanded, setBlockExpanded] = useState(false);
   const [preExpanded, setPreExpanded] = useState(false);
   const [postExpanded, setPostExpanded] = useState(false);
 
   const preProgress = useSharedValue(0);
   const postProgress = useSharedValue(0);
+
+  // Notificar al padre del estado inicial y cambios
+  const toggleBlockExpanded = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setBlockExpanded((prev) => {
+      const newVal = !prev;
+      onBlockExpandedChange?.(newVal);
+      return newVal;
+    });
+  }, [onBlockExpandedChange]);
+
+  // Exponer toggleBlockExpanded al padre via ref
+  useEffect(() => {
+    if (expandToggleRef) {
+      expandToggleRef.current = toggleBlockExpanded;
+    }
+    return () => {
+      if (expandToggleRef) {
+        expandToggleRef.current = null;
+      }
+    };
+  }, [expandToggleRef, toggleBlockExpanded]);
+
+  // Notificar estado inicial al padre
+  useEffect(() => {
+    onBlockExpandedChange?.(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Hank Target - Registrar este bloque como target para animaciones
   const { targetRef, onLayout, isHighlighted, animationPhase } = useHankTarget({
@@ -348,6 +383,203 @@ export const WorkoutBlock: React.FC<WorkoutBlockProps> = ({
 
   // ============================================================================
   // RENDER FULL - PREMIUM SAVAGE EDITION
+  // ============================================================================
+
+  // ============================================================================
+  // VISTA COLAPSADA POR DEFECTO - Resumen compacto tocable + arrastrable
+  // ============================================================================
+  if (!blockExpanded) {
+    // Contenido interno de la tarjeta colapsada (compartido entre web y native)
+    const collapsedCardContent = (
+      <View
+        className="rounded-2xl overflow-hidden"
+        style={{
+          backgroundColor: 'rgba(24, 24, 27, 0.95)',
+          borderWidth: 1,
+          borderColor: 'rgba(220, 38, 38, 0.3)',
+          shadowColor: '#DC2626',
+          shadowOffset: { width: 0, height: 4 },
+          shadowOpacity: 0.2,
+          shadowRadius: 24,
+        }}
+      >
+        <View className="p-4">
+          {/* PRE-WORKOUT Summary */}
+          {data.preStack.length > 0 && (
+            <View className="flex-row items-center gap-2 mb-3">
+              <View
+                className="w-7 h-7 rounded-lg items-center justify-center"
+                style={{ backgroundColor: 'rgba(220, 38, 38, 0.15)' }}
+              >
+                <Zap size={14} color="#DC2626" />
+              </View>
+              <Text className="text-savage-red text-[10px] font-bold tracking-wider uppercase">
+                PRE
+              </Text>
+              <View className="flex-1 flex-row flex-wrap gap-1.5">
+                {data.preStack.map((item) => (
+                  <View
+                    key={item.id}
+                    className="flex-row items-center gap-1 px-2 py-0.5 rounded-md shrink-0"
+                    style={{ backgroundColor: 'rgba(220, 38, 38, 0.1)' }}
+                  >
+                    {getTypeIcon(item.type, '#DC2626')}
+                    <Text className="text-zinc-400 text-[10px]" numberOfLines={1}>
+                      {item.name}
+                    </Text>
+                    <Text className="text-zinc-600 text-[9px] font-mono">{item.dose}</Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+          )}
+
+          {/* ROUTINE NAME - Centro */}
+          <View
+            className="flex-row items-center justify-between py-3"
+            style={{
+              borderTopWidth: data.preStack.length > 0 ? 1 : 0,
+              borderBottomWidth: data.postStack.length > 0 ? 1 : 0,
+              borderColor: 'rgba(220, 38, 38, 0.12)',
+            }}
+          >
+            <View className="flex-row items-center gap-3">
+              <View
+                className="w-9 h-9 rounded-xl items-center justify-center"
+                style={{ backgroundColor: 'rgba(220, 38, 38, 0.15)' }}
+              >
+                <Dumbbell size={18} color="#DC2626" />
+              </View>
+              <View>
+                <Text
+                  className="text-white font-black text-lg uppercase tracking-tight"
+                  style={{
+                    textShadowColor: 'rgba(220, 38, 38, 0.3)',
+                    textShadowOffset: { width: 0, height: 0 },
+                    textShadowRadius: 8,
+                  }}
+                >
+                  {data.routineName || 'DÍA DE DESCANSO'}
+                </Text>
+                {data.estimatedTime && (
+                  <View className="flex-row items-center gap-2 mt-0.5">
+                    <Text className="text-zinc-600 text-[10px] font-mono">
+                      ⏰ ~{data.estimatedTime}
+                    </Text>
+                    {data.isFasted && (
+                      <Text className="text-yellow-500 text-[9px] font-bold">EN AYUNAS</Text>
+                    )}
+                  </View>
+                )}
+              </View>
+            </View>
+            <View className="flex-row items-center gap-2">
+              {hasExercises && !data.isExternalMode && (
+                <View
+                  className="px-2.5 py-1 rounded-lg"
+                  style={{ backgroundColor: 'rgba(220, 38, 38, 0.1)' }}
+                >
+                  <Text className="text-savage-red text-[10px] font-mono font-bold">
+                    {data.exercises!.length} EJ
+                  </Text>
+                </View>
+              )}
+              {data.isExternalMode && data.routineName !== 'DESCANSO' && (
+                <View
+                  className="px-2.5 py-1 rounded-lg"
+                  style={{ backgroundColor: 'rgba(168, 85, 247, 0.1)' }}
+                >
+                  <Text className="text-purple-400 text-[9px] font-mono font-bold">CUSTOM</Text>
+                </View>
+              )}
+            </View>
+          </View>
+
+          {/* POST-WORKOUT Summary */}
+          {data.postStack.length > 0 && (
+            <View className="flex-row items-center gap-2 mt-3">
+              <View
+                className="w-7 h-7 rounded-lg items-center justify-center"
+                style={{ backgroundColor: 'rgba(34, 197, 94, 0.15)' }}
+              >
+                <Flame size={14} color="#22C55E" />
+              </View>
+              <Text className="text-green-500 text-[10px] font-bold tracking-wider uppercase">
+                POST
+              </Text>
+              <View className="flex-1 flex-row flex-wrap gap-1.5">
+                {data.postStack.map((item) => (
+                  <View
+                    key={item.id}
+                    className="flex-row items-center gap-1 px-2 py-0.5 rounded-md shrink-0"
+                    style={{ backgroundColor: 'rgba(34, 197, 94, 0.08)' }}
+                  >
+                    {getTypeIcon(item.type, '#22C55E')}
+                    <Text className="text-zinc-400 text-[10px]" numberOfLines={1}>
+                      {item.name}
+                    </Text>
+                    <Text className="text-zinc-600 text-[9px] font-mono">{item.dose}</Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+          )}
+
+          {/* Drag hint + expand hint */}
+          <View className="flex-row items-center justify-center gap-2 mt-3 -mb-1">
+            <GripHorizontal size={12} color="#52525B" />
+            <Text className="text-zinc-600 text-[9px] font-bold tracking-widest uppercase">
+              MANTÉN PARA MOVER
+            </Text>
+            <View className="w-px h-3 bg-zinc-700" />
+            <ChevronDown size={14} color="#52525B" />
+          </View>
+        </View>
+      </View>
+    );
+
+    return (
+      <View ref={targetRef} onLayout={onLayout} className="mb-6 ml-6">
+        <HankInlineHighlight isActive={isHighlighted} phase={animationPhase} borderRadius={16} />
+
+        {/* Timeline dot */}
+        <View
+          className="absolute -left-[14px] top-6 w-4 h-4 rounded-full border-2 border-zinc-900 z-10"
+          style={{
+            backgroundColor: '#DC2626',
+            shadowColor: '#DC2626',
+            shadowOffset: { width: 0, height: 0 },
+            shadowOpacity: 1,
+            shadowRadius: 10,
+          }}
+        />
+
+        {Platform.OS === 'web' && dragHandleProps ? (
+          // WEB: div con pointer events para drag + tap-to-expand via DraggableWorkoutBlock
+          <div
+            onPointerDown={dragHandleProps.onPointerDown}
+            onPointerEnter={dragHandleProps.onPointerEnter}
+            onPointerLeave={dragHandleProps.onPointerLeave}
+            style={{
+              ...dragHandleProps.style,
+              cursor: dragHandleProps.isDragging ? 'grabbing' : 'grab',
+              touchAction: 'none',
+            }}
+          >
+            {collapsedCardContent}
+          </div>
+        ) : (
+          // NATIVE: Pressable para tap-to-expand (el GestureDetector del padre maneja long-press)
+          <Pressable onPress={toggleBlockExpanded} className="active:scale-[0.99]">
+            {collapsedCardContent}
+          </Pressable>
+        )}
+      </View>
+    );
+  }
+
+  // ============================================================================
+  // VISTA EXPANDIDA - Contenido completo (actual)
   // ============================================================================
   return (
     <View ref={targetRef} onLayout={onLayout} className="mb-6 ml-6">
@@ -764,6 +996,22 @@ export const WorkoutBlock: React.FC<WorkoutBlockProps> = ({
               )}
             </View>
           </Animated.View>
+
+          {/* ============================================ */}
+          {/* COLLAPSE BUTTON */}
+          {/* ============================================ */}
+          <Pressable
+            onPress={toggleBlockExpanded}
+            className="items-center pt-3 pb-1 active:opacity-70"
+          >
+            <View className="flex-row items-center gap-1.5">
+              <ChevronUp size={14} color="#52525B" />
+              <Text className="text-zinc-600 text-[10px] font-bold tracking-wider uppercase">
+                COLAPSAR
+              </Text>
+              <ChevronUp size={14} color="#52525B" />
+            </View>
+          </Pressable>
         </View>
       </View>
     </View>

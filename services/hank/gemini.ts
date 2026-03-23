@@ -268,7 +268,8 @@ interface GeminiResponse {
 // ============================================================================
 // GEMINI API CONFIG
 // ============================================================================
-// gemini-2.0-flash - modelo rápido y capaz (requiere cuenta pagada)
+// gemini-2.0-flash - modelo estable para function calling con muchas herramientas
+// NOTA: gemini-2.5-flash tiene "thinking" que consume tokens con 107 tools
 const GEMINI_API_URL =
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
 
@@ -1115,12 +1116,20 @@ Si el usuario dice "cambia X", "quita Y", "agrega Z":
 • RECALCULAR y mostrar nuevos totales
 • Preguntar confirmación de nuevo
 
-📋 ETAPA 6 - EJECUCIÓN (SOLO DESPUÉS DE "SÍ")
-Cuando el usuario confirme ("sí", "dale", "perfecto", "hazlo"):
+📋 ETAPA 6 - EJECUCIÓN (SOLO DESPUÉS DE CONFIRMACIÓN)
+Cuando el usuario confirme ("sí", "dale", "perfecto", "hazlo", "ejecuta"):
+- Si el PLAN BUILDER YA ESTÁ ACTIVO con comidas cargadas (ver estado arriba), llama DIRECTAMENTE a PLAN_BUILDER_EXECUTE
+- ⚠️ NO vuelvas a crear comidas ni suplementos, ya están en el Plan Builder
+- ⚠️ NO llames PLAN_BUILDER_START de nuevo
+
+Si el Plan Builder NO está activo pero el usuario quiere ejecutar un plan que discutieron:
 1. PLAN_BUILDER_START(clearExisting=true si dijo "nuevo plan")
 2. PLAN_BUILDER_ADD_MEAL para CADA comida
 3. PLAN_BUILDER_ADD_SUPPLEMENT para CADA suplemento
-4. PLAN_BUILDER_EXECUTE
+4. PLAN_BUILDER_SHOW para mostrar el resumen al usuario
+5. ESPERA que el usuario confirme
+
+⚠️ NUNCA llames PLAN_BUILDER_EXECUTE sin antes mostrar PLAN_BUILDER_SHOW
 
 ═══════════════════════════════════════════════════════════════════════════════
 🧮 CÁLCULO DE MACROS - FÓRMULAS
@@ -1534,172 +1543,197 @@ export async function callGemini(
       temperature,
       topK: 40,
       topP: 0.95,
-      maxOutputTokens: 1024,
+      maxOutputTokens: 2048,
     },
   };
 
   console.warn(`🔧 Mode: AUTO, Temperature: ${temperature}, Intent: ${userIntent}`);
 
-  try {
-    // Timeout de 15 segundos para dar tiempo a Gemini
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000);
+  // Retry logic: Gemini 2.5-flash a veces devuelve content vacío (solo thinking tokens)
+  const MAX_RETRIES = 2;
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      // Timeout de 30 segundos para dar tiempo a Gemini (system prompt grande + muchas tools)
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000);
 
-    const response = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(requestBody),
-      signal: controller.signal,
-    });
+      const response = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestBody),
+        signal: controller.signal,
+      });
 
-    clearTimeout(timeoutId);
+      clearTimeout(timeoutId);
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      // Log detallado del error para debugging
-      console.warn('⚠️ Gemini API respondió con error:', response.status);
-      console.warn('⚠️ Error detallado:', errorText);
-      throw new Error(`Gemini API error: ${response.status} - ${errorText.substring(0, 200)}`);
-    }
-
-    const data: GeminiResponse = await response.json();
-
-    // Parsear respuesta
-    const candidate = data.candidates?.[0];
-    if (!candidate) {
-      throw new Error('No response from Gemini');
-    }
-
-    const parts = candidate.content.parts;
-    const toolCalls: HankToolCall[] = [];
-    let textMessage = '';
-
-    for (const part of parts) {
-      if (part.functionCall) {
-        // Gemini quiere llamar una herramienta
-        toolCalls.push({
-          tool: part.functionCall.name as HankToolName,
-          parameters: part.functionCall.args,
-        });
-      } else if (part.text) {
-        textMessage += part.text;
+      if (!response.ok) {
+        const errorText = await response.text();
+        // Log detallado del error para debugging
+        console.warn('⚠️ Gemini API respondió con error:', response.status);
+        console.warn('⚠️ Error detallado:', errorText);
+        throw new Error(`Gemini API error: ${response.status} - ${errorText.substring(0, 200)}`);
       }
-    }
 
-    // 🛡️ FALLBACK: Detectar si Gemini escribió código en lugar de usar function calling
-    // Esto pasa a veces cuando Gemini confunde el formato
-    if ((textMessage && textMessage.includes('default_api.')) || textMessage.includes('print(')) {
-      console.warn('⚠️ Gemini escribió código en lugar de function call, parseando...');
-
-      // Intentar extraer el nombre de la función y parámetros del código
-      const codeMatch = textMessage.match(/(?:print\()?default_api\.(\w+)\(([^)]*)\)/s);
-      if (codeMatch) {
-        const [, funcName, paramsStr] = codeMatch;
-
-        // Parsear parámetros - manejar tanto simples como arrays
-        const params: Record<string, unknown> = {};
-
-        // Extraer time primero (parámetro simple)
-        const timeMatch = paramsStr.match(/time\s*=\s*["']([^"']+)["']/);
-        if (timeMatch) params.time = timeMatch[1];
-
-        // Extraer ingredients como array
-        const ingredientsMatch = paramsStr.match(/ingredients\s*=\s*\[([^\]]+)\]/);
-        if (ingredientsMatch) {
-          // Parsear ingredientes - buscar nombres
-          const ingredientsList: Array<{ name: string }> = [];
-          const nameMatches = ingredientsMatch[1].matchAll(/name\s*[:=]\s*["']?([^"',}]+)["']?/g);
-          for (const match of nameMatches) {
-            ingredientsList.push({ name: match[1].trim() });
-          }
-          params.ingredients = JSON.stringify(ingredientsList);
-        }
-
-        // Fallback para otros parámetros simples
-        const simpleParamMatches = paramsStr.matchAll(/(\w+)\s*=\s*(?![\[{])([^,\s)]+)/g);
-        for (const match of simpleParamMatches) {
-          const [, key, value] = match;
-          if (key === 'time' || key === 'ingredients') continue; // Ya procesados
-          if (value === 'true') params[key] = true;
-          else if (value === 'false') params[key] = false;
-          else if (/^\d+$/.test(value)) params[key] = parseInt(value);
-          else if (/^\d+\.\d+$/.test(value)) params[key] = parseFloat(value);
-          else params[key] = value.replace(/['"]/g, '');
-        }
-
-        // Agregar como tool call real
-        toolCalls.push({
-          tool: funcName as HankToolName,
-          parameters: params,
-        });
-
-        // Limpiar el mensaje de código
-        textMessage = '';
-        console.warn('✅ Convertido a function call:', funcName, params);
+      const data = await response.json();
+      console.warn('🔍 Gemini raw response keys:', JSON.stringify(Object.keys(data)));
+      if (data.candidates?.[0]) {
+        console.warn('🔍 Candidate finishReason:', data.candidates[0].finishReason);
+        console.warn('🔍 Candidate has content:', !!data.candidates[0].content);
+        console.warn('🔍 Candidate has parts:', !!data.candidates[0].content?.parts);
       }
-    }
 
-    // 🛡️ FALLBACK 2: Detectar patrón [EJECUTANDO TOOL_NAME] en el texto
-    // Gemini a veces escribe esto en lugar de hacer function call real
-    if (textMessage && textMessage.includes('[EJECUTANDO')) {
-      console.warn('⚠️ Gemini escribió [EJECUTANDO...] en lugar de function call, parseando...');
-
-      const execMatch = textMessage.match(/\[EJECUTANDO\s+(\w+)\]/i);
-      if (execMatch) {
-        const [, funcName] = execMatch;
-
-        // Agregar como tool call real sin parámetros
-        toolCalls.push({
-          tool: funcName as HankToolName,
-          parameters: {},
-        });
-
-        // Limpiar el mensaje del patrón [EJECUTANDO...]
-        textMessage = textMessage.replace(/\[EJECUTANDO\s+\w+\]\s*/gi, '').trim();
-        console.warn('✅ Convertido a function call:', funcName);
-      }
-    }
-
-    // 🛡️ FALLBACK 3: Detectar cuando Gemini dice que limpió/borró el chat sin llamar la función
-    // Esto pasa cuando Gemini responde "Historial borrado" o similar sin function call
-    if (textMessage && toolCalls.length === 0) {
-      const clearChatPatterns = [
-        /historial\s+(borrado|limpiado|eliminado)/i,
-        /chat\s+(borrado|limpiado|limpio)/i,
-        /conversaci[oó]n\s+(borrada|limpiada|reiniciada)/i,
-        /listo.*empez(ar|amos)\s+de\s+(cero|nuevo)/i,
-        /🧹.*limpia/i,
-        /borrón y cuenta nueva/i,
-      ];
-
-      const matchesClearChat = clearChatPatterns.some((pattern) => pattern.test(textMessage));
-      if (matchesClearChat) {
+      // Parsear respuesta
+      const candidate = data.candidates?.[0];
+      if (!candidate || !candidate.content?.parts) {
+        // Gemini 2.5-flash a veces devuelve content vacío (solo thinking tokens)
         console.warn(
-          '⚠️ Gemini dijo que limpió el chat sin llamar la función, forzando HANK_CLEAR_HISTORY...'
+          '⚠️ Gemini devolvió content vacío. Raw:',
+          JSON.stringify(data).substring(0, 500)
         );
-        toolCalls.push({
-          tool: 'HANK_CLEAR_HISTORY' as HankToolName,
-          parameters: {},
-        });
-        // Limpiar el mensaje ya que la herramienta dará el mensaje correcto
-        textMessage = '';
+        if (attempt < MAX_RETRIES) {
+          console.warn(`⚠️ Reintentando (${attempt + 1}/${MAX_RETRIES})...`);
+          continue;
+        }
+        throw new Error('No response from Gemini');
       }
-    }
 
-    return {
-      message: textMessage || (toolCalls.length > 0 ? '🔧 Ejecutando...' : 'Sin respuesta'),
-      toolCalls,
-    };
-  } catch (error) {
-    // No usar console.error para evitar logs rojos innecesarios
-    const isAbort = (error as Error)?.name === 'AbortError';
-    if (!isAbort) {
-      console.warn('⚠️ Gemini falló:', (error as Error)?.message);
+      const parts = candidate.content.parts;
+      const toolCalls: HankToolCall[] = [];
+      let textMessage = '';
+
+      for (const part of parts) {
+        if (part.functionCall) {
+          // Gemini quiere llamar una herramienta
+          toolCalls.push({
+            tool: part.functionCall.name as HankToolName,
+            parameters: part.functionCall.args,
+          });
+        } else if (part.text) {
+          textMessage += part.text;
+        }
+      }
+
+      // 🛡️ FALLBACK: Detectar si Gemini escribió código en lugar de usar function calling
+      // Esto pasa a veces cuando Gemini confunde el formato
+      if ((textMessage && textMessage.includes('default_api.')) || textMessage.includes('print(')) {
+        console.warn('⚠️ Gemini escribió código en lugar de function call, parseando...');
+
+        // Intentar extraer el nombre de la función y parámetros del código
+        const codeMatch = textMessage.match(/(?:print\()?default_api\.(\w+)\(([^)]*)\)/s);
+        if (codeMatch) {
+          const [, funcName, paramsStr] = codeMatch;
+
+          // Parsear parámetros - manejar tanto simples como arrays
+          const params: Record<string, unknown> = {};
+
+          // Extraer time primero (parámetro simple)
+          const timeMatch = paramsStr.match(/time\s*=\s*["']([^"']+)["']/);
+          if (timeMatch) params.time = timeMatch[1];
+
+          // Extraer ingredients como array
+          const ingredientsMatch = paramsStr.match(/ingredients\s*=\s*\[([^\]]+)\]/);
+          if (ingredientsMatch) {
+            // Parsear ingredientes - buscar nombres
+            const ingredientsList: Array<{ name: string }> = [];
+            const nameMatches = ingredientsMatch[1].matchAll(/name\s*[:=]\s*["']?([^"',}]+)["']?/g);
+            for (const match of nameMatches) {
+              ingredientsList.push({ name: match[1].trim() });
+            }
+            params.ingredients = JSON.stringify(ingredientsList);
+          }
+
+          // Fallback para otros parámetros simples
+          const simpleParamMatches = paramsStr.matchAll(/(\w+)\s*=\s*(?![\[{])([^,\s)]+)/g);
+          for (const match of simpleParamMatches) {
+            const [, key, value] = match;
+            if (key === 'time' || key === 'ingredients') continue; // Ya procesados
+            if (value === 'true') params[key] = true;
+            else if (value === 'false') params[key] = false;
+            else if (/^\d+$/.test(value)) params[key] = parseInt(value);
+            else if (/^\d+\.\d+$/.test(value)) params[key] = parseFloat(value);
+            else params[key] = value.replace(/['"]/g, '');
+          }
+
+          // Agregar como tool call real
+          toolCalls.push({
+            tool: funcName as HankToolName,
+            parameters: params,
+          });
+
+          // Limpiar el mensaje de código
+          textMessage = '';
+          console.warn('✅ Convertido a function call:', funcName, params);
+        }
+      }
+
+      // 🛡️ FALLBACK 2: Detectar patrón [EJECUTANDO TOOL_NAME] en el texto
+      // Gemini a veces escribe esto en lugar de hacer function call real
+      if (textMessage && textMessage.includes('[EJECUTANDO')) {
+        console.warn('⚠️ Gemini escribió [EJECUTANDO...] en lugar de function call, parseando...');
+
+        const execMatch = textMessage.match(/\[EJECUTANDO\s+(\w+)\]/i);
+        if (execMatch) {
+          const [, funcName] = execMatch;
+
+          // Agregar como tool call real sin parámetros
+          toolCalls.push({
+            tool: funcName as HankToolName,
+            parameters: {},
+          });
+
+          // Limpiar el mensaje del patrón [EJECUTANDO...]
+          textMessage = textMessage.replace(/\[EJECUTANDO\s+\w+\]\s*/gi, '').trim();
+          console.warn('✅ Convertido a function call:', funcName);
+        }
+      }
+
+      // 🛡️ FALLBACK 3: Detectar cuando Gemini dice que limpió/borró el chat sin llamar la función
+      // Esto pasa cuando Gemini responde "Historial borrado" o similar sin function call
+      if (textMessage && toolCalls.length === 0) {
+        const clearChatPatterns = [
+          /historial\s+(borrado|limpiado|eliminado)/i,
+          /chat\s+(borrado|limpiado|limpio)/i,
+          /conversaci[oó]n\s+(borrada|limpiada|reiniciada)/i,
+          /listo.*empez(ar|amos)\s+de\s+(cero|nuevo)/i,
+          /🧹.*limpia/i,
+          /borrón y cuenta nueva/i,
+        ];
+
+        const matchesClearChat = clearChatPatterns.some((pattern) => pattern.test(textMessage));
+        if (matchesClearChat) {
+          console.warn(
+            '⚠️ Gemini dijo que limpió el chat sin llamar la función, forzando HANK_CLEAR_HISTORY...'
+          );
+          toolCalls.push({
+            tool: 'HANK_CLEAR_HISTORY' as HankToolName,
+            parameters: {},
+          });
+          // Limpiar el mensaje ya que la herramienta dará el mensaje correcto
+          textMessage = '';
+        }
+      }
+
+      return {
+        message: textMessage || (toolCalls.length > 0 ? '🔧 Ejecutando...' : 'Sin respuesta'),
+        toolCalls,
+      };
+    } catch (error) {
+      // No usar console.error para evitar logs rojos innecesarios
+      const isAbort = (error as Error)?.name === 'AbortError';
+      if (!isAbort) {
+        console.warn('⚠️ Gemini falló:', (error as Error)?.message);
+      }
+      // Si quedan reintentos y no es abort, continuar
+      if (attempt < MAX_RETRIES && !isAbort) {
+        console.warn(`⚠️ Reintentando callGemini (${attempt + 1}/${MAX_RETRIES})...`);
+        continue;
+      }
+      throw error;
     }
-    throw error;
-  }
+  } // fin del for retry
+  throw new Error('No response from Gemini after retries');
 }
 
 // ============================================================================
@@ -1748,14 +1782,14 @@ export async function continueAfterToolExecution(
     },
     generationConfig: {
       temperature: 0.7,
-      maxOutputTokens: 256,
+      maxOutputTokens: 1024,
     },
   };
 
   try {
-    // Timeout de 8 segundos para la respuesta final
+    // Timeout de 20 segundos para la respuesta final
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 8000);
+    const timeoutId = setTimeout(() => controller.abort(), 20000);
 
     const response = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
       method: 'POST',
@@ -1773,7 +1807,9 @@ export async function continueAfterToolExecution(
     }
 
     const data: GeminiResponse = await response.json();
-    const text = data.candidates?.[0]?.content.parts
+    const parts = data.candidates?.[0]?.content?.parts;
+    if (!parts) return '✅ Listo';
+    const text = parts
       .filter((p) => p.text)
       .map((p) => p.text)
       .join('');
@@ -1853,7 +1889,7 @@ export async function continueWithMoreTools(
 
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000);
+    const timeoutId = setTimeout(() => controller.abort(), 25000);
 
     const response = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
       method: 'POST',
@@ -1872,7 +1908,7 @@ export async function continueWithMoreTools(
 
     const data: GeminiResponse = await response.json();
     const candidate = data.candidates?.[0];
-    if (!candidate) {
+    if (!candidate || !candidate.content?.parts) {
       return { message: '✅ Listo', toolCalls: [] };
     }
 

@@ -2159,8 +2159,12 @@ export const HankProvider = ({ children, userId }: HankProviderProps) => {
         // 2. Si no hay API key, usar parseo básico
         if (!GEMINI_API_KEY) {
           console.warn('⚠️ GEMINI_API_KEY no configurada, usando parseo básico');
-          const results = await parseAndExecuteBasic(userText);
-          return results;
+          return [
+            {
+              success: false,
+              message: '⚠️ GEMINI_API_KEY no está configurada. La IA no está disponible.',
+            },
+          ];
         }
 
         // 3. Llamar a Gemini con Function Calling (con historial de conversación)
@@ -2368,9 +2372,10 @@ HISTORIAL DE HERRAMIENTAS EJECUTADAS: ${toolResults.map((t) => t.toolName).join(
 INSTRUCCIONES:
 1. Si el usuario mencionó un NÚMERO específico de comidas (ej: "5 comidas") y aún no has agregado ese número, agrega las que faltan con PLAN_BUILDER_ADD_MEAL
 2. Si el usuario mencionó suplementos (creatina, proteína, omega3, pre-entreno, etc.) y no los has agregado, usa PLAN_BUILDER_ADD_SUPPLEMENT para CADA UNO
-3. Si ya agregaste TODAS las comidas y suplementos mencionados, usa PLAN_BUILDER_EXECUTE
-4. IMPORTANTE: Distribuye las comidas uniformemente entre la primera y última hora que mencionó el usuario
-5. Para pre-entreno usa isPreWorkout=true, para post-entreno usa isPostWorkout=true
+3. Si ya agregaste TODAS las comidas y suplementos mencionados, usa PLAN_BUILDER_SHOW para mostrar el resumen al usuario
+4. ⛔ NO llames PLAN_BUILDER_EXECUTE. El usuario debe confirmar el plan antes de ejecutar.
+5. IMPORTANTE: Distribuye las comidas uniformemente entre la primera y última hora que mencionó el usuario
+6. Para pre-entreno usa isPreWorkout=true, para post-entreno usa isPostWorkout=true
 
 ¿Qué herramienta debes llamar ahora?`,
               recentHistory // Pasar historial de conversación
@@ -2424,6 +2429,11 @@ INSTRUCCIONES:
                       p.frequency as number
                     );
                     break;
+                  case 'PLAN_BUILDER_SHOW':
+                    result = planBuilderActionsShow();
+                    // Mostrar preview = parar el loop para que el usuario confirme
+                    continuationIterations = MAX_CONTINUATIONS;
+                    break;
                   case 'PLAN_BUILDER_EXECUTE':
                     result = await planBuilderActionsExecute();
                     // Si se ejecutó, salir del loop
@@ -2455,9 +2465,17 @@ INSTRUCCIONES:
           );
 
           // Agregar el mensaje final como resultado
-          if (finalMessage && results.length > 0) {
+          // NO sobreescribir mensajes de PLAN_BUILDER_SHOW o PLAN_BUILDER_EXECUTE
+          // ya que contienen previews/resultados detallados que Gemini truncaría
+          const lastToolExecuted = toolResults[toolResults.length - 1]?.toolName || '';
+          const isPlanBuilderResult =
+            lastToolExecuted === 'PLAN_BUILDER_SHOW' || lastToolExecuted === 'PLAN_BUILDER_EXECUTE';
+          if (finalMessage && results.length > 0 && !isPlanBuilderResult) {
             results[results.length - 1].message = finalMessage;
             finalResponseText = finalMessage;
+          } else if (isPlanBuilderResult && results.length > 0) {
+            // Usar el mensaje del Plan Builder directamente (ya tiene preview/resultado completo)
+            finalResponseText = results[results.length - 1].message;
           }
 
           // =========================================================================
@@ -2565,23 +2583,27 @@ INSTRUCCIONES:
           },
         ];
       } catch (e) {
-        // Solo log de warning, no error (el fallback manejará esto)
         const errorName = (e as Error)?.name || 'Unknown';
+        const errorMsg = (e as Error)?.message || 'Error desconocido';
         const isTimeout = errorName === 'AbortError';
 
         if (isTimeout) {
           console.warn('⏱️ Gemini timeout, usando parseo básico...');
         } else {
-          console.warn('⚠️ Gemini falló:', (e as Error)?.message || 'Error desconocido');
+          console.warn('⚠️ Gemini falló:', errorMsg);
         }
 
-        // Fallback a parseo básico si Gemini falla
-        const results = await parseAndExecuteBasic(userText);
-        // Trigger refresh si alguna operación fue exitosa
-        if (results.some((r) => r.success)) {
-          setRefreshTrigger((prev) => prev + 1);
-        }
-        return results;
+        // 🔴 DEBUG: Mostrar error real al usuario para diagnóstico
+        const debugError = isTimeout
+          ? '⏱️ Gemini tardó demasiado (timeout 30s). Intenta de nuevo.'
+          : `⚠️ Gemini error: ${errorMsg.substring(0, 200)}`;
+
+        return [
+          {
+            success: false,
+            message: debugError,
+          },
+        ];
       } finally {
         setIsProcessing(false);
       }

@@ -9160,6 +9160,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     parameters: {
       exerciseNames: {
         type: 'array',
+        items: { type: 'string' },
         description:
           'Lista de nombres de ejercicios a agrupar (ej: ["Press Banca", "Aperturas"]). Mínimo 2.',
         required: true,
@@ -9195,6 +9196,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     parameters: {
       exerciseNames: {
         type: 'array',
+        items: { type: 'string' },
         description:
           'Nombres de ejercicios que están en el grupo a eliminar (basta con 1 para identificar el grupo)',
         required: true,
