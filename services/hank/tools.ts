@@ -6817,18 +6817,42 @@ export async function trainingAssignPlan(userId: string, planId: string): Promis
           series_by_day: {},
         };
 
-        const { error: insertError } = await supabase.from('user_exercise_config').insert({
-          user_id: userId,
-          exercise_id: exercise.exercise_id,
-          training_days: [day.dayIndex],
-          config,
-        });
+        // Verificar si ya existe este ejercicio (mismo ejercicio en múltiples días)
+        const { data: existing } = await supabase
+          .from('user_exercise_config')
+          .select('id, training_days')
+          .eq('user_id', userId)
+          .eq('exercise_id', exercise.exercise_id)
+          .single();
 
-        if (insertError) {
-          console.error('Error inserting exercise:', exercise.name, insertError);
-          exerciseErrors.push(exercise.name);
+        if (existing) {
+          // Agregar el día al array existente
+          const updatedDays = [...new Set([...(existing.training_days || []), day.dayIndex])];
+          const { error: updateError } = await supabase
+            .from('user_exercise_config')
+            .update({ training_days: updatedDays, updated_at: new Date().toISOString() })
+            .eq('id', existing.id);
+
+          if (updateError) {
+            console.error('Error updating exercise days:', exercise.name, updateError);
+            exerciseErrors.push(exercise.name);
+          } else {
+            exercisesCreated++;
+          }
         } else {
-          exercisesCreated++;
+          const { error: insertError } = await supabase.from('user_exercise_config').insert({
+            user_id: userId,
+            exercise_id: exercise.exercise_id,
+            training_days: [day.dayIndex],
+            config,
+          });
+
+          if (insertError) {
+            console.error('Error inserting exercise:', exercise.name, insertError);
+            exerciseErrors.push(exercise.name);
+          } else {
+            exercisesCreated++;
+          }
         }
       }
     }

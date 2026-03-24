@@ -1605,15 +1605,11 @@ function GymScreen() {
   };
 
   const closeFocusSeriesWithAnimation = async () => {
-    // BUGFIX: Esperar a que termine el guardado antes de cerrar para evitar race conditions
+    // saveFocusSeries ya guarda en Supabase Y actualiza el estado local de exercises
+    // No necesitamos recargar toda la lista ni cambiar listRefreshKey
+    // porque eso destruye y recrea el FlatList, reseteando la posición de scroll
     await saveFocusSeriesRef.current();
     setStructureModalVisible(false);
-
-    // CRITICAL FIX: Recargar ejercicios Y grupos juntos desde Supabase
-    // Solo restaurar desde ref no es suficiente — hay que recargar datos frescos
-    const targetDay = selectedDayIndexRef.current;
-    await loadExercises(targetDay, true);
-    setListRefreshKey((prev) => prev + 1);
   };
 
   const panResponderStructure = useRef(
@@ -2887,7 +2883,11 @@ function GymScreen() {
       const dayGroups = allGroups[String(dayIndex)] || [];
       setExerciseGroups(dayGroups);
       exerciseGroupsRef.current = dayGroups;
-      console.log(`🔗 Grupos cargados para día ${dayIndex}:`, dayGroups.length, dayGroups.map(g => g.id));
+      console.log(
+        `🔗 Grupos cargados para día ${dayIndex}:`,
+        dayGroups.length,
+        dayGroups.map((g) => g.id)
+      );
       return dayGroups;
     } catch (error) {
       console.error('💥 Error loading exercise groups:', error);
@@ -2907,14 +2907,21 @@ function GymScreen() {
         .single();
 
       if (readError) {
-        console.error('💥 Error LEYENDO grupos antes de guardar:', readError.message, readError.code);
+        console.error(
+          '💥 Error LEYENDO grupos antes de guardar:',
+          readError.message,
+          readError.code
+        );
         return;
       }
 
       const allGroups = (data?.exercise_groups as Record<string, ExerciseGroup[]>) || {};
       allGroups[String(dayIndex)] = groups;
 
-      console.log(`💾 Guardando grupos día ${dayIndex}:`, JSON.stringify(groups.map(g => ({ id: g.id, type: g.type, ids: g.exercise_ids }))));
+      console.log(
+        `💾 Guardando grupos día ${dayIndex}:`,
+        JSON.stringify(groups.map((g) => ({ id: g.id, type: g.type, ids: g.exercise_ids })))
+      );
 
       const { error: writeError } = await supabase
         .from('user_profiles')
@@ -3022,19 +3029,17 @@ function GymScreen() {
           }
         } else {
           // Crear nueva configuración
-          await supabase
-            .from('user_exercise_config')
-            .insert({
-              user_id: user.id,
-              exercise_id: template.id,
-              training_days: [targetDay],
-              display_order: exercises.length + groupExerciseIds.length - 1,
-              config: {
-                sets: template.default_metadata.sets,
-                rest: template.default_metadata.rest,
-                series_by_day: {},
-              },
-            });
+          await supabase.from('user_exercise_config').insert({
+            user_id: user.id,
+            exercise_id: template.id,
+            training_days: [targetDay],
+            display_order: exercises.length + groupExerciseIds.length - 1,
+            config: {
+              sets: template.default_metadata.sets,
+              rest: template.default_metadata.rest,
+              series_by_day: {},
+            },
+          });
         }
       }
 
@@ -4996,9 +5001,7 @@ function GymScreen() {
                       </View>
                       {catalogGroupMode && (
                         <View className="bg-zinc-800 px-2 py-0.5 rounded-full">
-                          <Text className="text-zinc-400 text-[10px] font-bold">
-                            SELECCIONA 2+
-                          </Text>
+                          <Text className="text-zinc-400 text-[10px] font-bold">SELECCIONA 2+</Text>
                         </View>
                       )}
                     </View>
@@ -5062,7 +5065,8 @@ function GymScreen() {
                       <View className="flex-row items-center gap-1.5">
                         <Layers size={12} color="#DC2626" />
                         <Text className="text-savage-red text-[10px] font-bold tracking-wider">
-                          {catalogGroupTemplates.length} EJERCICIO{catalogGroupTemplates.length !== 1 ? 'S' : ''} EN GRUPO
+                          {catalogGroupTemplates.length} EJERCICIO
+                          {catalogGroupTemplates.length !== 1 ? 'S' : ''} EN GRUPO
                         </Text>
                       </View>
                       <TouchableOpacity
@@ -5096,7 +5100,10 @@ function GymScreen() {
                             style={{ width: 24, height: 24, borderRadius: 6 }}
                             contentFit="cover"
                           />
-                          <Text className="text-white text-[11px] font-bold ml-1.5 mr-1" numberOfLines={1}>
+                          <Text
+                            className="text-white text-[11px] font-bold ml-1.5 mr-1"
+                            numberOfLines={1}
+                          >
                             {t.name}
                           </Text>
                           <X size={10} color="#71717a" />
@@ -5214,7 +5221,8 @@ function GymScreen() {
                 const catColor = showCategoryColor ? getMuscleGroupColor(item.category) : null;
 
                 // Modo grupo: verificar si está seleccionado
-                const isSelectedForGroup = catalogGroupMode && catalogGroupTemplates.some((t) => t.id === item.id);
+                const isSelectedForGroup =
+                  catalogGroupMode && catalogGroupTemplates.some((t) => t.id === item.id);
 
                 return (
                   <TouchableOpacity
@@ -5226,7 +5234,11 @@ function GymScreen() {
                     }}
                     className="mb-2 rounded-2xl overflow-hidden"
                     style={{
-                      backgroundColor: isSelectedForGroup ? '#1a0505' : alreadyAdded ? '#052e16' : '#0a0a0a',
+                      backgroundColor: isSelectedForGroup
+                        ? '#1a0505'
+                        : alreadyAdded
+                          ? '#052e16'
+                          : '#0a0a0a',
                       borderWidth: isSelectedForGroup ? 2 : 1,
                       borderColor: isSelectedForGroup
                         ? '#DC2626'
@@ -5415,7 +5427,10 @@ function GymScreen() {
                               >
                                 {config.label}
                               </Text>
-                              <Text className="text-zinc-500 text-[8px] mt-0.5 text-center" numberOfLines={2}>
+                              <Text
+                                className="text-zinc-500 text-[8px] mt-0.5 text-center"
+                                numberOfLines={2}
+                              >
                                 {adding ? 'Creando...' : config.description}
                               </Text>
                             </TouchableOpacity>
@@ -5435,12 +5450,11 @@ function GymScreen() {
                 ) : (
                   <View className="items-center py-2">
                     <Text className="text-zinc-500 text-xs">
-                      Selecciona al menos <Text className="text-savage-red font-bold">2 ejercicios</Text> para crear un grupo
+                      Selecciona al menos{' '}
+                      <Text className="text-savage-red font-bold">2 ejercicios</Text> para crear un
+                      grupo
                     </Text>
-                    <TouchableOpacity
-                      onPress={cancelCatalogGroupMode}
-                      className="mt-2"
-                    >
+                    <TouchableOpacity onPress={cancelCatalogGroupMode} className="mt-2">
                       <Text className="text-zinc-500 text-[11px] font-bold">CANCELAR</Text>
                     </TouchableOpacity>
                   </View>
@@ -8485,7 +8499,9 @@ function GymScreen() {
               >
                 <Target size={12} color="#F97316" />
                 <Text className="text-fire-orange text-sm font-bold uppercase tracking-wider">
-                  {(trainingProgram.days[selectedDayIndex]?.muscleGroups || 'ENTRENAMIENTO').replace(/^D[íi]a\s*\d+\s*:\s*/i, '')}
+                  {(
+                    trainingProgram.days[selectedDayIndex]?.muscleGroups || 'ENTRENAMIENTO'
+                  ).replace(/^D[íi]a\s*\d+\s*:\s*/i, '')}
                 </Text>
               </View>
               <View className="flex-row items-center gap-2 mt-1.5">
@@ -8501,7 +8517,10 @@ function GymScreen() {
               </View>
               {/* PROGRESS BAR */}
               {focusItems.length > 0 && (
-                <View className="mt-2 rounded-full overflow-hidden" style={{ height: 3, backgroundColor: '#1a1a1a' }}>
+                <View
+                  className="mt-2 rounded-full overflow-hidden"
+                  style={{ height: 3, backgroundColor: '#1a1a1a' }}
+                >
                   <View
                     className="h-full rounded-full"
                     style={{
@@ -8545,7 +8564,8 @@ function GymScreen() {
                 width: dotIdx === activeExerciseIndex ? 6 : 4,
                 height: dotIdx === activeExerciseIndex ? 14 : 4,
                 borderRadius: dotIdx === activeExerciseIndex ? 3 : 2,
-                backgroundColor: dotIdx === activeExerciseIndex ? '#F97316' : 'rgba(255,255,255,0.25)',
+                backgroundColor:
+                  dotIdx === activeExerciseIndex ? '#F97316' : 'rgba(255,255,255,0.25)',
                 marginVertical: 3,
                 alignSelf: 'center',
               }}
@@ -9148,11 +9168,15 @@ function GymScreen() {
                     {/* Thumbnail del siguiente ejercicio */}
                     {(() => {
                       const next = focusItems[index + 1];
-                      const nextImage = next?.type === 'single'
-                        ? next.exercise.image_url
-                        : next?.exercises?.[0]?.image_url;
+                      const nextImage =
+                        next?.type === 'single'
+                          ? next.exercise.image_url
+                          : next?.exercises?.[0]?.image_url;
                       return nextImage ? (
-                        <View className="rounded-lg overflow-hidden" style={{ width: 36, height: 36, borderWidth: 1, borderColor: '#27272a' }}>
+                        <View
+                          className="rounded-lg overflow-hidden"
+                          style={{ width: 36, height: 36, borderWidth: 1, borderColor: '#27272a' }}
+                        >
                           <Image
                             source={{ uri: nextImage }}
                             style={{ width: 36, height: 36 }}
@@ -9160,7 +9184,16 @@ function GymScreen() {
                           />
                         </View>
                       ) : (
-                        <View className="rounded-lg items-center justify-center" style={{ width: 36, height: 36, backgroundColor: '#1a1a1a', borderWidth: 1, borderColor: '#27272a' }}>
+                        <View
+                          className="rounded-lg items-center justify-center"
+                          style={{
+                            width: 36,
+                            height: 36,
+                            backgroundColor: '#1a1a1a',
+                            borderWidth: 1,
+                            borderColor: '#27272a',
+                          }}
+                        >
                           <ChevronDown color="#F97316" size={16} />
                         </View>
                       );

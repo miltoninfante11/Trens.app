@@ -8,7 +8,7 @@ import { View, Text, ScrollView, Pressable, RefreshControl } from 'react-native'
 import { PWAGuard } from '../../../components/auth/PWAGuard';
 import { Alert } from '../../../lib/alert';
 import Animated, { useAnimatedStyle, withSpring } from 'react-native-reanimated';
-import { Plus, Pill, Sparkles, ShoppingCart } from 'lucide-react-native';
+import { Plus, Pill, Sparkles, ShoppingCart, StickyNote } from 'lucide-react-native';
 import * as Haptics from '../../../lib/haptics';
 import { useRouter, useFocusEffect } from 'expo-router';
 
@@ -21,6 +21,7 @@ import { TimePickerModal } from '../../../components/plan/TimePickerModal';
 import { StackManagerModal } from '../../../components/plan/StackManagerModal';
 import { AddOptionModal } from '../../../components/plan/AddOptionModal';
 import { ShoppingListModal } from '../../../components/plan/ShoppingListModal';
+import { PlanNotesModal } from '../../../components/plan/PlanNotesModal';
 import { supabase } from '../../../lib/supabase';
 import { useHank } from '../../../context/HankContext';
 import { useSaveGuard } from '../../_layout';
@@ -408,6 +409,7 @@ function PlanScreen() {
   const [timePickerStackTime, setTimePickerStackTime] = useState<string | null>(null);
   const [showStackManager, setShowStackManager] = useState(false);
   const [showShoppingList, setShowShoppingList] = useState(false);
+  const [showPlanNotes, setShowPlanNotes] = useState(false);
   const [showAddOption, setShowAddOption] = useState(false);
   const [addOptionMealId, setAddOptionMealId] = useState<string | null>(null);
   const [addOptionMealName, setAddOptionMealName] = useState('');
@@ -2462,6 +2464,34 @@ function PlanScreen() {
                 <Text className="text-purple-500/60 text-[8px] font-mono">{stackItems.length}</Text>
               )}
             </Pressable>
+
+            {/* Notes / Pizarra Button */}
+            <Pressable
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                setShowPlanNotes(true);
+              }}
+              className="items-center px-3 py-2.5 rounded-xl active:scale-95"
+              style={{
+                backgroundColor: 'rgba(234, 179, 8, 0.08)',
+                borderWidth: 1.5,
+                borderColor: 'rgba(234, 179, 8, 0.4)',
+                shadowColor: '#EAB308',
+                shadowOffset: { width: 0, height: 0 },
+                shadowOpacity: 0.3,
+                shadowRadius: 12,
+              }}
+            >
+              <View
+                className="w-8 h-8 rounded-full items-center justify-center"
+                style={{ backgroundColor: 'rgba(234, 179, 8, 0.2)' }}
+              >
+                <StickyNote size={14} color="#EAB308" />
+              </View>
+              <Text className="text-yellow-400 text-[9px] font-bold tracking-widest mt-1">
+                NOTAS
+              </Text>
+            </Pressable>
           </View>
         </View>
 
@@ -2808,6 +2838,8 @@ function PlanScreen() {
         onClose={() => setShowShoppingList(false)}
         meals={meals}
       />
+
+      <PlanNotesModal visible={showPlanNotes} onClose={() => setShowPlanNotes(false)} />
     </View>
   );
 }

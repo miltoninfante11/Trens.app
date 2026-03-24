@@ -19,7 +19,6 @@ import {
   FlaskConical,
   Zap,
   Clock,
-  Trash2,
   ChevronDown,
 } from 'lucide-react-native';
 import { useHankTarget } from '../../hooks/useHankTarget';
@@ -110,13 +109,6 @@ export const StackCard: React.FC<StackCardProps> = ({
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     if (onTimeChange) {
       onTimeChange(stack.time);
-    }
-  };
-
-  const handleItemDelete = (itemId: string) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-    if (onItemDelete) {
-      onItemDelete(itemId);
     }
   };
 
@@ -265,13 +257,16 @@ export const StackCard: React.FC<StackCardProps> = ({
                 {stack.items.slice(0, 4).map((item) => (
                   <View
                     key={item.id}
-                    className="flex-row items-center gap-1.5 px-2 py-1 rounded-lg shrink-0"
+                    className="flex-row items-center gap-1.5 px-2 py-1.5 rounded-lg shrink-0"
                     style={{ backgroundColor: 'rgba(168, 85, 247, 0.12)' }}
                   >
                     {getTypeIcon(item.type, 12)}
-                    <Text className="text-zinc-300 text-[11px]" numberOfLines={1}>
-                      {item.name}
-                    </Text>
+                    <View>
+                      <Text className="text-zinc-300 text-[11px]" numberOfLines={1}>
+                        {item.name}
+                      </Text>
+                      <Text className="text-purple-400 text-[9px] font-mono">{item.dose}</Text>
+                    </View>
                   </View>
                 ))}
                 {stack.items.length > 4 && (
@@ -307,29 +302,13 @@ export const StackCard: React.FC<StackCardProps> = ({
                     </View>
                     <View className="flex-1">
                       <Text className="text-white text-sm font-medium">{item.name}</Text>
+                      <Text className="text-purple-200 font-mono text-[11px] mt-0.5">
+                        {item.dose}
+                      </Text>
                       {item.notes && (
                         <Text className="text-purple-300/70 text-[10px] mt-0.5">{item.notes}</Text>
                       )}
                     </View>
-                  </View>
-                  <View className="flex-row items-center gap-3">
-                    <View
-                      className="px-2.5 py-1 rounded-lg"
-                      style={{ backgroundColor: 'rgba(168, 85, 247, 0.15)' }}
-                    >
-                      <Text className="text-purple-200 font-mono text-xs font-bold">
-                        {item.dose}
-                      </Text>
-                    </View>
-                    {onItemDelete && (
-                      <Pressable
-                        onPress={() => handleItemDelete(item.id)}
-                        className="p-2 rounded-lg active:scale-95"
-                        style={{ backgroundColor: 'rgba(239, 68, 68, 0.12)' }}
-                      >
-                        <Trash2 size={14} color="#EF4444" />
-                      </Pressable>
-                    )}
                   </View>
                 </View>
               ))}

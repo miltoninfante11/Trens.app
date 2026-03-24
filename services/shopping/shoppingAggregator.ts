@@ -330,55 +330,196 @@ function normalizeIngredientName(name: string): string {
 }
 
 // ============================================================================
-// HELPER: Parsear cantidad a gramos
+// UNIT-BASED INGREDIENTS - Ingredientes que se cuentan por unidad
 // ============================================================================
-function parseQuantityToGrams(quantity: string): number {
-  if (!quantity) return 100; // Default 100g
+const UNIT_INGREDIENTS = [
+  'huevo',
+  'huevos',
+  'clara',
+  'claras',
+  'tortilla',
+  'tortillas',
+  'arepa',
+  'arepas',
+  'rebanada',
+  'rebanadas',
+  'pan',
+  'banana',
+  'banano',
+  'plátano',
+  'platano',
+  'manzana',
+  'pera',
+  'naranja',
+  'mandarina',
+  'kiwi',
+  'durazno',
+  'melocotón',
+  'limón',
+  'limon',
+  'lima',
+  'toronja',
+  'aguacate',
+  'palta',
+  'papa',
+  'papas',
+  'patata',
+  'patatas',
+  'camote',
+  'batata',
+  'salchicha',
+  'salchichas',
+  'filete',
+  'filetes',
+  'chuleta',
+  'chuletas',
+  'diente',
+  'dientes',
+  'ajo',
+];
+
+function isUnitIngredient(name: string): boolean {
+  const lower = name.toLowerCase().trim();
+  return UNIT_INGREDIENTS.some((kw) => lower.includes(kw));
+}
+
+// ============================================================================
+// HELPER: Parsear cantidad
+// Retorna { grams, units, isUnit }
+// ============================================================================
+interface ParsedQuantity {
+  grams: number;
+  units: number;
+  isUnit: boolean;
+}
+
+function parseQuantity(quantity: string, ingredientName: string, portion?: string): ParsedQuantity {
+  if (!quantity) return { grams: 100, units: 1, isUnit: false };
 
   const lower = quantity.toLowerCase();
-
-  // Extraer número
   const numMatch = lower.match(/[\d.]+/);
-  const num = numMatch ? parseFloat(numMatch[0]) : 100;
+  const num = numMatch ? parseFloat(numMatch[0]) : 1;
 
-  // Detectar unidad y convertir
+  // === PRIORIDAD 1: Leer unidades del campo portion si existe ===
+  if (portion) {
+    const portionLower = portion.toLowerCase().replace(/^~/, '').trim();
+    const portionNumMatch = portionLower.match(/([\d.]+)/);
+    let portionNum = portionNumMatch ? parseFloat(portionNumMatch[0]) : 1;
+
+    // Convertir fracciones unicode
+    if (portionLower.includes('¼')) portionNum = 0.25;
+    else if (portionLower.includes('½')) portionNum = 0.5;
+    else if (portionLower.includes('¾')) portionNum = 0.75;
+    else if (portionLower.includes('⅓')) portionNum = 0.33;
+    else if (portionLower.includes('⅔')) portionNum = 0.67;
+    else if (portionLower.includes('1¼')) portionNum = 1.25;
+    else if (portionLower.includes('1½')) portionNum = 1.5;
+    else if (portionLower.includes('1¾')) portionNum = 1.75;
+    else if (portionLower.includes('2¼')) portionNum = 2.25;
+    else if (portionLower.includes('2½')) portionNum = 2.5;
+
+    // Ingredientes que se cuentan por unidad desde portion
+    const unitPortionWords = [
+      'huevo',
+      'huevos',
+      'lata',
+      'latas',
+      'filete',
+      'filetes',
+      'pieza',
+      'piezas',
+      'rebanada',
+      'rebanadas',
+      'tortilla',
+      'tortillas',
+      'unidad',
+      'unidades',
+      'papa',
+      'papas',
+      'pechuga',
+      'pechugas',
+      'chuleta',
+      'chuletas',
+      'salchicha',
+      'salchichas',
+      'arepa',
+      'arepas',
+      'banana',
+      'banano',
+      'manzana',
+      'naranja',
+      'aguacate',
+      'palta',
+    ];
+
+    if (unitPortionWords.some((w) => portionLower.includes(w))) {
+      const units = portionNum || 1;
+      return { grams: num, units, isUnit: true };
+    }
+  }
+
+  // === PRIORIDAD 2: Detección por unidad explícita en quantity ===
+  const isExplicitUnit = /unidad|pieza|pza|u\b|ud/.test(lower);
+  const isIngUnit = isUnitIngredient(ingredientName);
+
+  if (isExplicitUnit) {
+    return { grams: num * 150, units: num, isUnit: true };
+  }
+
+  // Detectar unidad y convertir a gramos
   if (lower.includes('kg') || lower.includes('kilo')) {
-    return num * 1000;
+    return { grams: num * 1000, units: num, isUnit: false };
   }
   if (lower.includes('lb') || lower.includes('libra')) {
-    return num * 453.6;
+    return { grams: num * 453.6, units: num, isUnit: false };
   }
   if (lower.includes('oz') || lower.includes('onza')) {
-    return num * 28.35;
+    return { grams: num * 28.35, units: num, isUnit: false };
   }
   if (lower.includes('taza') || lower.includes('cup')) {
-    return num * 240; // Aproximado
+    return { grams: num * 240, units: num, isUnit: false };
   }
   if (lower.includes('cucharada') || lower.includes('tbsp')) {
-    return num * 15;
+    return { grams: num * 15, units: num, isUnit: false };
   }
   if (lower.includes('cucharadita') || lower.includes('tsp')) {
-    return num * 5;
-  }
-  if (lower.includes('unidad') || lower.includes('pieza') || lower.includes('u')) {
-    return num * 150; // Aproximado para piezas
-  }
-  if (lower.includes('g') || lower.includes('gramo')) {
-    return num;
+    return { grams: num * 5, units: num, isUnit: false };
   }
 
-  // Si no tiene unidad, asumir gramos
-  return num || 100;
+  // Para ingredientes unitarios: convertir gramos a unidades aprox
+  if (isIngUnit) {
+    const gramsPerUnit = 60; // ~60g por huevo, ajustable
+    if (lower.includes('g') || lower.includes('gramo') || lower.includes('gr')) {
+      // Viene en gramos, convertir a unidades
+      const estimatedUnits = Math.max(1, Math.round(num / gramsPerUnit));
+      return { grams: num, units: estimatedUnits, isUnit: true };
+    }
+    // Sin unidad: tratar como número de unidades
+    if (num <= 30) {
+      return { grams: num * gramsPerUnit, units: num, isUnit: true };
+    }
+    // Número grande sin unidad: probablemente gramos
+    const estimatedUnits = Math.max(1, Math.round(num / gramsPerUnit));
+    return { grams: num, units: estimatedUnits, isUnit: true };
+  }
+
+  if (lower.includes('g') || lower.includes('gramo') || lower.includes('gr')) {
+    return { grams: num, units: 0, isUnit: false };
+  }
+
+  return { grams: num || 100, units: 0, isUnit: false };
 }
 
 // ============================================================================
 // HELPER: Formatear cantidad total
 // ============================================================================
-function formatTotalQuantity(grams: number): string {
-  if (grams >= 1000) {
-    return `${(grams / 1000).toFixed(1)}kg`;
+function formatTotalQuantity(grams: number, units: number, isUnit: boolean): string {
+  const weightStr = grams >= 1000 ? `${(grams / 1000).toFixed(1)}kg` : `${Math.round(grams)}g`;
+  if (isUnit && units > 0) {
+    const u = Math.round(units);
+    return `${u} ${u === 1 ? 'ud' : 'uds'} (${weightStr})`;
   }
-  return `${Math.round(grams)}g`;
+  return weightStr;
 }
 
 // ============================================================================
@@ -419,25 +560,37 @@ export function aggregateIngredients(
       if (!ing.name || ing.name.trim().length < 2) continue;
 
       const normalizedName = normalizeIngredientName(ing.name);
-      const quantityGrams = parseQuantityToGrams(ing.quantity) * daysMultiplier;
+      const parsed = parseQuantity(ing.quantity, ing.name, ing.portion);
+      const quantityGrams = parsed.grams * daysMultiplier;
+      const quantityUnits = parsed.units * daysMultiplier;
 
       if (ingredientMap.has(normalizedName)) {
         // Agregar a ingrediente existente
         const existing = ingredientMap.get(normalizedName)!;
         existing.quantityGrams += quantityGrams;
-        existing.quantity = formatTotalQuantity(existing.quantityGrams);
+        if (parsed.isUnit) {
+          existing.units = (existing.units || 0) + quantityUnits;
+          existing.isUnit = true;
+        }
+        existing.quantity = formatTotalQuantity(
+          existing.quantityGrams,
+          existing.units || 0,
+          existing.isUnit || false
+        );
         if (!existing.mealIds.includes(meal.id)) {
           existing.mealIds.push(meal.id);
           existing.mealNames.push(meal.name);
         }
       } else {
-        // Crear nuevo ingrediente
+        // Crear nuevo ingrediente (ID determinístico sin Date.now())
         ingredientMap.set(normalizedName, {
-          id: `shop-${normalizedName}-${Date.now()}`,
+          id: `shop-${normalizedName}`,
           name: ing.name.charAt(0).toUpperCase() + ing.name.slice(1).toLowerCase(),
           normalizedName,
-          quantity: formatTotalQuantity(quantityGrams),
+          quantity: formatTotalQuantity(quantityGrams, quantityUnits, parsed.isUnit),
           quantityGrams,
+          units: quantityUnits,
+          isUnit: parsed.isUnit,
           category: categorizeIngredient(ing.name),
           mealIds: [meal.id],
           mealNames: [meal.name],

@@ -106,7 +106,7 @@ const ShoppingItem: React.FC<{
         <View
           className="w-6 h-6 rounded-lg mr-3 items-center justify-center"
           style={{
-            backgroundColor: item.isChecked ? '#DC2626' : 'transparent',
+            backgroundColor: item.isChecked ? '#22C55E' : 'transparent',
             borderWidth: item.isChecked ? 0 : 2,
             borderColor: '#3F3F46',
           }}

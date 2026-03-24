@@ -98,14 +98,6 @@ const WebDraggableWorkoutBlock: React.FC<DraggableWorkoutBlockProps> = ({
   const lastReportedIndex = useRef(currentIndex);
   const pressStartY = useRef(0);
   const dragStartY = useRef(0);
-
-  // Refs para vista colapsada: tap-to-expand + drag awareness
-  const isBlockCollapsedRef = useRef(true);
-  const expandToggleRef = useRef<(() => void) | null>(null);
-
-  const handleBlockExpandedChange = useCallback((expanded: boolean) => {
-    isBlockCollapsedRef.current = !expanded;
-  }, []);
   const currentPointerY = useRef(0);
   const scrollableParent = useRef<HTMLElement | null>(null);
   const initialScrollTop = useRef(0);
@@ -427,10 +419,6 @@ const WebDraggableWorkoutBlock: React.FC<DraggableWorkoutBlockProps> = ({
         finishDrag();
       } else {
         activePointerId.current = null;
-        // Si el bloque está colapsado y no hubo drag, interpretar como tap → expandir
-        if (isBlockCollapsedRef.current && expandToggleRef.current) {
-          expandToggleRef.current();
-        }
       }
     },
     [cleanup, finishDrag]
@@ -479,8 +467,6 @@ const WebDraggableWorkoutBlock: React.FC<DraggableWorkoutBlockProps> = ({
         isLast={currentIndex >= totalItems - 1}
         onPressRoutine={onPressRoutine}
         isCompressed={isDragging}
-        onBlockExpandedChange={handleBlockExpandedChange}
-        expandToggleRef={expandToggleRef}
         dragHandleProps={{
           onPointerDown: handlePointerDownOnHandle,
           onPointerEnter: () => setIsHoveringHandle(true),
@@ -525,16 +511,6 @@ const NativeDraggableWorkoutBlock: React.FC<DraggableWorkoutBlockProps> = ({
   const currentAbsoluteYRef = useRef(0);
   const scrollOffsetRef = useRef(0);
   const isDraggingRef = useRef(false);
-
-  // Shared value para saber si el bloque está colapsado (drag desde cualquier punto)
-  const isBlockCollapsed = useSharedValue(true);
-
-  const handleBlockExpandedChange = useCallback(
-    (expanded: boolean) => {
-      isBlockCollapsed.value = !expanded;
-    },
-    [isBlockCollapsed]
-  );
 
   // Ref para el contenedor y medir posición
   const containerRef = useRef<Animated.View>(null);
@@ -668,15 +644,14 @@ const NativeDraggableWorkoutBlock: React.FC<DraggableWorkoutBlockProps> = ({
       const touch = event.allTouches[0];
       touchStartY.value = touch.y;
 
-      // Verificar si el touch está en el header o si el bloque está colapsado
-      // Cuando está colapsado, toda la tarjeta es zona de drag
-      if (touch.y <= HEADER_HEIGHT || isBlockCollapsed.value) {
+      // Verificar si el touch está en el header (zona de drag)
+      if (touch.y <= HEADER_HEIGHT) {
         isInHeader.value = true;
-        // Iniciar timer de long press
         longPressTimer.value = Date.now();
       } else {
-        isInHeader.value = false;
-        longPressTimer.value = null;
+        // Fuera del header, iniciar long-press para drag desde cualquier punto
+        isInHeader.value = true;
+        longPressTimer.value = Date.now();
       }
     })
     .onTouchesMove((event, stateManager) => {
@@ -808,7 +783,6 @@ const NativeDraggableWorkoutBlock: React.FC<DraggableWorkoutBlockProps> = ({
           isLast={currentIndex >= totalItems - 1}
           onPressRoutine={onPressRoutine}
           isCompressed={isDraggingState}
-          onBlockExpandedChange={handleBlockExpandedChange}
         />
       </Animated.View>
     </GestureDetector>

@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   TextInput,
   Platform,
+  FlatList,
 } from 'react-native';
 import { Alert } from '../../../lib/alert';
 import { useLocalSearchParams, router } from 'expo-router';
@@ -31,9 +32,20 @@ import {
   Settings,
   Activity,
   LogIn,
+  Dumbbell,
+  Search,
+  Target,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react-native';
 import adminUsers, { AdminUser, OpenpayPayment } from '../../../services/admin/users';
 import { getUserCards } from '../../../services/admin/users';
+import {
+  listActiveTemplates,
+  assignPlanToUser,
+  getUserCurrentPlan,
+  TrainingTemplate,
+} from '../../../services/admin/plans';
 import * as Haptics from '../../../lib/haptics';
 import * as Clipboard from 'expo-clipboard';
 import { supabase } from '../../../lib/supabase';
@@ -250,6 +262,412 @@ function RoleChangeModal({
           ))}
         </View>
       </TouchableOpacity>
+    </Modal>
+  );
+}
+
+// ============================================================================
+// ASSIGN PLAN MODAL
+// ============================================================================
+function AssignPlanModal({
+  visible,
+  onClose,
+  onAssign,
+  loading,
+  currentPlan,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  onAssign: (templateId: string) => void;
+  loading: boolean;
+  currentPlan: {
+    frequency: number;
+    routineNames: Record<string, string>;
+    planSource?: string;
+  } | null;
+}) {
+  const [templates, setTemplates] = useState<TrainingTemplate[]>([]);
+  const [loadingTemplates, setLoadingTemplates] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedFrequency, setSelectedFrequency] = useState<number | null>(null);
+  const [expandedTemplate, setExpandedTemplate] = useState<string | null>(null);
+  const [selectedTemplate, setSelectedTemplate] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (visible) {
+      fetchTemplates();
+      setSelectedTemplate(null);
+      setSearchQuery('');
+      setExpandedTemplate(null);
+    }
+  }, [visible]);
+
+  const fetchTemplates = async () => {
+    setLoadingTemplates(true);
+    try {
+      const data = await listActiveTemplates();
+      setTemplates(data);
+    } catch (err: any) {
+      console.error('Error loading templates:', err);
+    } finally {
+      setLoadingTemplates(false);
+    }
+  };
+
+  // Agrupar por frecuencia
+  const frequencies = [...new Set(templates.map((t) => t.frequency))].sort();
+
+  // Filtrar
+  const filteredTemplates = templates.filter((t) => {
+    const matchFreq = selectedFrequency === null || t.frequency === selectedFrequency;
+    const matchSearch =
+      !searchQuery ||
+      t.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      t.description?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      t.target_goals?.some((g) => g.toLowerCase().includes(searchQuery.toLowerCase())) ||
+      t.target_levels?.some((l) => l.toLowerCase().includes(searchQuery.toLowerCase()));
+    return matchFreq && matchSearch;
+  });
+
+  // Agrupar los filtrados por frecuencia
+  const grouped = filteredTemplates.reduce(
+    (acc, t) => {
+      const key = t.frequency;
+      if (!acc[key]) acc[key] = [];
+      acc[key].push(t);
+      return acc;
+    },
+    {} as Record<number, TrainingTemplate[]>
+  );
+
+  const getGoalColor = (goal: string) => {
+    switch (goal.toUpperCase()) {
+      case 'HIPERTROFIA':
+        return '#8B5CF6';
+      case 'FUERZA':
+        return '#DC2626';
+      case 'RESISTENCIA':
+        return '#22C55E';
+      case 'DEFINICION':
+        return '#3B82F6';
+      default:
+        return '#A1A1AA';
+    }
+  };
+
+  const getLevelColor = (level: string) => {
+    switch (level.toUpperCase()) {
+      case 'PRINCIPIANTE':
+        return '#22C55E';
+      case 'INTERMEDIO':
+        return '#F97316';
+      case 'AVANZADO':
+        return '#DC2626';
+      default:
+        return '#A1A1AA';
+    }
+  };
+
+  const totalExercises = (t: TrainingTemplate) =>
+    t.days?.reduce((sum, d) => sum + (d.exercises?.length || 0), 0) || 0;
+
+  return (
+    <Modal visible={visible} transparent animationType="fade">
+      <View className="flex-1 bg-black/90">
+        {/* Header */}
+        <View className="bg-zinc-900 border-b border-zinc-800 px-4 pt-14 pb-4">
+          <View className="flex-row items-center justify-between mb-4">
+            <View className="flex-row items-center gap-3">
+              <Dumbbell size={22} color={COLORS.red} />
+              <Text className="text-white text-xl font-bold">Asignar Plan</Text>
+            </View>
+            <TouchableOpacity onPress={onClose} className="p-2">
+              <X size={24} color={COLORS.zinc400} />
+            </TouchableOpacity>
+          </View>
+
+          {/* Plan actual */}
+          {currentPlan && (
+            <View className="bg-zinc-800 rounded-xl p-3 mb-4 border border-zinc-700">
+              <Text className="text-zinc-500 text-[10px] font-mono mb-1">PLAN ACTUAL</Text>
+              <View className="flex-row items-center gap-2">
+                <Text className="text-white font-bold text-sm">
+                  {currentPlan.frequency} días/semana
+                </Text>
+                <View className="bg-zinc-700 px-2 py-0.5 rounded">
+                  <Text className="text-zinc-400 text-[10px] font-mono">
+                    {currentPlan.planSource?.toUpperCase() || 'MANUAL'}
+                  </Text>
+                </View>
+              </View>
+              <Text className="text-zinc-400 text-xs mt-1" numberOfLines={1}>
+                {Object.values(currentPlan.routineNames).join(' → ')}
+              </Text>
+            </View>
+          )}
+
+          {/* Buscador */}
+          <View className="flex-row items-center bg-zinc-800 rounded-xl px-4 py-3 border border-zinc-700">
+            <Search size={18} color={COLORS.zinc400} />
+            <TextInput
+              className="flex-1 text-white text-base ml-3"
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              placeholder="Buscar plan..."
+              placeholderTextColor={COLORS.zinc500}
+            />
+            {searchQuery.length > 0 && (
+              <TouchableOpacity onPress={() => setSearchQuery('')}>
+                <X size={16} color={COLORS.zinc400} />
+              </TouchableOpacity>
+            )}
+          </View>
+
+          {/* Filtro por frecuencia */}
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            className="mt-3"
+            contentContainerStyle={{ gap: 8 }}
+          >
+            <TouchableOpacity
+              className={`px-4 py-2 rounded-lg border ${
+                selectedFrequency === null
+                  ? 'bg-red-600 border-red-500'
+                  : 'bg-zinc-800 border-zinc-700'
+              }`}
+              onPress={() => setSelectedFrequency(null)}
+            >
+              <Text
+                className={`text-sm font-bold ${
+                  selectedFrequency === null ? 'text-white' : 'text-zinc-400'
+                }`}
+              >
+                Todos
+              </Text>
+            </TouchableOpacity>
+            {frequencies.map((freq) => (
+              <TouchableOpacity
+                key={freq}
+                className={`px-4 py-2 rounded-lg border ${
+                  selectedFrequency === freq
+                    ? 'bg-red-600 border-red-500'
+                    : 'bg-zinc-800 border-zinc-700'
+                }`}
+                onPress={() => setSelectedFrequency(selectedFrequency === freq ? null : freq)}
+              >
+                <Text
+                  className={`text-sm font-bold ${
+                    selectedFrequency === freq ? 'text-white' : 'text-zinc-400'
+                  }`}
+                >
+                  {freq} días
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+
+        {/* Content */}
+        {loadingTemplates ? (
+          <View className="flex-1 items-center justify-center">
+            <ActivityIndicator size="large" color={COLORS.red} />
+            <Text className="text-zinc-500 mt-3 font-mono text-sm">Cargando planes...</Text>
+          </View>
+        ) : filteredTemplates.length === 0 ? (
+          <View className="flex-1 items-center justify-center px-6">
+            <Dumbbell size={48} color={COLORS.zinc700} />
+            <Text className="text-zinc-500 mt-3 text-center">
+              {searchQuery
+                ? 'No se encontraron planes con esa búsqueda'
+                : 'No hay planes activos disponibles'}
+            </Text>
+          </View>
+        ) : (
+          <ScrollView className="flex-1 px-4 pt-4" showsVerticalScrollIndicator={false}>
+            {Object.entries(grouped)
+              .sort(([a], [b]) => Number(a) - Number(b))
+              .map(([freq, plans]) => (
+                <View key={freq} className="mb-6">
+                  {/* Encabezado de grupo */}
+                  <View className="flex-row items-center gap-2 mb-3">
+                    <View className="bg-red-600 w-1 h-5 rounded-full" />
+                    <Text className="text-white font-bold text-lg">{freq} días/semana</Text>
+                    <View className="bg-zinc-800 px-2 py-0.5 rounded-full">
+                      <Text className="text-zinc-500 text-xs font-mono">{plans.length}</Text>
+                    </View>
+                  </View>
+
+                  {plans.map((template) => {
+                    const isSelected = selectedTemplate === template.id;
+                    const isExpanded = expandedTemplate === template.id;
+
+                    return (
+                      <TouchableOpacity
+                        key={template.id}
+                        className={`bg-zinc-900 rounded-xl mb-2 border ${
+                          isSelected ? 'border-red-500 bg-red-600/5' : 'border-zinc-800'
+                        }`}
+                        onPress={() => setSelectedTemplate(isSelected ? null : template.id)}
+                        activeOpacity={0.7}
+                      >
+                        <View className="p-4">
+                          {/* Info principal */}
+                          <View className="flex-row items-start justify-between">
+                            <View className="flex-1">
+                              <View className="flex-row items-center gap-2">
+                                {isSelected && (
+                                  <View className="w-5 h-5 bg-red-600 rounded-full items-center justify-center">
+                                    <Check size={12} color="white" />
+                                  </View>
+                                )}
+                                <Text
+                                  className={`font-bold text-base ${
+                                    isSelected ? 'text-red-400' : 'text-white'
+                                  }`}
+                                >
+                                  {template.name}
+                                </Text>
+                              </View>
+
+                              {template.description && (
+                                <Text
+                                  className="text-zinc-500 text-xs mt-1"
+                                  numberOfLines={isExpanded ? undefined : 1}
+                                >
+                                  {template.description}
+                                </Text>
+                              )}
+
+                              {/* Tags */}
+                              <View className="flex-row flex-wrap gap-1.5 mt-2">
+                                {template.target_goals?.map((goal) => (
+                                  <View
+                                    key={goal}
+                                    className="px-2 py-0.5 rounded"
+                                    style={{ backgroundColor: `${getGoalColor(goal)}20` }}
+                                  >
+                                    <Text
+                                      className="text-[10px] font-mono font-bold"
+                                      style={{ color: getGoalColor(goal) }}
+                                    >
+                                      {goal}
+                                    </Text>
+                                  </View>
+                                ))}
+                                {template.target_levels?.map((level) => (
+                                  <View
+                                    key={level}
+                                    className="px-2 py-0.5 rounded"
+                                    style={{ backgroundColor: `${getLevelColor(level)}20` }}
+                                  >
+                                    <Text
+                                      className="text-[10px] font-mono font-bold"
+                                      style={{ color: getLevelColor(level) }}
+                                    >
+                                      {level}
+                                    </Text>
+                                  </View>
+                                ))}
+                              </View>
+                            </View>
+
+                            {/* Stats */}
+                            <View className="items-end ml-3">
+                              <Text className="text-zinc-500 text-xs font-mono">
+                                {totalExercises(template)} ejercicios
+                              </Text>
+                              <Text className="text-zinc-600 text-xs font-mono">
+                                {template.days?.length || 0} días
+                              </Text>
+                            </View>
+                          </View>
+
+                          {/* Expandir/contraer días */}
+                          <TouchableOpacity
+                            className="flex-row items-center justify-center mt-3 pt-2 border-t border-zinc-800"
+                            onPress={() => setExpandedTemplate(isExpanded ? null : template.id)}
+                          >
+                            <Text className="text-zinc-500 text-xs font-mono mr-1">
+                              {isExpanded ? 'Ocultar días' : 'Ver días'}
+                            </Text>
+                            {isExpanded ? (
+                              <ChevronUp size={14} color={COLORS.zinc500} />
+                            ) : (
+                              <ChevronDown size={14} color={COLORS.zinc500} />
+                            )}
+                          </TouchableOpacity>
+                        </View>
+
+                        {/* Detalle de días */}
+                        {isExpanded && template.days && (
+                          <View className="px-4 pb-4 border-t border-zinc-800 pt-3">
+                            {template.days.map((day) => (
+                              <View key={day.dayIndex} className="mb-3">
+                                <View className="flex-row items-center gap-2 mb-1.5">
+                                  <View className="w-6 h-6 bg-red-600/20 rounded-full items-center justify-center">
+                                    <Text className="text-red-400 text-[10px] font-bold">
+                                      D{day.dayIndex + 1}
+                                    </Text>
+                                  </View>
+                                  <Text className="text-white font-bold text-sm flex-1">
+                                    {day.name}
+                                  </Text>
+                                  <Text className="text-zinc-600 text-xs font-mono">
+                                    {day.exercises?.length || 0} ej.
+                                  </Text>
+                                </View>
+                                {day.exercises?.map((ex, idx) => (
+                                  <View
+                                    key={`${ex.exercise_id}-${idx}`}
+                                    className="flex-row items-center ml-8 mb-1"
+                                  >
+                                    <View className="w-1.5 h-1.5 bg-zinc-700 rounded-full mr-2" />
+                                    <Text
+                                      className="text-zinc-400 text-xs flex-1"
+                                      numberOfLines={1}
+                                    >
+                                      {ex.name}
+                                    </Text>
+                                    <Text className="text-zinc-600 text-[10px] font-mono">
+                                      {ex.series?.length || 0}×
+                                    </Text>
+                                  </View>
+                                ))}
+                              </View>
+                            ))}
+                          </View>
+                        )}
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              ))}
+            <View style={{ height: 120 }} />
+          </ScrollView>
+        )}
+
+        {/* Bottom Action Bar */}
+        {selectedTemplate && (
+          <View className="absolute bottom-0 left-0 right-0 p-4 pb-8 bg-black/95 border-t border-zinc-800">
+            <TouchableOpacity
+              className="bg-red-600 py-4 rounded-xl flex-row items-center justify-center"
+              onPress={() => onAssign(selectedTemplate)}
+              disabled={loading}
+              activeOpacity={0.8}
+            >
+              {loading ? (
+                <ActivityIndicator size="small" color="white" />
+              ) : (
+                <>
+                  <Dumbbell size={20} color="white" />
+                  <Text className="text-white font-bold text-base ml-2">Asignar Plan</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          </View>
+        )}
+      </View>
     </Modal>
   );
 }
@@ -503,6 +921,12 @@ export default function UsuarioDetailScreen() {
   // Modals
   const [roleModalVisible, setRoleModalVisible] = useState(false);
   const [grantProModalVisible, setGrantProModalVisible] = useState(false);
+  const [assignPlanModalVisible, setAssignPlanModalVisible] = useState(false);
+  const [currentPlan, setCurrentPlan] = useState<{
+    frequency: number;
+    routineNames: Record<string, string>;
+    planSource?: string;
+  } | null>(null);
 
   // -------------------------------------------------------------------------
   // FETCH USER
@@ -524,6 +948,14 @@ export default function UsuarioDetailScreen() {
         setUserCards(cardsData);
       } catch (e) {
         console.warn('No cards found:', e);
+      }
+
+      // Fetch current training plan
+      try {
+        const plan = await getUserCurrentPlan(id);
+        setCurrentPlan(plan);
+      } catch (e) {
+        console.warn('No plan found:', e);
       }
     } catch (err: any) {
       console.error('Error fetching user:', err);
@@ -569,6 +1001,35 @@ export default function UsuarioDetailScreen() {
         year: 'numeric',
       });
       Alert.alert('Éxito', `PRO hasta ${dateStr}`);
+    } catch (err: any) {
+      Alert.alert('Error', err.message);
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleAssignPlan = async (templateId: string) => {
+    if (!id || !user) return;
+    setActionLoading(true);
+    try {
+      const result = await assignPlanToUser(id, templateId);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setAssignPlanModalVisible(false);
+
+      // Actualizar info del plan actual
+      const plan = await getUserCurrentPlan(id);
+      setCurrentPlan(plan);
+
+      // Actualizar frecuencia mostrada
+      setUser({ ...user, training_frequency: result.frequency });
+
+      const errMsg =
+        result.errors.length > 0 ? `\n\n⚠️ No se asignaron: ${result.errors.join(', ')}` : '';
+
+      Alert.alert(
+        'Plan Asignado',
+        `${result.planName}\n${result.frequency} días/semana\n${result.exercisesCreated} ejercicios configurados${errMsg}`
+      );
     } catch (err: any) {
       Alert.alert('Error', err.message);
     } finally {
@@ -832,6 +1293,36 @@ export default function UsuarioDetailScreen() {
           )}
         </View>
 
+        {/* Current Training Plan */}
+        {currentPlan && (
+          <View className="bg-zinc-900 rounded-xl p-4 mt-4">
+            <View className="flex-row items-center justify-between mb-2">
+              <Text className="text-zinc-500 text-xs font-mono">PLAN DE ENTRENAMIENTO</Text>
+              <View className="bg-red-600/20 px-2 py-0.5 rounded">
+                <Text className="text-red-400 text-[10px] font-mono font-bold">
+                  {currentPlan.planSource?.toUpperCase() || 'MANUAL'}
+                </Text>
+              </View>
+            </View>
+            <InfoRow
+              icon={Dumbbell}
+              label="Frecuencia"
+              value={`${currentPlan.frequency} días/semana`}
+              color={COLORS.red}
+            />
+            {Object.entries(currentPlan.routineNames)
+              .sort(([a], [b]) => Number(a) - Number(b))
+              .map(([idx, name]) => (
+                <View key={idx} className="flex-row items-center py-2 border-b border-zinc-800">
+                  <View className="w-6 h-6 bg-red-600/20 rounded-full items-center justify-center">
+                    <Text className="text-red-400 text-[10px] font-bold">D{Number(idx) + 1}</Text>
+                  </View>
+                  <Text className="text-white text-sm ml-3 font-mono">{name}</Text>
+                </View>
+              ))}
+          </View>
+        )}
+
         {/* Subscription Info */}
         {user.subscription && (
           <View className="bg-zinc-900 rounded-xl p-4 mt-4">
@@ -873,6 +1364,13 @@ export default function UsuarioDetailScreen() {
             color={COLORS.green}
             onPress={handleImpersonate}
             loading={actionLoading}
+          />
+
+          <ActionButton
+            icon={Dumbbell}
+            label="Asignar Plan de Entrenamiento"
+            color={COLORS.red}
+            onPress={() => setAssignPlanModalVisible(true)}
           />
 
           <ActionButton
@@ -1038,6 +1536,14 @@ export default function UsuarioDetailScreen() {
         onGrant={handleGrantPro}
         loading={actionLoading}
         currentExpiresAt={user.role === 'pro' ? user.pro_expires_at : undefined}
+      />
+
+      <AssignPlanModal
+        visible={assignPlanModalVisible}
+        onClose={() => setAssignPlanModalVisible(false)}
+        onAssign={handleAssignPlan}
+        loading={actionLoading}
+        currentPlan={currentPlan}
       />
     </View>
   );

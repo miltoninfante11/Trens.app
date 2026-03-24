@@ -29,7 +29,9 @@ type Action =
   | 'get-payments' // Historial de pagos
   | 'get-cards' // Tarjetas guardadas del usuario
   | 'delete-card' // Eliminar tarjeta de un usuario
-  | 'impersonate'; // Iniciar sesión como otro usuario (solo CEO)
+  | 'impersonate' // Iniciar sesión como otro usuario (solo CEO)
+  | 'assign-plan' // Asignar plan de entrenamiento a usuario
+  | 'get-user-plan'; // Obtener plan actual del usuario
 
 interface CreateUserData {
   email: string;
@@ -55,6 +57,7 @@ interface RequestBody {
   proExpiresAt?: string; // Para PRO temporal
   createData?: CreateUserData; // Para crear usuario
   cardId?: string; // Para eliminar tarjeta
+  templateId?: string; // Para asignar plan de entrenamiento
 }
 
 serve(async (req) => {
@@ -998,6 +1001,156 @@ serve(async (req) => {
             success: true,
             token_hash: linkData.properties.hashed_token,
             email: targetProfile.email,
+          }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      // ================================================================
+      // ASIGNAR PLAN DE ENTRENAMIENTO
+      // ================================================================
+      case 'assign-plan': {
+        if (!userId) throw new Error('userId es requerido');
+        const templateId = body.templateId;
+        if (!templateId) throw new Error('templateId es requerido');
+
+        console.log(`🏋️ Assigning plan ${templateId} to user ${userId}`);
+
+        // 1. Obtener template
+        const { data: template, error: tplError } = await supabase
+          .from('training_plan_templates')
+          .select('*')
+          .eq('id', templateId)
+          .eq('is_active', true)
+          .single();
+
+        if (tplError || !template) {
+          throw new Error('Plan no encontrado o no está activo');
+        }
+
+        // 2. Construir nombres de rutina
+        const routineNames: Record<string, string> = {};
+        (template.days || []).forEach((day: any) => {
+          routineNames[String(day.dayIndex)] = day.name;
+        });
+
+        // 3. Actualizar profiles
+        const { error: profileError } = await supabase
+          .from('profiles')
+          .update({
+            training_frequency: template.frequency,
+            training_current_day: 0,
+            training_routine_names: routineNames,
+            plan_source: 'admin',
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', userId);
+
+        if (profileError) throw new Error('Error al actualizar perfil: ' + profileError.message);
+
+        // 4. Actualizar user_profiles
+        await supabase.from('user_profiles').upsert(
+          {
+            user_id: userId,
+            training_days_per_week: template.frequency,
+            training_experience: template.target_levels?.[0] || 'INTERMEDIO',
+            goal: template.target_goals?.[0] || 'HIPERTROFIA',
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: 'user_id' }
+        );
+
+        // 5. Eliminar ejercicios anteriores
+        await supabase.from('user_exercise_config').delete().eq('user_id', userId);
+
+        // 6. Crear ejercicios del template
+        let exercisesCreated = 0;
+        const exerciseErrors: string[] = [];
+
+        for (const day of template.days || []) {
+          for (const exercise of day.exercises || []) {
+            if (!exercise.exercise_id) continue;
+
+            const config = {
+              rest: exercise.rest || '90s',
+              sets: `${exercise.series?.length || 4}x10`,
+              custom_series: (exercise.series || []).map((s: any, idx: number) => ({
+                id: s.id || String(idx + 1),
+                type: s.type || 'EFECTIVA',
+                reps: s.reps || 10,
+                weight: 0,
+                rir: s.type === 'FALLO' ? 0 : 2,
+                tempo: '2-0-2-0',
+                restSeconds: parseInt(exercise.rest) || 90,
+                note: s.note || '',
+              })),
+              series_by_day: {},
+            };
+
+            const { error: insertError } = await supabase.from('user_exercise_config').insert({
+              user_id: userId,
+              exercise_id: exercise.exercise_id,
+              training_days: [day.dayIndex],
+              config,
+            });
+
+            if (insertError) {
+              console.error('Error inserting exercise:', exercise.name, insertError.message);
+              exerciseErrors.push(exercise.name || exercise.exercise_id);
+            } else {
+              exercisesCreated++;
+            }
+          }
+        }
+
+        console.log(
+          `✅ Plan "${template.name}" assigned: ${exercisesCreated} exercises, ${exerciseErrors.length} errors`
+        );
+
+        return new Response(
+          JSON.stringify({
+            success: true,
+            planName: template.name,
+            frequency: template.frequency,
+            exercisesCreated,
+            errors: exerciseErrors,
+          }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      // ================================================================
+      // OBTENER PLAN ACTUAL DEL USUARIO
+      // ================================================================
+      case 'get-user-plan': {
+        if (!userId) throw new Error('userId es requerido');
+
+        const { data: planData, error: planError } = await supabase
+          .from('profiles')
+          .select('training_frequency, training_routine_names, plan_source')
+          .eq('id', userId)
+          .single();
+
+        if (planError || !planData) {
+          return new Response(JSON.stringify({ success: true, plan: null }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+
+        if (!planData.training_frequency || planData.training_frequency === 0) {
+          return new Response(JSON.stringify({ success: true, plan: null }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+
+        return new Response(
+          JSON.stringify({
+            success: true,
+            plan: {
+              frequency: planData.training_frequency,
+              routineNames: planData.training_routine_names || {},
+              planSource: planData.plan_source,
+            },
           }),
           { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );

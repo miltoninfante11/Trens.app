@@ -20,6 +20,8 @@ export interface ShoppingIngredient {
   normalizedName: string; // Nombre normalizado para agrupar
   quantity: string;
   quantityGrams: number; // Cantidad en gramos para sumar
+  units?: number; // Cantidad en unidades (huevos, etc.)
+  isUnit?: boolean; // true si se muestra en unidades
   category: IngredientCategory;
   mealIds: string[]; // IDs de comidas que usan este ingrediente
   mealNames: string[]; // Nombres de comidas para referencia

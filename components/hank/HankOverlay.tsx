@@ -34,7 +34,6 @@ import Animated, {
 import * as Haptics from '../../lib/haptics';
 import {
   GitlabIcon as Bot,
-  Send,
   Mic,
   MicOff,
   ChevronDown,
@@ -58,19 +57,14 @@ import type {
   HankAnimationPhase,
   HankTarget,
 } from '../../types/hank';
+import { MessageBubble, type ChatMessage } from './MessageBubble';
+import { ThinkingIndicator } from './ThinkingIndicator';
+import { ConfirmationButtons } from './ConfirmationButtons';
+import { AnimatedSendButton } from './AnimatedSendButton';
 
 // ============================================================================
 // TYPES
 // ============================================================================
-interface ChatMessage {
-  id: string;
-  role: 'user' | 'hank';
-  content: string;
-  timestamp: Date;
-  results?: HankToolResult[];
-  pendingConfirmation?: boolean;
-  pendingToolCalls?: HankToolCall[];
-}
 
 // Tipo para mensajes de la base de datos
 interface DBUIMessage {
@@ -449,145 +443,6 @@ const HankFAB: React.FC<{
         )}
       </AnimatedPressable>
     </Animated.View>
-  );
-};
-
-// ============================================================================
-// CHAT MESSAGE BUBBLE - ED HARDY STYLE
-// ============================================================================
-const MessageBubble: React.FC<{ message: ChatMessage }> = ({ message }) => {
-  const isUser = message.role === 'user';
-
-  return (
-    <View className={`max-w-[85%] mb-3 ${isUser ? 'self-end' : 'self-start'}`}>
-      {/* Label - ED HARDY FIRE */}
-      <Text
-        className={`text-xs font-mono mb-1 font-bold tracking-wider ${isUser ? 'text-zinc-500 text-right' : ''}`}
-        style={{ color: isUser ? '#71717a' : '#F97316' }}
-      >
-        {isUser ? 'TÚ' : '🔥 HANK'}
-      </Text>
-
-      {/* Bubble - ED HARDY GLOW */}
-      <View
-        className={`px-4 py-3 rounded-2xl ${isUser ? 'rounded-tr-sm' : 'rounded-tl-sm'}`}
-        style={{
-          backgroundColor: isUser ? '#1a1a1a' : message.pendingConfirmation ? '#2d1a0a' : '#1a0a0a',
-          borderWidth: isUser ? 1 : 2,
-          borderColor: isUser ? '#27272a' : message.pendingConfirmation ? '#F97316' : '#DC262650',
-          shadowColor: isUser ? 'transparent' : '#DC2626',
-          shadowOffset: { width: 0, height: 0 },
-          shadowOpacity: isUser ? 0 : 0.2,
-          shadowRadius: 10,
-          elevation: isUser ? 0 : 3,
-        }}
-      >
-        <Text className="text-white text-base">{message.content}</Text>
-      </View>
-
-      {/* Tool Results - FIRE ACCENT */}
-      {message.results && message.results.length > 0 && (
-        <View className="mt-2 pl-2" style={{ borderLeftWidth: 3, borderLeftColor: '#F97316' }}>
-          {message.results.map((result, idx) => (
-            <Text
-              key={idx}
-              className="text-sm font-mono"
-              style={{ color: result.success ? '#22C55E' : '#DC2626' }}
-            >
-              {result.message}
-            </Text>
-          ))}
-        </View>
-      )}
-    </View>
-  );
-};
-
-// ============================================================================
-// CONFIRMATION BUTTONS
-// ============================================================================
-const ConfirmationButtons: React.FC<{
-  onConfirm: () => void;
-  onCancel: () => void;
-  isLoading: boolean;
-}> = ({ onConfirm, onCancel, isLoading }) => {
-  return (
-    <View className="flex-row justify-center gap-4 py-4">
-      <TouchableOpacity
-        onPress={onCancel}
-        disabled={isLoading}
-        className="flex-row items-center px-6 py-3 bg-zinc-800 rounded-full"
-      >
-        <X size={20} color="#EF4444" />
-        <Text className="text-red-500 font-bold ml-2">CANCELAR</Text>
-      </TouchableOpacity>
-
-      <TouchableOpacity
-        onPress={onConfirm}
-        disabled={isLoading}
-        className="flex-row items-center px-6 py-3 bg-red-600 rounded-full"
-      >
-        <Check size={20} color="#FFFFFF" />
-        <Text className="text-white font-bold ml-2">EJECUTAR</Text>
-      </TouchableOpacity>
-    </View>
-  );
-};
-
-// ============================================================================
-// THINKING INDICATOR
-// ============================================================================
-const ThinkingIndicator: React.FC = () => {
-  const dot1 = useSharedValue(0);
-  const dot2 = useSharedValue(0);
-  const dot3 = useSharedValue(0);
-
-  useEffect(() => {
-    const animateDot = (dotValue: SharedValue<number>, delay: number) => {
-      setTimeout(() => {
-        dotValue.value = withRepeat(
-          withSequence(withTiming(1, { duration: 300 }), withTiming(0, { duration: 300 })),
-          -1,
-          false
-        );
-      }, delay);
-    };
-
-    animateDot(dot1, 0);
-    animateDot(dot2, 150);
-    animateDot(dot3, 300);
-  }, [dot1, dot2, dot3]);
-
-  const dotStyle = (dotValue: SharedValue<number>) =>
-    useAnimatedStyle(() => ({
-      opacity: interpolate(dotValue.value, [0, 1], [0.3, 1]),
-      transform: [{ scale: interpolate(dotValue.value, [0, 1], [1, 1.3]) }],
-    }));
-
-  return (
-    <View className="self-start max-w-[85%] mb-3">
-      <Text className="text-xs font-mono mb-1 text-red-500">HANK</Text>
-      <View className="px-4 py-3 rounded-2xl bg-red-600/20 border border-red-600/30 rounded-tl-sm flex-row items-center">
-        <Animated.View
-          style={[
-            { width: 8, height: 8, borderRadius: 4, backgroundColor: '#DC2626', marginRight: 4 },
-            dotStyle(dot1),
-          ]}
-        />
-        <Animated.View
-          style={[
-            { width: 8, height: 8, borderRadius: 4, backgroundColor: '#DC2626', marginRight: 4 },
-            dotStyle(dot2),
-          ]}
-        />
-        <Animated.View
-          style={[
-            { width: 8, height: 8, borderRadius: 4, backgroundColor: '#DC2626' },
-            dotStyle(dot3),
-          ]}
-        />
-      </View>
-    </View>
   );
 };
 
@@ -1177,6 +1032,82 @@ export const HankOverlay: React.FC = () => {
   });
 
   const flatListRef = useRef<FlatList>(null);
+  const textInputRef = useRef<any>(null);
+
+  // Auto-resize textarea on web
+  const autoResizeInput = useCallback(() => {
+    if (Platform.OS !== 'web' || !textInputRef.current) return;
+    const el = textInputRef.current as any;
+    // Find the actual textarea DOM element
+    const textarea = el instanceof HTMLTextAreaElement ? el : el?.querySelector?.('textarea') || el;
+    if (textarea && textarea.style !== undefined) {
+      textarea.style.height = 'auto';
+      textarea.style.height = `${textarea.scrollHeight}px`;
+    }
+  }, []);
+
+  // Ref for direct DOM manipulation on web (avoids state re-render flicker)
+  const modalWebRef = useRef<any>(null);
+
+  // Lock body scroll + track viewport via direct DOM (no state = no flicker)
+  useEffect(() => {
+    if (Platform.OS !== 'web' || !isOpen) return;
+
+    // Lock background scroll on html + body
+    const scrollY = window.scrollY;
+    const html = document.documentElement;
+    const body = document.body;
+
+    html.style.overflow = 'hidden';
+    html.style.height = '100%';
+    body.style.overflow = 'hidden';
+    body.style.position = 'fixed';
+    body.style.width = '100%';
+    body.style.height = '100%';
+    body.style.top = `-${scrollY}px`;
+    body.style.overscrollBehavior = 'none';
+    body.style.touchAction = 'none';
+
+    // Apply viewport height + offset directly to DOM node (no React re-render)
+    const applyHeight = () => {
+      const node = modalWebRef.current;
+      if (!node) return;
+      const vv = (window as any).visualViewport;
+      if (vv) {
+        node.style.height = `${vv.height}px`;
+        node.style.top = `${vv.offsetTop}px`;
+        node.style.bottom = 'auto';
+      } else {
+        node.style.height = `${window.innerHeight}px`;
+      }
+    };
+
+    // Initial apply
+    requestAnimationFrame(applyHeight);
+
+    const vv = (window as any).visualViewport;
+    if (vv) {
+      vv.addEventListener('resize', applyHeight);
+      vv.addEventListener('scroll', applyHeight);
+    }
+
+    return () => {
+      if (vv) {
+        vv.removeEventListener('resize', applyHeight);
+        vv.removeEventListener('scroll', applyHeight);
+      }
+      html.style.overflow = '';
+      html.style.height = '';
+      body.style.overflow = '';
+      body.style.position = '';
+      body.style.width = '';
+      body.style.height = '';
+      body.style.top = '';
+      body.style.overscrollBehavior = '';
+      body.style.touchAction = '';
+      window.scrollTo(0, scrollY);
+    };
+  }, [isOpen]);
 
   // Ocultar en Feed y PRO
   const isHiddenInFeed =
@@ -1531,6 +1462,17 @@ export const HankOverlay: React.FC = () => {
     const messageText = inputText.trim();
     setMessages((prev) => [...prev, userMessage]);
     setInputText('');
+    // Haptic feedback on send
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    // Reset textarea height on web after sending
+    if (Platform.OS === 'web' && textInputRef.current) {
+      requestAnimationFrame(() => {
+        const el = textInputRef.current as any;
+        const textarea =
+          el instanceof HTMLTextAreaElement ? el : el?.querySelector?.('textarea') || el;
+        if (textarea?.style) textarea.style.height = 'auto';
+      });
+    }
 
     // NO cerrar el chat aquí - el useEffect detectará writeToolDetected y cerrará automáticamente
     // Esto permite que consultas/chat casual permanezcan con el chat abierto
@@ -1566,6 +1508,8 @@ export const HankOverlay: React.FC = () => {
     }
 
     setMessages((prev) => [...prev, hankMessage]);
+    // Haptic feedback on receive
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
     // Si hubo herramientas de ESCRITURA, esperar que termine la animación antes de reabrir
     if (hadWriteToolCalls) {
@@ -2144,11 +2088,20 @@ export const HankOverlay: React.FC = () => {
 
       {/* Chat Panel Modal */}
       <Modal visible={isOpen} transparent={true} animationType="slide" onRequestClose={handleClose}>
-        <View className="flex-1 bg-transparent justify-end">
+        <View
+          ref={Platform.OS === 'web' ? modalWebRef : undefined}
+          style={[
+            Platform.OS === 'web'
+              ? { position: 'absolute' as any, bottom: 0, left: 0, right: 0, height: '100%' }
+              : { flex: 1 },
+          ]}
+        >
+          {/* Spacer top - empuja el panel hacia abajo */}
+          <View style={{ height: Math.max(insets.top, 20) }} />
           <Animated.View
             style={[
               {
-                height: '92%',
+                flex: 1,
                 backgroundColor: '#0a0a0a',
                 borderTopLeftRadius: 24,
                 borderTopRightRadius: 24,
@@ -2177,8 +2130,9 @@ export const HankOverlay: React.FC = () => {
             />
 
             <KeyboardAvoidingView
-              behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+              behavior={Platform.OS === 'ios' ? 'padding' : undefined}
               className="flex-1"
+              enabled={Platform.OS !== 'web'}
             >
               {/* Header con PanResponder para cerrar deslizando */}
               <View
@@ -2235,12 +2189,16 @@ export const HankOverlay: React.FC = () => {
 
               {/* Input Area - con padding para la barra de navegación */}
               <View
-                className="flex-row items-center px-4 py-3 border-t border-zinc-800 bg-black"
+                className="flex-row items-end px-4 py-3 border-t border-zinc-800 bg-black"
                 style={{ paddingBottom: Math.max(insets.bottom, 12) }}
               >
                 <TextInput
+                  ref={textInputRef}
                   value={inputText}
-                  onChangeText={setInputText}
+                  onChangeText={(text) => {
+                    setInputText(text);
+                    requestAnimationFrame(autoResizeInput);
+                  }}
                   placeholder={
                     isRecording
                       ? '🎤 Grabando...'
@@ -2249,9 +2207,21 @@ export const HankOverlay: React.FC = () => {
                         : 'Escribe un comando...'
                   }
                   placeholderTextColor={isRecording ? '#DC2626' : '#71717A'}
-                  className="flex-1 bg-zinc-900 rounded-full px-5 py-3 text-white text-base mr-2"
+                  className="flex-1 bg-zinc-900 rounded-2xl px-4 text-white text-base mr-2"
+                  style={[
+                    {
+                      paddingTop: 10,
+                      paddingBottom: 10,
+                      maxHeight: SCREEN_HEIGHT * 0.4,
+                    },
+                    Platform.OS === 'web' && ({ resize: 'none', overflow: 'auto' } as any),
+                  ]}
+                  multiline
+                  numberOfLines={1}
+                  scrollEnabled
                   onSubmitEditing={handleSend}
-                  returnKeyType="send"
+                  blurOnSubmit={false}
+                  returnKeyType="default"
                   editable={!isProcessing && !isRecording && !isTranscribing && !pendingExecution}
                 />
 
@@ -2272,23 +2242,12 @@ export const HankOverlay: React.FC = () => {
                   )}
                 </TouchableOpacity>
 
-                {/* Send Button */}
-                <TouchableOpacity
+                {/* Send Button - Animated */}
+                <AnimatedSendButton
+                  hasText={!!inputText.trim()}
+                  isDisabled={isProcessing || !!pendingExecution}
                   onPress={handleSend}
-                  disabled={!inputText.trim() || isProcessing}
-                  className={`w-11 h-11 rounded-full items-center justify-center ${
-                    inputText.trim() && !isProcessing && !pendingExecution
-                      ? 'bg-red-600'
-                      : 'bg-zinc-800'
-                  }`}
-                >
-                  <Send
-                    size={20}
-                    color={
-                      inputText.trim() && !isProcessing && !pendingExecution ? '#FFFFFF' : '#71717A'
-                    }
-                  />
-                </TouchableOpacity>
+                />
               </View>
             </KeyboardAvoidingView>
           </Animated.View>
