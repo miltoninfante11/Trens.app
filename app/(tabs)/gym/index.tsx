@@ -6396,7 +6396,7 @@ function GymScreen() {
                                   className={`font-bold text-xs uppercase ${isActive ? 'text-white' : 'text-zinc-300'}`}
                                   numberOfLines={1}
                                 >
-                                  {muscleGroup}
+                                  {trainingProgram.days[index]?.muscleGroups || muscleGroup}
                                 </Text>
                               </View>
                               {isActive && (

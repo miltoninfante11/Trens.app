@@ -196,6 +196,14 @@ export const TodayCards: React.FC<TodayCardsProps> = ({ userId }) => {
       const trainingMode = userProfile?.training_mode || 'none';
       const externalSchedule = userProfile?.external_schedule || {};
 
+      // Cargar nombres guardados (fuente de verdad para renombramientos)
+      const { data: profileNames } = await supabase
+        .from('profiles')
+        .select('training_routine_names')
+        .eq('id', userId)
+        .single();
+      const routineNames = profileNames?.training_routine_names || {};
+
       // =====================================================================
       // 1A. SI ES MODO PERSONALIZADO - Usa el sistema rotativo de TRENS
       // =====================================================================
@@ -301,10 +309,12 @@ export const TodayCards: React.FC<TodayCardsProps> = ({ userId }) => {
         );
 
         if (todayTraining) {
-          // Limpiar prefijo "Día X:" si ya viene incluido en el valor
+          // Usar training_routine_names (fuente de verdad) > external_schedule > default
+          const savedName = routineNames[String(safeIndex)];
+          const cleanSaved = savedName ? savedName.replace(/^Día\s*\d+\s*:\s*/i, '') : null;
           const cleanTraining = todayTraining.replace(/^Día\s*\d+\s*:\s*/i, '');
           setWorkout({
-            routineName: cleanTraining,
+            routineName: cleanSaved || cleanTraining,
             exercises: externalExercises,
             isRestDay: false,
             isExternalMode: true,

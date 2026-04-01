@@ -988,23 +988,25 @@ function PlanScreen() {
         });
 
       if (todayExercisesA.length > 0 || todayExercisesB.length > 0) {
-        // Usar nombre de rutina guardado de la base de datos
+        // Usar nombre de rutina: training_routine_names > external_schedule > default
         const savedRoutineName = routineNames[String(currentTrainingDay)];
         const cleanRoutineName = savedRoutineName
           ? savedRoutineName.replace(/^Día\s*\d+\s*:\s*/i, '')
           : null;
         const finalRoutineName = dayHasDualSession
-          ? daySessionNames['0'] || externalRoutineName || cleanRoutineName || 'SESIÓN A'
-          : externalRoutineName || daySessionNames['0'] || cleanRoutineName || 'ENTRENAMIENTO';
+          ? daySessionNames['0'] || cleanRoutineName || externalRoutineName || 'SESIÓN A'
+          : cleanRoutineName || externalRoutineName || daySessionNames['0'] || 'ENTRENAMIENTO';
         setTodayRoutine(finalRoutineName);
         setTodayExercises(formatExercises(todayExercisesA));
         setTodayExercisesB(formatExercises(todayExercisesB));
 
         console.warn('🏋️ Rutina A:', finalRoutineName);
         console.warn('🏋️ Ejercicios A:', todayExercisesA.length, 'B:', todayExercisesB.length);
-      } else if (externalRoutineName) {
+      } else if (externalRoutineName || routineNames[String(currentTrainingDay)]) {
         // Modo externo sin ejercicios aún - mostrar nombre de rutina
-        setTodayRoutine(externalRoutineName);
+        const savedName = routineNames[String(currentTrainingDay)];
+        const cleanName = savedName ? savedName.replace(/^Día\s*\d+\s*:\s*/i, '') : null;
+        setTodayRoutine(cleanName || externalRoutineName || 'ENTRENAMIENTO');
         setTodayExercises([]);
         setTodayExercisesB([]);
         console.warn(`🏋️ PLAN [PERSONALIZADO]: ${externalRoutineName} (sin ejercicios)`);
