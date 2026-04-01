@@ -58,6 +58,7 @@ interface WorkoutBlockData {
   estimatedTime?: string | null;
   isFasted?: boolean;
   timeDescription?: string;
+  sessionLabel?: string; // "SESIÓN A" | "SESIÓN B" for dual session
 }
 
 interface WorkoutBlockProps {
@@ -189,7 +190,7 @@ export const WorkoutBlock: React.FC<WorkoutBlockProps> = ({
             </View>
             <View>
               <Text className="text-savage-red text-[10px] font-bold tracking-[2px] uppercase">
-                BLOQUE ENTRENO
+                {data.sessionLabel ? `${data.sessionLabel} •` : ''} BLOQUE ENTRENO
               </Text>
               <Text className="text-white font-black text-base tracking-tight">
                 {data.routineName}
@@ -411,6 +412,11 @@ export const WorkoutBlock: React.FC<WorkoutBlockProps> = ({
                 <Dumbbell size={18} color="#DC2626" />
               </View>
               <View>
+                {data.sessionLabel && (
+                  <Text className="text-savage-red text-[9px] font-bold tracking-[2px] uppercase mb-0.5">
+                    {data.sessionLabel}
+                  </Text>
+                )}
                 <Text
                   className="text-white font-black text-lg uppercase tracking-tight"
                   style={{

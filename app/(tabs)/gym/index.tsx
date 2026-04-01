@@ -44,6 +44,8 @@ import {
   Check,
   ChevronUp,
   Target,
+  MoreVertical,
+  Flame,
 } from 'lucide-react-native';
 import * as Haptics from '../../../lib/haptics';
 import { CameraView, useCameraPermissions } from 'expo-camera';
@@ -97,6 +99,8 @@ import { useSaveGuard } from '../../_layout';
 import cloudflareR2 from '../../../services/cloudflare/r2';
 import { useSport } from '../../../context/SportContext';
 import { calculateFabPositions } from '../../../constants/floatingTools';
+import { CardioBlock } from '../../../components/plan/CardioBlockCard';
+import { AddCardioModal, AddCardioData } from '../../../components/plan/AddCardioModal';
 
 // Import sport-specific screens
 import GarajeScreen from '../garaje';
@@ -702,6 +706,12 @@ function GymScreen() {
   const [editingDayIndex, setEditingDayIndex] = useState<number | null>(null);
   const [editingDayName, setEditingDayName] = useState('');
 
+  // Session Rename Modal State
+  const [sessionRenameModalVisible, setSessionRenameModalVisible] = useState(false);
+  const [renamingSessionDay, setRenamingSessionDay] = useState<number>(0);
+  const [renamingSessionIndex, setRenamingSessionIndex] = useState<number>(0);
+  const [renamingSessionName, setRenamingSessionName] = useState('');
+
   // Modal para agregar nuevo día con selección de grupos musculares
   const [addDayModalVisible, setAddDayModalVisible] = useState(false);
   const [selectedMuscleGroups, setSelectedMuscleGroups] = useState<string[]>([]);
@@ -917,6 +927,38 @@ function GymScreen() {
     currentDayIndex: 0,
   });
   const [selectedDayIndex, setSelectedDayIndex] = useState(0);
+
+  // ============================================================================
+  // DUAL SESSION STATE (2 entrenamientos por día)
+  // ============================================================================
+  const [selectedSessionIndex, setSelectedSessionIndex] = useState(0); // 0 = sesión A, 1 = sesión B
+  const selectedSessionIndexRef = useRef(0);
+  const [dualSessionEnabled, setDualSessionEnabled] = useState(false);
+  // Qué días tienen dual session habilitado: { "0": true, "2": true }
+  const [dualSessionDays, setDualSessionDays] = useState<Record<string, boolean>>({});
+  // Nombres de sesiones por día: { "0": {"0": "FUERZA", "1": "CARDIO"} }
+  const [sessionNames, setSessionNames] = useState<Record<string, Record<string, string>>>({});
+  // Menú de opciones del día (reemplaza el long-press directo a eliminar)
+  const [dayOptionsVisible, setDayOptionsVisible] = useState(false);
+  const [dayOptionsIndex, setDayOptionsIndex] = useState<number | null>(null);
+
+  // Modal selector de músculos para sesión (al agregar/editar sesión B)
+  const [sessionMuscleSelectorVisible, setSessionMuscleSelectorVisible] = useState(false);
+  const [sessionMuscleSelectorDay, setSessionMuscleSelectorDay] = useState<number>(0);
+  const [sessionMuscleSelectorSession, setSessionMuscleSelectorSession] = useState<number>(1);
+  const [sessionSelectedMuscles, setSessionSelectedMuscles] = useState<string[]>([]);
+  const [sessionMuscleSelectorMode, setSessionMuscleSelectorMode] = useState<'add' | 'edit'>('add');
+
+  // Modal opciones de sesión (long-press en session tab)
+  const [sessionOptionsVisible, setSessionOptionsVisible] = useState(false);
+  const [sessionOptionsDay, setSessionOptionsDay] = useState<number>(0);
+  const [sessionOptionsSession, setSessionOptionsSession] = useState<number>(0);
+
+  // Sincronizar ref de sesión
+  useEffect(() => {
+    selectedSessionIndexRef.current = selectedSessionIndex;
+  }, [selectedSessionIndex]);
+
   // BUGFIX: Ref para capturar el día seleccionado actual (evita closure stale en panResponder)
   const selectedDayIndexRef = useRef(0);
 
@@ -932,6 +974,152 @@ function GymScreen() {
   useEffect(() => {
     exerciseGroupsRef.current = exerciseGroups;
   }, [exerciseGroups]);
+
+  // ============================================================================
+  // CARDIO BLOCKS STATE
+  // ============================================================================
+  const [cardioBlocks, setCardioBlocks] = useState<CardioBlock[]>([]);
+  const [showCardioSection, setShowCardioSection] = useState(true);
+  const [showGymAddCardio, setShowGymAddCardio] = useState(false);
+  const [gymEditingCardioId, setGymEditingCardioId] = useState<string | null>(null);
+  const [gymEditingCardioData, setGymEditingCardioData] = useState<AddCardioData | null>(null);
+
+  // Fetch cardio blocks when screen is focused - filter by today
+  useEffect(() => {
+    const fetchCardioBlocks = async () => {
+      if (!user) return;
+      const today = new Date().getDay();
+      const { data } = await supabase
+        .from('cardio_blocks')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('display_order', { ascending: true });
+      if (data) {
+        // Filter by today's day of week
+        const todayBlocks = data.filter(
+          (c: { days_of_week?: number[] }) => c.days_of_week?.includes(today) ?? true
+        );
+        setCardioBlocks(todayBlocks);
+      }
+    };
+    fetchCardioBlocks();
+  }, [user]);
+
+  // Cardio CRUD handlers for Estructura modal
+  const handleGymAddCardio = async (data: AddCardioData) => {
+    if (!user) return;
+    try {
+      const newOrder = cardioBlocks.length;
+      const { data: inserted, error } = await supabase
+        .from('cardio_blocks')
+        .insert({
+          user_id: user.id,
+          training_day: 0,
+          scheduled_time: data.scheduled_time,
+          cardio_type: data.cardio_type,
+          activity: data.activity,
+          duration_minutes: data.duration_minutes,
+          intensity: data.intensity,
+          notes: data.notes,
+          is_fasted: false,
+          is_completed: false,
+          display_order: newOrder,
+          target_heart_rate: data.target_heart_rate,
+          speed: data.speed,
+          incline: data.incline,
+          days_of_week: data.days_of_week,
+          is_pre_workout: data.is_pre_workout,
+          is_post_workout: data.is_post_workout,
+          workout_session_index: data.workout_session_index,
+        })
+        .select()
+        .single();
+      if (error) {
+        console.error('Error adding cardio:', error);
+        return;
+      }
+      if (inserted) setCardioBlocks((prev) => [...prev, inserted as CardioBlock]);
+    } catch (err) {
+      console.error('Error adding cardio:', err);
+    }
+  };
+
+  const handleGymEditCardio = (cardioId: string) => {
+    const cardio = cardioBlocks.find((c) => c.id === cardioId);
+    if (!cardio) return;
+    setGymEditingCardioId(cardioId);
+    setGymEditingCardioData({
+      cardio_type: cardio.cardio_type as any,
+      activity: cardio.activity,
+      duration_minutes: cardio.duration_minutes,
+      intensity: cardio.intensity as any,
+      target_heart_rate: cardio.target_heart_rate ?? null,
+      speed: cardio.speed ?? null,
+      incline: cardio.incline ?? null,
+      scheduled_time: cardio.scheduled_time,
+      notes: cardio.notes || '',
+      days_of_week: cardio.days_of_week || [0, 1, 2, 3, 4, 5, 6],
+      is_pre_workout: cardio.is_pre_workout || false,
+      is_post_workout: cardio.is_post_workout || false,
+      workout_session_index: cardio.workout_session_index ?? 0,
+    });
+    setShowGymAddCardio(true);
+  };
+
+  const handleGymUpdateCardio = async (data: AddCardioData) => {
+    if (!gymEditingCardioId) return;
+    try {
+      const { data: updated, error } = await supabase
+        .from('cardio_blocks')
+        .update({
+          scheduled_time: data.scheduled_time,
+          cardio_type: data.cardio_type,
+          activity: data.activity,
+          duration_minutes: data.duration_minutes,
+          intensity: data.intensity,
+          notes: data.notes,
+          target_heart_rate: data.target_heart_rate,
+          speed: data.speed,
+          incline: data.incline,
+          days_of_week: data.days_of_week,
+          is_pre_workout: data.is_pre_workout,
+          is_post_workout: data.is_post_workout,
+          workout_session_index: data.workout_session_index,
+        })
+        .eq('id', gymEditingCardioId)
+        .select()
+        .single();
+      if (error) {
+        console.error('Error updating cardio:', error);
+        return;
+      }
+      if (updated) {
+        setCardioBlocks((prev) =>
+          prev.map((c) => (c.id === gymEditingCardioId ? (updated as CardioBlock) : c))
+        );
+      }
+    } catch (err) {
+      console.error('Error updating cardio:', err);
+    } finally {
+      setGymEditingCardioId(null);
+      setGymEditingCardioData(null);
+    }
+  };
+
+  const handleGymDeleteCardio = (cardioId: string) => {
+    Alert.alert('Eliminar Cardio', '¿Eliminar este bloque de cardio?', [
+      { text: 'Cancelar', style: 'cancel' },
+      {
+        text: 'Eliminar',
+        style: 'destructive',
+        onPress: async () => {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+          await supabase.from('cardio_blocks').delete().eq('id', cardioId);
+          setCardioBlocks((prev) => prev.filter((c) => c.id !== cardioId));
+        },
+      },
+    ]);
+  };
 
   // Estado para editar nombre de rutina
   const [editingRoutineName, setEditingRoutineName] = useState(false);
@@ -1177,6 +1365,7 @@ function GymScreen() {
       structureModalVisible || // Modal de focus series (ejercicio individual)
       seriesConfigModalVisible ||
       dayNameModalVisible ||
+      sessionRenameModalVisible ||
       addDayModalVisible ||
       cameraModalVisible ||
       modalVisible ||
@@ -1189,6 +1378,7 @@ function GymScreen() {
     structureModalVisible,
     seriesConfigModalVisible,
     dayNameModalVisible,
+    sessionRenameModalVisible,
     addDayModalVisible,
     cameraModalVisible,
     modalVisible,
@@ -1593,7 +1783,7 @@ function GymScreen() {
 
     // Paso 2: Cargar datos frescos desde Supabase
     console.log('📥 closeStructure: Cargando ejercicios frescos para día:', targetDay);
-    await loadExercises(targetDay, true);
+    await loadExercises(targetDay, true, selectedSessionIndexRef.current);
 
     // Paso 3: Incrementar key para forzar re-render del FlatList con datos nuevos
     setListRefreshKey((prev) => prev + 1);
@@ -1994,7 +2184,7 @@ function GymScreen() {
       // ===========================================================================
       const { data: userProfileData, error: profileError } = await supabase
         .from('user_profiles')
-        .select('training_mode, external_schedule')
+        .select('training_mode, external_schedule, dual_session_enabled')
         .eq('user_id', user.id)
         .single();
 
@@ -2005,6 +2195,10 @@ function GymScreen() {
 
       const trainingMode = userProfileData?.training_mode || 'none';
       const extSchedule = userProfileData?.external_schedule || {};
+
+      // Cargar config de dual session
+      const isDualEnabled = userProfileData?.dual_session_enabled ?? false;
+      setDualSessionEnabled(isDualEnabled);
 
       console.warn('🔍 GYM MODO:', {
         trainingMode,
@@ -2114,10 +2308,25 @@ function GymScreen() {
       const { data: profile } = await supabase
         .from('profiles')
         .select(
-          'training_last_access, training_current_day, training_routine_names, training_frequency'
+          'training_last_access, training_current_day, training_routine_names, training_frequency, training_session_names'
         )
         .eq('id', user.id)
         .single();
+
+      // Cargar nombres de sesiones
+      if (profile?.training_session_names) {
+        setSessionNames(profile.training_session_names as Record<string, Record<string, string>>);
+        // Determinar qué días tienen dual session
+        const dsDays: Record<string, boolean> = {};
+        Object.entries(
+          profile.training_session_names as Record<string, Record<string, string>>
+        ).forEach(([dayIdx, sessions]) => {
+          if (sessions && sessions['1']) {
+            dsDays[dayIdx] = true;
+          }
+        });
+        setDualSessionDays(dsDays);
+      }
 
       // Cargar frecuencia desde la base de datos (0 significa sin plan)
       const savedFrequency = profile?.training_frequency ?? 0;
@@ -2245,6 +2454,470 @@ function GymScreen() {
     }
   };
 
+  // ============================================================================
+  // DAY OPTIONS MENU (Long-press / 3-dot menu)
+  // ============================================================================
+  const showDayOptions = (dayIndex: number) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+    setDayOptionsIndex(dayIndex);
+    setDayOptionsVisible(true);
+  };
+
+  // Toggle dual session para un día específico
+  const toggleDualSessionForDay = async (dayIndex: number) => {
+    if (!user) return;
+    const dayKey = String(dayIndex);
+    const currentlyEnabled = dualSessionDays[dayKey] ?? false;
+
+    if (currentlyEnabled) {
+      // Desactivar: confirmar que se eliminarán ejercicios de sesión B
+      Alert.alert(
+        'Desactivar 2° Entrenamiento',
+        '¿Eliminar la sesión B y todos sus ejercicios de este día?',
+        [
+          { text: 'Cancelar', style: 'cancel' },
+          {
+            text: 'Desactivar',
+            style: 'destructive',
+            onPress: async () => {
+              // Eliminar ejercicios de sesión B para este día
+              const { data: sessionBExercises } = await supabase
+                .from('user_exercise_config')
+                .select('id, training_days')
+                .eq('user_id', user.id)
+                .eq('session_index', 1);
+
+              if (sessionBExercises) {
+                for (const ex of sessionBExercises) {
+                  const days: number[] = ex.training_days || [];
+                  if (days.includes(dayIndex)) {
+                    const newDays = days.filter((d: number) => d !== dayIndex);
+                    if (newDays.length === 0) {
+                      await supabase.from('user_exercise_config').delete().eq('id', ex.id);
+                    } else {
+                      await supabase
+                        .from('user_exercise_config')
+                        .update({ training_days: newDays })
+                        .eq('id', ex.id);
+                    }
+                  }
+                }
+              }
+
+              // Actualizar state
+              const newDsDays = { ...dualSessionDays };
+              delete newDsDays[dayKey];
+              setDualSessionDays(newDsDays);
+
+              // Limpiar nombres de sesión B
+              const newNames = { ...sessionNames };
+              if (newNames[dayKey]) {
+                delete newNames[dayKey]['1'];
+              }
+              setSessionNames(newNames);
+
+              // Guardar en DB
+              await supabase
+                .from('profiles')
+                .update({ training_session_names: newNames })
+                .eq('id', user.id);
+
+              // Si ya no hay ningún día con dual session, desactivar globalmente
+              if (Object.keys(newDsDays).length === 0) {
+                setDualSessionEnabled(false);
+                await supabase
+                  .from('user_profiles')
+                  .update({ dual_session_enabled: false })
+                  .eq('user_id', user.id);
+              }
+
+              // Resetear a sesión A
+              setSelectedSessionIndex(0);
+              loadExercises(dayIndex, true, 0);
+
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+            },
+          },
+        ]
+      );
+    } else {
+      // Activar dual session: abrir selector de músculos para la sesión B
+      setDayOptionsVisible(false);
+      setSessionMuscleSelectorDay(dayIndex);
+      setSessionMuscleSelectorSession(1);
+      setSessionSelectedMuscles([]);
+      setSessionMuscleSelectorMode('add');
+      setSessionMuscleSelectorVisible(true);
+
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    }
+    setDayOptionsVisible(false);
+  };
+
+  // ============================================================================
+  // CONFIRM SESSION MUSCLE SELECTION (crear o editar nombre de sesión)
+  // ============================================================================
+  const confirmSessionMuscleSelection = async (muscles: string[]) => {
+    if (!user || muscles.length === 0) return;
+
+    const dayIndex = sessionMuscleSelectorDay;
+    const sessionIndex = sessionMuscleSelectorSession;
+    const dayKey = String(dayIndex);
+    const sessionKey = String(sessionIndex);
+    const muscleName = muscles.join(' + ');
+
+    if (sessionMuscleSelectorMode === 'add') {
+      // Activar dual session para este día
+      const newDsDays = { ...dualSessionDays, [dayKey]: true };
+      setDualSessionDays(newDsDays);
+
+      // Crear nombres
+      const newNames = { ...sessionNames };
+      if (!newNames[dayKey]) newNames[dayKey] = {};
+      if (!newNames[dayKey]['0']) {
+        const dayData = trainingProgram.days[dayIndex];
+        const currentName =
+          dayData?.muscleGroups?.replace(/^D[íi]a\s*\d+\s*:\s*/i, '') || 'SESIÓN A';
+        newNames[dayKey]['0'] = currentName;
+      }
+      newNames[dayKey][sessionKey] = muscleName;
+      setSessionNames(newNames);
+
+      // Activar globalmente
+      setDualSessionEnabled(true);
+
+      // Guardar en DB
+      await supabase
+        .from('profiles')
+        .update({ training_session_names: newNames })
+        .eq('id', user.id);
+      await supabase
+        .from('user_profiles')
+        .update({ dual_session_enabled: true })
+        .eq('user_id', user.id);
+
+      // Cambiar a sesión B
+      setSelectedSessionIndex(1);
+      loadExercises(dayIndex, true, 1);
+    } else {
+      // Editar: solo cambiar el nombre de la sesión
+      const newNames = { ...sessionNames };
+      if (!newNames[dayKey]) newNames[dayKey] = {};
+      newNames[dayKey][sessionKey] = muscleName;
+      setSessionNames(newNames);
+
+      // Si es sesión A (index 0), también actualizar el nombre del día
+      if (sessionIndex === 0) {
+        setTrainingProgram((prev) => ({
+          ...prev,
+          days: prev.days.map((day, idx) =>
+            idx === dayIndex ? { ...day, muscleGroups: muscleName } : day
+          ),
+        }));
+
+        // Actualizar training_routine_names
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('training_routine_names')
+          .eq('id', user.id)
+          .single();
+        const currentNames = profile?.training_routine_names || {};
+        await supabase
+          .from('profiles')
+          .update({
+            training_routine_names: { ...currentNames, [dayKey]: muscleName },
+            training_session_names: newNames,
+          })
+          .eq('id', user.id);
+      } else {
+        await supabase
+          .from('profiles')
+          .update({ training_session_names: newNames })
+          .eq('id', user.id);
+      }
+    }
+
+    setSessionMuscleSelectorVisible(false);
+    setSessionSelectedMuscles([]);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  };
+
+  // ============================================================================
+  // SESSION OPTIONS (long-press en session tab)
+  // ============================================================================
+  const showSessionOptions = (dayIndex: number, sessionIndex: number) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+    setSessionOptionsDay(dayIndex);
+    setSessionOptionsSession(sessionIndex);
+    setSessionOptionsVisible(true);
+  };
+
+  // SAVE SESSION NAME - Renombrar sesión de entrenamiento
+  const saveSessionName = async (dayIndex: number, sessionIndex: number, newName: string) => {
+    if (!user || !newName.trim()) return;
+    const dayKey = String(dayIndex);
+    const sessionKey = String(sessionIndex);
+    const newNames = { ...sessionNames };
+    if (!newNames[dayKey]) newNames[dayKey] = {};
+    newNames[dayKey][sessionKey] = newName.trim().toUpperCase();
+    setSessionNames(newNames);
+    await supabase.from('profiles').update({ training_session_names: newNames }).eq('id', user.id);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  };
+
+  const deleteSession = async (dayIndex: number, sessionIndex: number) => {
+    if (!user) return;
+    const dayKey = String(dayIndex);
+
+    if (sessionIndex === 0) {
+      // No se puede eliminar sesión A si hay sesión B activa
+      Alert.alert(
+        'No disponible',
+        'No puedes eliminar la sesión A mientras la sesión B esté activa. Elimina primero la sesión B.'
+      );
+      return;
+    }
+
+    // Eliminar sesión B (misma lógica que desactivar dual session)
+    Alert.alert(
+      'Eliminar sesión',
+      `¿Eliminar "${sessionNames[dayKey]?.[String(sessionIndex)] || 'SESIÓN B'}" y todos sus ejercicios?`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Eliminar',
+          style: 'destructive',
+          onPress: async () => {
+            // Eliminar ejercicios de esta sesión
+            const { data: sessionExercises } = await supabase
+              .from('user_exercise_config')
+              .select('id, training_days')
+              .eq('user_id', user.id)
+              .eq('session_index', sessionIndex);
+
+            if (sessionExercises) {
+              for (const ex of sessionExercises) {
+                const days: number[] = ex.training_days || [];
+                if (days.includes(dayIndex)) {
+                  const newDays = days.filter((d: number) => d !== dayIndex);
+                  if (newDays.length === 0) {
+                    await supabase.from('user_exercise_config').delete().eq('id', ex.id);
+                  } else {
+                    await supabase
+                      .from('user_exercise_config')
+                      .update({ training_days: newDays })
+                      .eq('id', ex.id);
+                  }
+                }
+              }
+            }
+
+            // Actualizar state
+            const newDsDays = { ...dualSessionDays };
+            delete newDsDays[dayKey];
+            setDualSessionDays(newDsDays);
+
+            // Limpiar nombres de sesión
+            const newNames = { ...sessionNames };
+            if (newNames[dayKey]) {
+              delete newNames[dayKey][String(sessionIndex)];
+            }
+            setSessionNames(newNames);
+
+            // Guardar en DB
+            await supabase
+              .from('profiles')
+              .update({ training_session_names: newNames })
+              .eq('id', user.id);
+
+            if (Object.keys(newDsDays).length === 0) {
+              setDualSessionEnabled(false);
+              await supabase
+                .from('user_profiles')
+                .update({ dual_session_enabled: false })
+                .eq('user_id', user.id);
+            }
+
+            setSelectedSessionIndex(0);
+            loadExercises(dayIndex, true, 0);
+            setSessionOptionsVisible(false);
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+          },
+        },
+      ]
+    );
+  };
+
+  // ============================================================================
+  // DELETE DAY - Lógica extraída para uso desde menú de opciones
+  // ============================================================================
+  const handleDeleteDay = async (deletedDayIndex: number) => {
+    if (!user) return;
+
+    try {
+      if (isExternalMode) {
+        // MODO PERSONALIZADO
+        const dayName = Object.keys(externalSchedule)[deletedDayIndex] || '';
+        const newSchedule = { ...externalSchedule };
+        delete newSchedule[dayName];
+
+        await supabase
+          .from('user_profiles')
+          .update({
+            external_schedule: newSchedule,
+            training_days_per_week: Object.keys(newSchedule).length,
+          })
+          .eq('user_id', user.id);
+
+        const newRoutineNames: Record<string, string> = {};
+        Object.entries(newSchedule).forEach(([day, muscle], idx) => {
+          newRoutineNames[String(idx)] = `${day}: ${muscle}`;
+        });
+
+        await supabase
+          .from('profiles')
+          .update({
+            training_frequency: Object.keys(newSchedule).length,
+            training_routine_names: newRoutineNames,
+          })
+          .eq('id', user.id);
+
+        // Reindexar ejercicios
+        await reindexExercisesAfterDayDelete(deletedDayIndex);
+
+        setExternalSchedule(newSchedule);
+        setTrainingProgram((prev) => ({
+          ...prev,
+          frequency: Object.keys(newSchedule).length,
+          days: Object.entries(newSchedule).map(([day, muscle], idx) => ({
+            id: String(idx + 1),
+            muscleGroups: `${day}: ${muscle}`,
+            exercises: [],
+          })),
+        }));
+
+        if (Object.keys(newSchedule).length === 0) {
+          await supabase
+            .from('user_profiles')
+            .update({ training_mode: 'none' })
+            .eq('user_id', user.id);
+          setIsExternalMode(false);
+        }
+
+        const newIndex = Math.max(
+          0,
+          Math.min(selectedDayIndex, Object.keys(newSchedule).length - 1)
+        );
+        syncSelectedDay(newIndex);
+        loadExercises(newIndex);
+      } else {
+        // MODO GYM MODULE
+        const updatedDays = trainingProgram.days.filter((_, i) => i !== deletedDayIndex);
+        const newSelectedIndex =
+          updatedDays.length > 0 ? Math.min(selectedDayIndex, updatedDays.length - 1) : 0;
+
+        setTrainingProgram((prev) => ({
+          ...prev,
+          frequency: updatedDays.length,
+          days: updatedDays.map((d, i) => ({ ...d, id: String(i + 1) })),
+          currentDayIndex:
+            updatedDays.length > 0 ? Math.min(prev.currentDayIndex, updatedDays.length - 1) : 0,
+        }));
+        setSelectedDayIndex(newSelectedIndex);
+
+        const updatedNames: Record<string, string> = {};
+        updatedDays.forEach((d, i) => {
+          updatedNames[String(i)] = d.muscleGroups;
+        });
+
+        await supabase
+          .from('profiles')
+          .update({
+            training_frequency: updatedDays.length,
+            training_current_day:
+              updatedDays.length > 0
+                ? Math.min(trainingProgram.currentDayIndex, updatedDays.length - 1)
+                : 0,
+            training_routine_names: updatedNames,
+          })
+          .eq('id', user.id);
+
+        await reindexExercisesAfterDayDelete(deletedDayIndex);
+        loadExercises(newSelectedIndex);
+      }
+
+      // Limpiar dual session data del día eliminado
+      const newDsDays = { ...dualSessionDays };
+      delete newDsDays[String(deletedDayIndex)];
+      // Reindexar dual session days
+      const reindexedDsDays: Record<string, boolean> = {};
+      Object.entries(newDsDays).forEach(([key, val]) => {
+        const num = parseInt(key);
+        reindexedDsDays[String(num > deletedDayIndex ? num - 1 : num)] = val;
+      });
+      setDualSessionDays(reindexedDsDays);
+
+      // Reindexar session names
+      const newSNames: Record<string, Record<string, string>> = {};
+      Object.entries(sessionNames).forEach(([key, val]) => {
+        const num = parseInt(key);
+        if (num !== deletedDayIndex) {
+          newSNames[String(num > deletedDayIndex ? num - 1 : num)] = val;
+        }
+      });
+      setSessionNames(newSNames);
+      await supabase
+        .from('profiles')
+        .update({ training_session_names: newSNames })
+        .eq('id', user.id);
+
+      setSelectedSessionIndex(0);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+    } catch (error) {
+      console.error('Error deleting day:', error);
+    }
+  };
+
+  // Helper: Reindexar training_days y series_by_day de todos los ejercicios después de eliminar un día
+  const reindexExercisesAfterDayDelete = async (deletedDayIndex: number) => {
+    if (!user) return;
+    const { data: userExercises } = await supabase
+      .from('user_exercise_config')
+      .select('id, training_days, config')
+      .eq('user_id', user.id);
+
+    if (!userExercises) return;
+
+    for (const ex of userExercises) {
+      const currentDays: number[] = ex.training_days || [];
+      const newDays = currentDays
+        .filter((d: number) => d !== deletedDayIndex)
+        .map((d: number) => (d > deletedDayIndex ? d - 1 : d));
+
+      const config = ex.config || {};
+      const seriesByDay = (config.series_by_day as Record<string, unknown>) || {};
+      const newSeriesByDay: Record<string, unknown> = {};
+      Object.entries(seriesByDay).forEach(([dayKey, series]) => {
+        const dayNum = parseInt(dayKey);
+        if (dayNum !== deletedDayIndex) {
+          newSeriesByDay[String(dayNum > deletedDayIndex ? dayNum - 1 : dayKey)] = series;
+        }
+      });
+
+      if (newDays.length === 0) {
+        await supabase.from('user_exercise_config').delete().eq('id', ex.id);
+      } else {
+        await supabase
+          .from('user_exercise_config')
+          .update({
+            training_days: newDays,
+            config: { ...config, series_by_day: newSeriesByDay },
+          })
+          .eq('id', ex.id);
+      }
+    }
+  };
+
   // Guardar nombre de rutina en la base de datos
   const saveRoutineName = async (dayIndex: number, newName: string) => {
     // Guard: Verificar si puede guardar
@@ -2358,11 +3031,11 @@ function GymScreen() {
     }
   }, [user]);
 
-  // Recargar ejercicios cuando cambie el día seleccionado o el usuario
+  // Recargar ejercicios cuando cambie el día, sesión o el usuario
   useEffect(() => {
     // Cargar ejercicios siempre - con o sin usuario
-    loadExercises(selectedDayIndex);
-  }, [selectedDayIndex, user]);
+    loadExercises(selectedDayIndex, false, selectedSessionIndex);
+  }, [selectedDayIndex, selectedSessionIndex, user]);
 
   // Ref para mantener el índice del ejercicio activo de forma persistente
   // Esto evita que se pierda cuando se recarga la lista
@@ -2406,7 +3079,11 @@ function GymScreen() {
     }
   }, [refreshTrigger]);
 
-  const loadExercises = async (dayIndex: number | null = null, silent: boolean = false) => {
+  const loadExercises = async (
+    dayIndex: number | null = null,
+    silent: boolean = false,
+    sessionIdx: number | null = null
+  ) => {
     // Si no hay usuario, mostrar modal de estructura
     if (!user) {
       setExercises([]);
@@ -2420,6 +3097,7 @@ function GymScreen() {
       setLoading(true);
     }
     const targetDayIndex = dayIndex !== null ? dayIndex : selectedDayIndex;
+    const targetSessionIndex = sessionIdx !== null ? sessionIdx : selectedSessionIndexRef.current;
 
     try {
       // NUEVA ARQUITECTURA: Cargar desde exercises + user_exercise_config
@@ -2436,6 +3114,7 @@ function GymScreen() {
           custom_media_url,
           personal_records,
           notes,
+          session_index,
           created_at,
           updated_at,
           exercises (
@@ -2509,6 +3188,7 @@ function GymScreen() {
             name: exercise?.name || 'UNNAMED',
             media_url: mediaUrl,
             training_days: item.training_days || [0],
+            session_index: item.session_index ?? 0,
             order: item.display_order || 0,
             deleted_at: null,
             created_at: item.created_at,
@@ -2540,11 +3220,12 @@ function GymScreen() {
 
       console.log('📊 Ejercicios en DB:', data.length, '→ Válidos:', validData.length);
 
-      // Filtrar los datos ya mapeados por día de entrenamiento
+      // Filtrar los datos ya mapeados por día de entrenamiento Y sesión
       const filteredData =
         validData?.filter((item: any) => {
           const itemDays = item.training_days || [0];
-          return itemDays.includes(targetDayIndex);
+          const itemSession = item.session_index ?? 0;
+          return itemDays.includes(targetDayIndex) && itemSession === targetSessionIndex;
         }) || [];
 
       console.log(
@@ -3000,6 +3681,7 @@ function GymScreen() {
     setAdding(true);
     try {
       const targetDay = selectedDayIndex;
+      const targetSession = selectedSessionIndexRef.current;
       const groupExerciseIds: string[] = [];
 
       // 1. Agregar cada ejercicio del grupo al día (si no existe ya)
@@ -3007,12 +3689,13 @@ function GymScreen() {
         // Guardar el exercise_id (template.id) para el grupo
         groupExerciseIds.push(template.id);
 
-        // Verificar si ya existe configuración para este ejercicio en este día
+        // Verificar si ya existe configuración para este ejercicio en esta sesión
         const { data: existingConfig } = await supabase
           .from('user_exercise_config')
           .select('id, training_days')
           .eq('user_id', user.id)
           .eq('exercise_id', template.id)
+          .eq('session_index', targetSession)
           .maybeSingle();
 
         if (existingConfig) {
@@ -3034,6 +3717,7 @@ function GymScreen() {
             exercise_id: template.id,
             training_days: [targetDay],
             display_order: exercises.length + groupExerciseIds.length - 1,
+            session_index: targetSession,
             config: {
               sets: template.default_metadata.sets,
               rest: template.default_metadata.rest,
@@ -3063,7 +3747,7 @@ function GymScreen() {
       }
 
       // 3. Recargar ejercicios para reflejar cambios
-      await loadExercises(targetDay, true);
+      await loadExercises(targetDay, true, targetSession);
 
       // 4. Limpiar estado
       setCatalogGroupMode(false);
@@ -4064,15 +4748,17 @@ function GymScreen() {
 
     // BUGFIX: Capturar el día actual al inicio de la operación para evitar race conditions
     const targetDay = selectedDayIndex;
+    const targetSession = selectedSessionIndexRef.current;
 
     setAdding(true);
     try {
-      // Verificar si ya existe configuración para este ejercicio
+      // Verificar si ya existe configuración para este ejercicio EN ESTA SESIÓN
       const { data: existingConfig, error: searchError } = await supabase
         .from('user_exercise_config')
         .select('*')
         .eq('user_id', user.id)
         .eq('exercise_id', template.id)
+        .eq('session_index', targetSession)
         .maybeSingle();
 
       if (searchError) {
@@ -4133,6 +4819,7 @@ function GymScreen() {
             exercise_id: template.id,
             training_days: [targetDay],
             display_order: exercises.length,
+            session_index: targetSession,
             config: {
               sets: customSeries
                 ? `${customSeries.length}x${customSeries[0]?.reps || 10}`
@@ -4185,7 +4872,7 @@ function GymScreen() {
 
         // BUGFIX: Cargar ejercicios inmediatamente para obtener alternativas
         // No usar setTimeout ya que puede causar race conditions al cerrar el modal
-        await loadExercises(targetDay, true);
+        await loadExercises(targetDay, true, targetSession);
       }
     } catch (error) {
       console.error('💥 Error adding exercise:', error);
@@ -4292,18 +4979,20 @@ function GymScreen() {
 
     // BUGFIX: Capturar el día actual al inicio de la operación para evitar race conditions
     const targetDay = selectedDayIndex;
+    const targetSession = selectedSessionIndexRef.current;
 
     setAdding(true);
     try {
       // NUEVA ARQUITECTURA: Usar user_exercise_config en lugar de user_assets
       // El template.id ahora es el exercise_id del catálogo global
 
-      // Verificar si ya existe configuración para este ejercicio
+      // Verificar si ya existe configuración para este ejercicio EN ESTA SESIÓN
       const { data: existingConfig, error: searchError } = await supabase
         .from('user_exercise_config')
         .select('*')
         .eq('user_id', user.id)
         .eq('exercise_id', template.id)
+        .eq('session_index', targetSession)
         .maybeSingle();
 
       if (searchError) {
@@ -4371,6 +5060,7 @@ function GymScreen() {
             exercise_id: template.id, // Referencia al ejercicio global
             training_days: [targetDay],
             display_order: exercises.length,
+            session_index: targetSession,
             config: {
               sets: customSeries
                 ? `${customSeries.length}x${customSeries[0]?.reps || 10}`
@@ -4424,7 +5114,7 @@ function GymScreen() {
 
         // BUGFIX: Cargar ejercicios inmediatamente para obtener alternativas
         // No usar setTimeout ya que puede causar race conditions al cerrar el modal
-        await loadExercises(targetDay, true);
+        await loadExercises(targetDay, true, targetSession);
       }
     } catch (error) {
       console.error('💥 Error adding exercise:', error);
@@ -5622,149 +6312,7 @@ function GymScreen() {
                             }}
                             onLongPress={() => {
                               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-                              Alert.alert(
-                                '🗑️ Eliminar día',
-                                `¿Eliminar "${dayName}: ${muscleGroup}" de tu plan personalizado?`,
-                                [
-                                  { text: 'Cancelar', style: 'cancel' },
-                                  {
-                                    text: 'Eliminar',
-                                    style: 'destructive',
-                                    onPress: async () => {
-                                      const deletedDayIndex = index;
-
-                                      // Eliminar el día del external_schedule
-                                      const newSchedule = { ...externalSchedule };
-                                      delete newSchedule[dayName];
-
-                                      // Actualizar en Supabase
-                                      if (user) {
-                                        // 1. Actualizar external_schedule en user_profiles
-                                        await supabase
-                                          .from('user_profiles')
-                                          .update({
-                                            external_schedule: newSchedule,
-                                            training_days_per_week: Object.keys(newSchedule).length,
-                                          })
-                                          .eq('user_id', user.id);
-
-                                        // 2. SINCRONIZAR: También actualizar profiles para evitar desincronización
-                                        const newRoutineNames: Record<string, string> = {};
-                                        Object.entries(newSchedule).forEach(
-                                          ([day, muscle], idx) => {
-                                            newRoutineNames[String(idx)] = `${day}: ${muscle}`;
-                                          }
-                                        );
-
-                                        await supabase
-                                          .from('profiles')
-                                          .update({
-                                            training_frequency: Object.keys(newSchedule).length,
-                                            training_routine_names: newRoutineNames,
-                                          })
-                                          .eq('id', user.id);
-
-                                        // 3. ELIMINAR/ACTUALIZAR EJERCICIOS del día eliminado
-                                        const { data: userExercises } = await supabase
-                                          .from('user_exercise_config')
-                                          .select('id, training_days, config')
-                                          .eq('user_id', user.id);
-
-                                        if (userExercises) {
-                                          for (const ex of userExercises) {
-                                            const currentDays: number[] = ex.training_days || [];
-                                            // Remover el día eliminado y reindexar días mayores
-                                            const newDays = currentDays
-                                              .filter((d: number) => d !== deletedDayIndex)
-                                              .map((d: number) =>
-                                                d > deletedDayIndex ? d - 1 : d
-                                              );
-
-                                            // Limpiar series_by_day en config
-                                            const config = ex.config || {};
-                                            const seriesByDay =
-                                              (config.series_by_day as Record<string, unknown>) ||
-                                              {};
-                                            const newSeriesByDay: Record<string, unknown> = {};
-
-                                            Object.entries(seriesByDay).forEach(
-                                              ([dayKey, series]) => {
-                                                const dayNum = parseInt(dayKey);
-                                                if (dayNum !== deletedDayIndex) {
-                                                  const newKey =
-                                                    dayNum > deletedDayIndex
-                                                      ? String(dayNum - 1)
-                                                      : dayKey;
-                                                  newSeriesByDay[newKey] = series;
-                                                }
-                                              }
-                                            );
-
-                                            if (newDays.length === 0) {
-                                              // Eliminar ejercicio si ya no tiene días
-                                              await supabase
-                                                .from('user_exercise_config')
-                                                .delete()
-                                                .eq('id', ex.id);
-                                            } else {
-                                              await supabase
-                                                .from('user_exercise_config')
-                                                .update({
-                                                  training_days: newDays,
-                                                  config: {
-                                                    ...config,
-                                                    series_by_day: newSeriesByDay,
-                                                  },
-                                                })
-                                                .eq('id', ex.id);
-                                            }
-                                          }
-                                        }
-
-                                        // 4. Actualizar estado local
-                                        setExternalSchedule(newSchedule);
-                                        setTrainingProgram((prev) => ({
-                                          ...prev,
-                                          frequency: Object.keys(newSchedule).length,
-                                          days: Object.entries(newSchedule).map(
-                                            ([day, muscle], idx) => ({
-                                              id: String(idx + 1),
-                                              muscleGroups: `${day}: ${muscle}`,
-                                              exercises: [],
-                                            })
-                                          ),
-                                        }));
-
-                                        // Si no quedan días, desactivar modo personalizado
-                                        if (Object.keys(newSchedule).length === 0) {
-                                          await supabase
-                                            .from('user_profiles')
-                                            .update({ training_mode: 'none' })
-                                            .eq('user_id', user.id);
-                                          setIsExternalMode(false);
-                                        }
-
-                                        // Ajustar índice seleccionado
-                                        const newIndex = Math.max(
-                                          0,
-                                          Math.min(
-                                            selectedDayIndex,
-                                            Object.keys(newSchedule).length - 1
-                                          )
-                                        );
-                                        syncSelectedDay(newIndex);
-
-                                        // Recargar ejercicios del nuevo día seleccionado
-                                        loadExercises(newIndex);
-                                      }
-
-                                      Haptics.notificationAsync(
-                                        Haptics.NotificationFeedbackType.Warning
-                                      );
-                                    },
-                                  },
-                                ]
-                              );
+                              showDayOptions(index);
                             }}
                             className="mr-2.5 px-4 py-2.5 rounded-xl"
                             style={
@@ -5811,6 +6359,14 @@ function GymScreen() {
                                   {muscleGroup}
                                 </Text>
                               </View>
+                              {isActive && (
+                                <TouchableOpacity
+                                  onPress={() => showDayOptions(index)}
+                                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                                >
+                                  <MoreVertical size={16} color="rgba(255,255,255,0.7)" />
+                                </TouchableOpacity>
+                              )}
                             </View>
                           </TouchableOpacity>
                         );
@@ -5833,120 +6389,7 @@ function GymScreen() {
                             }}
                             onLongPress={() => {
                               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-                              Alert.alert(
-                                '🗑️ Eliminar día',
-                                `¿Eliminar "${day.muscleGroups}" y todos sus ejercicios?`,
-                                [
-                                  { text: 'Cancelar', style: 'cancel' },
-                                  {
-                                    text: 'Eliminar',
-                                    style: 'destructive',
-                                    onPress: async () => {
-                                      const deletedDayIndex = index;
-
-                                      // Eliminar el día seleccionado
-                                      const updatedDays = trainingProgram.days.filter(
-                                        (_, i) => i !== deletedDayIndex
-                                      );
-                                      const newSelectedIndex =
-                                        updatedDays.length > 0
-                                          ? Math.min(selectedDayIndex, updatedDays.length - 1)
-                                          : 0;
-
-                                      setTrainingProgram((prev) => ({
-                                        ...prev,
-                                        frequency: updatedDays.length,
-                                        days: updatedDays.map((d, i) => ({
-                                          ...d,
-                                          id: String(i + 1),
-                                        })),
-                                        currentDayIndex:
-                                          updatedDays.length > 0
-                                            ? Math.min(prev.currentDayIndex, updatedDays.length - 1)
-                                            : 0,
-                                      }));
-                                      setSelectedDayIndex(newSelectedIndex);
-
-                                      // Actualizar en Supabase
-                                      if (user) {
-                                        // Reconstruir los nombres de rutina
-                                        const updatedNames: Record<string, string> = {};
-                                        updatedDays.forEach((d, i) => {
-                                          updatedNames[String(i)] = d.muscleGroups;
-                                        });
-
-                                        await supabase
-                                          .from('profiles')
-                                          .update({
-                                            training_frequency: updatedDays.length,
-                                            training_current_day:
-                                              updatedDays.length > 0
-                                                ? Math.min(
-                                                    trainingProgram.currentDayIndex,
-                                                    updatedDays.length - 1
-                                                  )
-                                                : 0,
-                                            training_routine_names: updatedNames,
-                                          })
-                                          .eq('id', user.id);
-
-                                        // Actualizar training_days de todos los ejercicios del usuario
-                                        const { data: userExercises } = await supabase
-                                          .from('user_exercise_config')
-                                          .select('id, training_days, config')
-                                          .eq('user_id', user.id);
-
-                                        if (userExercises) {
-                                          for (const ex of userExercises) {
-                                            const currentDays: number[] = ex.training_days || [];
-                                            // Remover el día eliminado y reindexar días mayores
-                                            const newDays = currentDays
-                                              .filter((d: number) => d !== deletedDayIndex)
-                                              .map((d: number) =>
-                                                d > deletedDayIndex ? d - 1 : d
-                                              );
-
-                                            // También limpiar series_by_day en config
-                                            const config = ex.config || {};
-                                            const seriesByDay =
-                                              (config.series_by_day as Record<string, unknown>) ||
-                                              {};
-                                            const newSeriesByDay: Record<string, unknown> = {};
-
-                                            Object.entries(seriesByDay).forEach(
-                                              ([dayKey, series]) => {
-                                                const dayNum = parseInt(dayKey);
-                                                if (dayNum !== deletedDayIndex) {
-                                                  const newKey =
-                                                    dayNum > deletedDayIndex
-                                                      ? String(dayNum - 1)
-                                                      : dayKey;
-                                                  newSeriesByDay[newKey] = series;
-                                                }
-                                              }
-                                            );
-
-                                            await supabase
-                                              .from('user_exercise_config')
-                                              .update({
-                                                training_days: newDays,
-                                                config: {
-                                                  ...config,
-                                                  series_by_day: newSeriesByDay,
-                                                },
-                                              })
-                                              .eq('id', ex.id);
-                                          }
-                                        }
-                                      }
-                                      Haptics.notificationAsync(
-                                        Haptics.NotificationFeedbackType.Warning
-                                      );
-                                      loadExercises(newSelectedIndex);
-                                    },
-                                  },
-                                ]
-                              );
+                              showDayOptions(index);
                             }}
                             className="mr-2.5 px-4 py-2.5 rounded-xl"
                             style={
@@ -5996,6 +6439,14 @@ function GymScreen() {
                                   </Text>
                                 )}
                               </View>
+                              {isActive && (
+                                <TouchableOpacity
+                                  onPress={() => showDayOptions(index)}
+                                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                                >
+                                  <MoreVertical size={16} color="rgba(0,0,0,0.5)" />
+                                </TouchableOpacity>
+                              )}
                             </View>
                           </TouchableOpacity>
                         );
@@ -6029,6 +6480,72 @@ function GymScreen() {
                     </TouchableOpacity>
                   </ScrollView>
                 </View>
+
+                {/* SESSION TABS A/B - Solo si el día tiene dual session */}
+                {dualSessionDays[String(selectedDayIndex)] && (
+                  <View className="flex-row mb-3 gap-2">
+                    {[0, 1].map((sIdx) => {
+                      const isActiveSession = selectedSessionIndex === sIdx;
+                      const label =
+                        sessionNames[String(selectedDayIndex)]?.[String(sIdx)] ||
+                        (sIdx === 0 ? 'SESIÓN A' : 'SESIÓN B');
+                      return (
+                        <TouchableOpacity
+                          key={sIdx}
+                          onPress={() => {
+                            setSelectedSessionIndex(sIdx);
+                            selectedSessionIndexRef.current = sIdx;
+                            loadExercises(selectedDayIndex, true, sIdx);
+                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                          }}
+                          onLongPress={() => {
+                            showSessionOptions(selectedDayIndex, sIdx);
+                          }}
+                          delayLongPress={400}
+                          className="flex-1 py-2 rounded-lg flex-row items-center justify-center gap-1.5"
+                          style={
+                            isActiveSession
+                              ? {
+                                  backgroundColor: isExternalMode ? '#a855f7' : '#F97316',
+                                }
+                              : {
+                                  backgroundColor: '#18181b',
+                                  borderWidth: 1,
+                                  borderColor: isExternalMode ? '#a855f730' : '#F9731630',
+                                }
+                          }
+                        >
+                          <Text
+                            className={`font-bold text-xs tracking-wide ${
+                              isActiveSession
+                                ? isExternalMode
+                                  ? 'text-white'
+                                  : 'text-black'
+                                : 'text-zinc-500'
+                            }`}
+                          >
+                            {label}
+                          </Text>
+                          <TouchableOpacity
+                            onPress={() => showSessionOptions(selectedDayIndex, sIdx)}
+                            hitSlop={{ top: 8, bottom: 8, left: 4, right: 8 }}
+                          >
+                            <MoreVertical
+                              size={14}
+                              color={
+                                isActiveSession
+                                  ? isExternalMode
+                                    ? '#ffffff'
+                                    : '#000000'
+                                  : '#71717a'
+                              }
+                            />
+                          </TouchableOpacity>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                )}
               </Animated.View>
 
               {/* EXERCISES LIST - DRAG & DROP */}
@@ -6467,6 +6984,217 @@ function GymScreen() {
                           CREAR SUPER SERIE
                         </Text>
                       </TouchableOpacity>
+
+                      {/* ============================================ */}
+                      {/* AGREGAR CARDIO - Botón estilo estructura */}
+                      {/* ============================================ */}
+                      <TouchableOpacity
+                        onPress={() => {
+                          setGymEditingCardioId(null);
+                          setGymEditingCardioData(null);
+                          setShowGymAddCardio(true);
+                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                        }}
+                        className="mb-2 p-3 rounded-xl items-center flex-row justify-center gap-2"
+                        style={{
+                          borderWidth: 1.5,
+                          borderColor: '#DC2626',
+                          backgroundColor: 'rgba(220, 38, 38, 0.05)',
+                          borderStyle: 'dashed',
+                        }}
+                      >
+                        <Flame color="#DC2626" size={16} />
+                        <Text className="font-bold text-xs tracking-wider text-savage-red">
+                          AGREGAR CARDIO
+                        </Text>
+                      </TouchableOpacity>
+
+                      {/* ============================================ */}
+                      {/* CARDIO BLOCKS - Tarjetas editables */}
+                      {/* ============================================ */}
+                      {cardioBlocks.length > 0 && (
+                        <View className="mt-3 mb-4">
+                          <Pressable
+                            onPress={() => {
+                              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                              setShowCardioSection(!showCardioSection);
+                            }}
+                            className="flex-row items-center justify-between mb-3"
+                          >
+                            <View className="flex-row items-center gap-2">
+                              <Flame size={16} color="#DC2626" />
+                              <Text className="text-white text-sm font-bold tracking-wider">
+                                CARDIO
+                              </Text>
+                              <View
+                                className="px-2 py-0.5 rounded-full"
+                                style={{ backgroundColor: 'rgba(220, 38, 38, 0.2)' }}
+                              >
+                                <Text className="text-savage-red text-[10px] font-bold font-mono">
+                                  {cardioBlocks.length}
+                                </Text>
+                              </View>
+                            </View>
+                            {showCardioSection ? (
+                              <ChevronUp size={16} color="#71717a" />
+                            ) : (
+                              <ChevronDown size={16} color="#71717a" />
+                            )}
+                          </Pressable>
+
+                          {showCardioSection &&
+                            cardioBlocks.map((cardio, idx) => {
+                              const typeColor =
+                                cardio.cardio_type === 'HIIT' ||
+                                cardio.cardio_type === 'SPRINT' ||
+                                cardio.cardio_type === 'TABATA'
+                                  ? '#DC2626'
+                                  : cardio.cardio_type === 'LISS'
+                                    ? '#22C55E'
+                                    : cardio.cardio_type === 'STEADY_STATE'
+                                      ? '#F97316'
+                                      : cardio.cardio_type === 'FARTLEK'
+                                        ? '#8B5CF6'
+                                        : '#A1A1AA';
+                              const intensityBars =
+                                cardio.intensity?.toUpperCase() === 'BAJA'
+                                  ? 1
+                                  : cardio.intensity?.toUpperCase() === 'MODERADA'
+                                    ? 2
+                                    : cardio.intensity?.toUpperCase() === 'ALTA'
+                                      ? 3
+                                      : cardio.intensity?.toUpperCase() === 'MÁXIMA'
+                                        ? 4
+                                        : 2;
+                              return (
+                                <Pressable
+                                  key={cardio.id}
+                                  onPress={() => {
+                                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                                    handleGymEditCardio(cardio.id);
+                                  }}
+                                  onLongPress={() => {
+                                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+                                    handleGymDeleteCardio(cardio.id);
+                                  }}
+                                  className="mb-3 rounded-2xl overflow-hidden"
+                                  style={{
+                                    backgroundColor: 'rgba(24, 24, 27, 0.95)',
+                                    borderWidth: 1,
+                                    borderColor: `${typeColor}35`,
+                                  }}
+                                >
+                                  <View className="px-4 py-3">
+                                    {/* Header row */}
+                                    <View className="flex-row items-center justify-between mb-2">
+                                      <View className="flex-row items-center gap-2 flex-1">
+                                        <View
+                                          className="w-7 h-7 rounded-lg items-center justify-center"
+                                          style={{ backgroundColor: `${typeColor}20` }}
+                                        >
+                                          <Flame size={14} color={typeColor} />
+                                        </View>
+                                        <View className="flex-1">
+                                          <Text className="text-white text-xs font-bold uppercase tracking-wide">
+                                            {cardio.cardio_type} · {cardio.activity}
+                                          </Text>
+                                          <Text className="text-zinc-500 text-[9px] font-mono mt-0.5">
+                                            {cardio.duration_minutes} min · {cardio.intensity}
+                                          </Text>
+                                        </View>
+                                      </View>
+                                      <View className="flex-row items-center gap-1.5">
+                                        {cardio.is_pre_workout && (
+                                          <View
+                                            className="px-2 py-0.5 rounded"
+                                            style={{ backgroundColor: 'rgba(234, 179, 8, 0.15)' }}
+                                          >
+                                            <Text className="text-yellow-500 text-[8px] font-bold">
+                                              PRE
+                                            </Text>
+                                          </View>
+                                        )}
+                                        {cardio.is_post_workout && (
+                                          <View
+                                            className="px-2 py-0.5 rounded"
+                                            style={{ backgroundColor: 'rgba(34, 197, 94, 0.15)' }}
+                                          >
+                                            <Text className="text-green-500 text-[8px] font-bold">
+                                              POST
+                                            </Text>
+                                          </View>
+                                        )}
+                                        <Edit3 size={12} color="#71717a" />
+                                      </View>
+                                    </View>
+
+                                    {/* Stats row */}
+                                    <View className="flex-row items-center gap-2 flex-wrap">
+                                      {cardio.target_heart_rate ? (
+                                        <View
+                                          className="flex-row items-center gap-1 px-2 py-1 rounded-md"
+                                          style={{ backgroundColor: 'rgba(220, 38, 38, 0.12)' }}
+                                        >
+                                          <Text className="text-savage-red text-[9px] font-bold font-mono">
+                                            {cardio.target_heart_rate} BPM
+                                          </Text>
+                                        </View>
+                                      ) : null}
+                                      {cardio.speed ? (
+                                        <View
+                                          className="flex-row items-center gap-1 px-2 py-1 rounded-md"
+                                          style={{ backgroundColor: 'rgba(59, 130, 246, 0.12)' }}
+                                        >
+                                          <Text className="text-blue-500 text-[9px] font-bold font-mono">
+                                            {cardio.speed} km/h
+                                          </Text>
+                                        </View>
+                                      ) : null}
+                                      {cardio.incline ? (
+                                        <View
+                                          className="flex-row items-center gap-1 px-2 py-1 rounded-md"
+                                          style={{ backgroundColor: 'rgba(245, 158, 11, 0.12)' }}
+                                        >
+                                          <Text className="text-amber-500 text-[9px] font-bold font-mono">
+                                            {cardio.incline}%
+                                          </Text>
+                                        </View>
+                                      ) : null}
+                                      {/* Intensity bars */}
+                                      <View
+                                        className="flex-row items-center gap-0.5 px-2 py-1 rounded-md"
+                                        style={{ backgroundColor: 'rgba(39, 39, 42, 0.6)' }}
+                                      >
+                                        {[1, 2, 3, 4].map((bar) => (
+                                          <View
+                                            key={bar}
+                                            style={{
+                                              width: 3,
+                                              height: 6 + bar * 2,
+                                              borderRadius: 1,
+                                              backgroundColor:
+                                                bar <= intensityBars ? typeColor : '#3f3f46',
+                                            }}
+                                          />
+                                        ))}
+                                      </View>
+                                    </View>
+
+                                    {/* Notes */}
+                                    {cardio.notes ? (
+                                      <Text
+                                        className="text-zinc-600 text-[9px] font-mono mt-1.5"
+                                        numberOfLines={1}
+                                      >
+                                        {cardio.notes}
+                                      </Text>
+                                    ) : null}
+                                  </View>
+                                </Pressable>
+                              );
+                            })}
+                        </View>
+                      )}
                     </>
                   </ScrollView>
                 )}
@@ -8161,6 +8889,503 @@ function GymScreen() {
   // Mantener ref actualizada para el panResponder
   saveFocusSeriesRef.current = saveFocusSeries;
 
+  // ============================================================================
+  // RENDER DAY OPTIONS MODAL - Opciones del día (Agregar 2° entreno, Eliminar)
+  // ============================================================================
+  // ============================================================================
+  // SESSION OPTIONS MODAL (long-press en session tab)
+  // ============================================================================
+  const renderSessionOptionsModal = () => {
+    const dayKey = String(sessionOptionsDay);
+    const sessionKey = String(sessionOptionsSession);
+    const sessionLabel =
+      sessionNames[dayKey]?.[sessionKey] || (sessionOptionsSession === 0 ? 'SESIÓN A' : 'SESIÓN B');
+
+    return (
+      <Modal
+        visible={sessionOptionsVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSessionOptionsVisible(false)}
+      >
+        <Pressable
+          className="flex-1 bg-black/80 justify-center items-center px-6"
+          onPress={() => setSessionOptionsVisible(false)}
+        >
+          <View
+            className="w-full max-w-sm rounded-2xl overflow-hidden"
+            style={{
+              backgroundColor: '#0a0a0a',
+              borderWidth: 1.5,
+              borderColor: 'rgba(249, 115, 22, 0.4)',
+            }}
+          >
+            {/* Header */}
+            <View className="px-5 py-4 border-b border-zinc-800">
+              <Text className="text-white font-bold text-base tracking-tight">{sessionLabel}</Text>
+              <Text className="text-zinc-500 text-[10px] font-mono uppercase tracking-wider mt-0.5">
+                OPCIONES DE SESIÓN
+              </Text>
+            </View>
+
+            {/* Option: Rename session */}
+            <Pressable
+              onPress={() => {
+                setSessionOptionsVisible(false);
+                setRenamingSessionDay(sessionOptionsDay);
+                setRenamingSessionIndex(sessionOptionsSession);
+                setRenamingSessionName(sessionLabel);
+                setSessionRenameModalVisible(true);
+              }}
+              className="px-5 py-4 flex-row items-center gap-3 active:bg-zinc-900"
+              style={{ borderBottomWidth: 1, borderBottomColor: '#1a1a1a' }}
+            >
+              <View
+                className="w-10 h-10 rounded-xl items-center justify-center"
+                style={{ backgroundColor: 'rgba(249, 115, 22, 0.15)' }}
+              >
+                <Edit3 size={18} color="#F97316" />
+              </View>
+              <View className="flex-1">
+                <Text className="text-white font-bold text-sm">Renombrar sesión</Text>
+                <Text className="text-zinc-500 text-xs mt-0.5">
+                  Cambiar el nombre de esta sesión
+                </Text>
+              </View>
+            </Pressable>
+
+            {/* Option: Change muscles */}
+            <Pressable
+              onPress={() => {
+                setSessionOptionsVisible(false);
+                setSessionMuscleSelectorDay(sessionOptionsDay);
+                setSessionMuscleSelectorSession(sessionOptionsSession);
+                setSessionSelectedMuscles([]);
+                setSessionMuscleSelectorMode('edit');
+                setSessionMuscleSelectorVisible(true);
+              }}
+              className="px-5 py-4 flex-row items-center gap-3 active:bg-zinc-900"
+              style={{ borderBottomWidth: 1, borderBottomColor: '#1a1a1a' }}
+            >
+              <View
+                className="w-10 h-10 rounded-xl items-center justify-center"
+                style={{ backgroundColor: 'rgba(249, 115, 22, 0.15)' }}
+              >
+                <Edit3 size={18} color="#F97316" />
+              </View>
+              <View className="flex-1">
+                <Text className="text-white font-bold text-sm">Cambiar músculos</Text>
+                <Text className="text-zinc-500 text-xs mt-0.5">
+                  Seleccionar nuevos grupos musculares
+                </Text>
+              </View>
+            </Pressable>
+
+            {/* Option: Delete session (solo sesión B) */}
+            {sessionOptionsSession === 1 && (
+              <Pressable
+                onPress={() => {
+                  setSessionOptionsVisible(false);
+                  deleteSession(sessionOptionsDay, sessionOptionsSession);
+                }}
+                className="px-5 py-4 flex-row items-center gap-3 active:bg-zinc-900"
+              >
+                <View
+                  className="w-10 h-10 rounded-xl items-center justify-center"
+                  style={{ backgroundColor: 'rgba(220, 38, 38, 0.15)' }}
+                >
+                  <Trash2 size={18} color="#DC2626" />
+                </View>
+                <View className="flex-1">
+                  <Text className="text-savage-red font-bold text-sm">Eliminar sesión</Text>
+                  <Text className="text-zinc-500 text-xs mt-0.5">
+                    Eliminar esta sesión y sus ejercicios
+                  </Text>
+                </View>
+              </Pressable>
+            )}
+
+            {/* Cancel */}
+            <Pressable
+              onPress={() => setSessionOptionsVisible(false)}
+              className="px-5 py-4 items-center active:bg-zinc-900"
+              style={{ borderTopWidth: 1, borderTopColor: '#27272a' }}
+            >
+              <Text className="text-zinc-400 font-bold text-sm">CANCELAR</Text>
+            </Pressable>
+          </View>
+        </Pressable>
+      </Modal>
+    );
+  };
+
+  // ============================================================================
+  // SESSION RENAME MODAL
+  // ============================================================================
+  const renderSessionRenameModal = () => {
+    return (
+      <Modal
+        visible={sessionRenameModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSessionRenameModalVisible(false)}
+      >
+        <Pressable
+          className="flex-1 bg-black/80 justify-center items-center p-4"
+          onPress={() => setSessionRenameModalVisible(false)}
+        >
+          <Pressable
+            className="bg-zinc-900 rounded-xl p-5 w-full border border-zinc-800"
+            onPress={(e) => e.stopPropagation()}
+          >
+            <Text className="text-white text-lg font-bold mb-3">Renombrar sesión</Text>
+            <TextInput
+              value={renamingSessionName}
+              onChangeText={setRenamingSessionName}
+              placeholder="Ej: FUERZA TREN SUPERIOR"
+              placeholderTextColor="#71717A"
+              autoCapitalize="characters"
+              className="bg-black border border-zinc-700 rounded-lg px-3 py-2.5 text-white text-sm font-bold mb-3"
+              autoFocus
+            />
+            <View className="flex-row gap-2">
+              <TouchableOpacity
+                onPress={() => setSessionRenameModalVisible(false)}
+                className="flex-1 py-2.5 rounded-lg border border-zinc-700"
+              >
+                <Text className="text-zinc-400 text-center font-bold text-sm">Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => {
+                  saveSessionName(renamingSessionDay, renamingSessionIndex, renamingSessionName);
+                  setSessionRenameModalVisible(false);
+                }}
+                className="flex-1 py-2.5 rounded-lg bg-savage-red"
+              >
+                <Text className="text-white text-center font-bold text-sm">Guardar</Text>
+              </TouchableOpacity>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+    );
+  };
+
+  // ============================================================================
+  // SESSION MUSCLE SELECTOR MODAL
+  // ============================================================================
+  const renderSessionMuscleSelectorModal = () => {
+    const isEditing = sessionMuscleSelectorMode === 'edit';
+    const sessionLabel = sessionMuscleSelectorSession === 0 ? 'SESIÓN A' : 'SESIÓN B';
+
+    const toggleSessionMuscle = (name: string) => {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      setSessionSelectedMuscles((prev) =>
+        prev.includes(name) ? prev.filter((g) => g !== name) : [...prev, name]
+      );
+    };
+
+    const renderMuscleCategory = (
+      label: string,
+      emoji: string,
+      categoryFilter: string | string[],
+      accentColor: string,
+      borderColor: string
+    ) => {
+      const filters = Array.isArray(categoryFilter) ? categoryFilter : [categoryFilter];
+      const groups = MUSCLE_GROUPS.filter((g) => filters.includes(g.category));
+      return (
+        <View
+          className="mb-4 rounded-xl p-3"
+          style={{ backgroundColor: '#0a0a0a', borderWidth: 1, borderColor }}
+        >
+          <Text className="text-xs font-bold mb-2" style={{ color: accentColor }}>
+            {emoji} {label}
+          </Text>
+          <View className="flex-row flex-wrap gap-2">
+            {groups.map((group) => {
+              const isSelected = sessionSelectedMuscles.includes(group.name);
+              return (
+                <TouchableOpacity
+                  key={group.id}
+                  onPress={() => toggleSessionMuscle(group.name)}
+                  className="px-3 py-2 rounded-lg"
+                  style={{
+                    backgroundColor: isSelected ? accentColor : '#18181b',
+                    borderWidth: 1,
+                    borderColor: isSelected ? accentColor : '#27272a',
+                  }}
+                >
+                  <Text
+                    className="font-bold text-xs"
+                    style={{ color: isSelected ? '#000' : '#a1a1aa' }}
+                  >
+                    {group.name}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </View>
+      );
+    };
+
+    return (
+      <Modal
+        visible={sessionMuscleSelectorVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => {
+          setSessionMuscleSelectorVisible(false);
+          setSessionSelectedMuscles([]);
+        }}
+      >
+        <View className="flex-1 bg-black/80 justify-end">
+          <View
+            style={{
+              height: '85%',
+              backgroundColor: '#0a0a0a',
+              borderTopLeftRadius: 24,
+              borderTopRightRadius: 24,
+              borderTopWidth: 2,
+              borderTopColor: 'rgba(249, 115, 22, 0.5)',
+              overflow: 'hidden',
+            }}
+          >
+            {/* Línea de acento */}
+            <View
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                right: 0,
+                height: 3,
+                backgroundColor: '#F97316',
+                shadowColor: '#F97316',
+                shadowOffset: { width: 0, height: 0 },
+                shadowOpacity: 0.8,
+                shadowRadius: 10,
+                zIndex: 10,
+              }}
+            />
+
+            {/* Header */}
+            <View className="px-5 pt-6 pb-4 border-b border-zinc-900">
+              <View className="absolute top-2 left-0 right-0 items-center">
+                <View className="w-12 h-1.5 bg-zinc-600 rounded-full" />
+              </View>
+              <View className="items-center mt-2">
+                <Text className="text-white text-xl font-bold">
+                  {isEditing ? '✏️ CAMBIAR MÚSCULOS' : `🔥 ${sessionLabel}`}
+                </Text>
+                <Text className="text-zinc-500 text-xs mt-0.5">
+                  Selecciona los grupos musculares para esta sesión
+                </Text>
+              </View>
+            </View>
+
+            {/* Content */}
+            <View className="flex-1 px-5 pt-4">
+              {/* Selection preview */}
+              {sessionSelectedMuscles.length > 0 && (
+                <View className="bg-zinc-900/80 rounded-xl p-3 mb-4 border border-fire-orange/30">
+                  <Text className="text-fire-orange font-bold text-xs mb-1">TU SELECCIÓN:</Text>
+                  <Text className="text-white font-bold">{sessionSelectedMuscles.join(' + ')}</Text>
+                </View>
+              )}
+
+              <ScrollView
+                showsVerticalScrollIndicator={false}
+                className="flex-1 mb-4"
+                contentContainerStyle={{ paddingBottom: 20 }}
+              >
+                {renderMuscleCategory('TORSO', '💪', 'superior', '#ef4444', '#ef444450')}
+                {renderMuscleCategory('HOMBROS', '🎯', 'hombros', '#f59e0b', '#f59e0b50')}
+                {renderMuscleCategory('BRAZOS', '💪', 'brazos', '#10b981', '#10b98150')}
+                {renderMuscleCategory('PIERNAS', '🦵', 'piernas', '#ec4899', '#ec489950')}
+                {renderMuscleCategory('CORE', '🔥', 'core', '#eab308', '#eab30850')}
+                {renderMuscleCategory(
+                  'ESPECIALES',
+                  '⚡',
+                  ['cardio', 'especial'],
+                  '#06b6d4',
+                  '#06b6d450'
+                )}
+              </ScrollView>
+
+              {/* Confirm button */}
+              <View style={{ paddingBottom: Math.max(insets.bottom, 16) + 8 }}>
+                <TouchableOpacity
+                  onPress={() => confirmSessionMuscleSelection(sessionSelectedMuscles)}
+                  disabled={sessionSelectedMuscles.length === 0}
+                  className={`py-4 rounded-xl ${
+                    sessionSelectedMuscles.length > 0 ? 'bg-fire-orange' : 'bg-zinc-800'
+                  }`}
+                  style={
+                    sessionSelectedMuscles.length > 0
+                      ? {
+                          shadowColor: '#F97316',
+                          shadowOffset: { width: 0, height: 4 },
+                          shadowOpacity: 0.5,
+                          shadowRadius: 12,
+                        }
+                      : undefined
+                  }
+                >
+                  <Text
+                    className={`text-center font-bold text-base ${
+                      sessionSelectedMuscles.length > 0 ? 'text-black' : 'text-zinc-600'
+                    }`}
+                  >
+                    {isEditing ? 'GUARDAR CAMBIOS' : 'CREAR SESIÓN'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    );
+  };
+
+  const renderDayOptionsModal = () => {
+    if (dayOptionsIndex === null) return null;
+    const dayIndex = dayOptionsIndex;
+    const dayKey = String(dayIndex);
+    const hasDualSession = dualSessionDays[dayKey] ?? false;
+    const dayData = trainingProgram.days[dayIndex];
+    const dayLabel =
+      dayData?.muscleGroups?.replace(/^D[íi]a\s*\d+\s*:\s*/i, '') || `DÍA ${dayIndex + 1}`;
+
+    return (
+      <Modal
+        visible={dayOptionsVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setDayOptionsVisible(false)}
+      >
+        <Pressable
+          className="flex-1 bg-black/80 justify-center items-center px-6"
+          onPress={() => setDayOptionsVisible(false)}
+        >
+          <View
+            className="w-full max-w-sm rounded-2xl overflow-hidden"
+            style={{
+              backgroundColor: '#0a0a0a',
+              borderWidth: 1.5,
+              borderColor: 'rgba(220, 38, 38, 0.4)',
+            }}
+          >
+            {/* Header */}
+            <View className="px-5 py-4 border-b border-zinc-800">
+              <Text className="text-white font-bold text-base tracking-tight">
+                DÍA {dayIndex + 1}: {dayLabel}
+              </Text>
+              <Text className="text-zinc-500 text-[10px] font-mono uppercase tracking-wider mt-0.5">
+                OPCIONES DEL DÍA
+              </Text>
+            </View>
+
+            {/* Option: Add dual session (solo si no tiene) */}
+            {!hasDualSession && (
+              <Pressable
+                onPress={() => toggleDualSessionForDay(dayIndex)}
+                className="px-5 py-4 flex-row items-center gap-3 active:bg-zinc-900"
+                style={{ borderBottomWidth: 1, borderBottomColor: '#1a1a1a' }}
+              >
+                <View
+                  className="w-10 h-10 rounded-xl items-center justify-center"
+                  style={{ backgroundColor: 'rgba(34, 197, 94, 0.15)' }}
+                >
+                  <Text style={{ fontSize: 18 }}>➕</Text>
+                </View>
+                <View className="flex-1">
+                  <Text className="text-white font-bold text-sm">Agregar 2° Entrenamiento</Text>
+                  <Text className="text-zinc-500 text-xs mt-0.5">
+                    Dividir este día en Sesión A y Sesión B
+                  </Text>
+                </View>
+              </Pressable>
+            )}
+
+            {/* Option: Rename day */}
+            <Pressable
+              onPress={() => {
+                setDayOptionsVisible(false);
+                setEditingDayIndex(dayIndex);
+                setEditingDayName(dayLabel);
+                setDayNameModalVisible(true);
+              }}
+              className="px-5 py-4 flex-row items-center gap-3 active:bg-zinc-900"
+              style={{ borderBottomWidth: 1, borderBottomColor: '#1a1a1a' }}
+            >
+              <View
+                className="w-10 h-10 rounded-xl items-center justify-center"
+                style={{ backgroundColor: 'rgba(249, 115, 22, 0.15)' }}
+              >
+                <Edit3 size={18} color="#F97316" />
+              </View>
+              <View className="flex-1">
+                <Text className="text-white font-bold text-sm">Renombrar Día</Text>
+                <Text className="text-zinc-500 text-xs mt-0.5">
+                  Cambiar nombre de grupos musculares
+                </Text>
+              </View>
+            </Pressable>
+
+            {/* Option: Delete day */}
+            <Pressable
+              onPress={() => {
+                setDayOptionsVisible(false);
+                // Llamar al handler de eliminar existente con confirmación
+                const dayName = isExternalMode ? Object.keys(externalSchedule)[dayIndex] || '' : '';
+                const muscleGroup = isExternalMode
+                  ? Object.values(externalSchedule)[dayIndex] || ''
+                  : dayLabel;
+
+                Alert.alert(
+                  '🗑️ Eliminar día',
+                  `¿Eliminar "${isExternalMode ? `${dayName}: ${muscleGroup}` : dayLabel}" y todos sus ejercicios?`,
+                  [
+                    { text: 'Cancelar', style: 'cancel' },
+                    {
+                      text: 'Eliminar',
+                      style: 'destructive',
+                      onPress: () => handleDeleteDay(dayIndex),
+                    },
+                  ]
+                );
+              }}
+              className="px-5 py-4 flex-row items-center gap-3 active:bg-zinc-900"
+            >
+              <View
+                className="w-10 h-10 rounded-xl items-center justify-center"
+                style={{ backgroundColor: 'rgba(220, 38, 38, 0.15)' }}
+              >
+                <Trash2 size={18} color="#DC2626" />
+              </View>
+              <View className="flex-1">
+                <Text className="text-savage-red font-bold text-sm">Eliminar Día</Text>
+                <Text className="text-zinc-500 text-xs mt-0.5">
+                  Eliminar día y todos sus ejercicios
+                </Text>
+              </View>
+            </Pressable>
+
+            {/* Cancel button */}
+            <Pressable
+              onPress={() => setDayOptionsVisible(false)}
+              className="px-5 py-4 items-center active:bg-zinc-900"
+              style={{ borderTopWidth: 1, borderTopColor: '#27272a' }}
+            >
+              <Text className="text-zinc-400 font-bold text-sm">CANCELAR</Text>
+            </Pressable>
+          </View>
+        </Pressable>
+      </Modal>
+    );
+  };
+
   const renderFocusSeriesModal = () => {
     if (!modalExercise) return null;
 
@@ -8504,6 +9729,50 @@ function GymScreen() {
                   ).replace(/^D[íi]a\s*\d+\s*:\s*/i, '')}
                 </Text>
               </View>
+              {/* SESSION INDICATOR - Solo cuando hay dual session */}
+              {dualSessionDays[String(trainingProgram.currentDayIndex)] && (
+                <View className="flex-row items-center gap-1.5 mt-1">
+                  {[0, 1].map((sIdx) => {
+                    const isActiveS = selectedSessionIndex === sIdx;
+                    const label =
+                      sessionNames[String(trainingProgram.currentDayIndex)]?.[String(sIdx)] ||
+                      (sIdx === 0 ? 'A' : 'B');
+                    return (
+                      <TouchableOpacity
+                        key={sIdx}
+                        onPress={() => {
+                          setSelectedSessionIndex(sIdx);
+                          selectedSessionIndexRef.current = sIdx;
+                          loadExercises(trainingProgram.currentDayIndex, true, sIdx);
+                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        }}
+                        onLongPress={() => {
+                          showSessionOptions(trainingProgram.currentDayIndex, sIdx);
+                        }}
+                        delayLongPress={400}
+                        className="px-2.5 py-1 rounded-md flex-row items-center gap-1"
+                        style={{
+                          backgroundColor: isActiveS ? '#F97316' : 'rgba(249,115,22,0.1)',
+                          borderWidth: isActiveS ? 0 : 1,
+                          borderColor: 'rgba(249,115,22,0.3)',
+                        }}
+                      >
+                        <Text
+                          className={`text-[10px] font-bold ${isActiveS ? 'text-black' : 'text-fire-orange'}`}
+                        >
+                          {label}
+                        </Text>
+                        <TouchableOpacity
+                          onPress={() => showSessionOptions(trainingProgram.currentDayIndex, sIdx)}
+                          hitSlop={{ top: 8, bottom: 8, left: 4, right: 8 }}
+                        >
+                          <MoreVertical size={10} color={isActiveS ? '#000000' : '#F97316'} />
+                        </TouchableOpacity>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              )}
               <View className="flex-row items-center gap-2 mt-1.5">
                 <Text className="text-zinc-500 text-xs font-mono">{getCurrentTime()}</Text>
                 {focusItems.length > 0 && (
@@ -9227,6 +10496,10 @@ function GymScreen() {
       {renderStructureModal()}
       {renderAddDayModal()}
       {renderFocusSeriesModal()}
+      {renderDayOptionsModal()}
+      {renderSessionOptionsModal()}
+      {renderSessionRenameModal()}
+      {renderSessionMuscleSelectorModal()}
       {renderCameraModal()}
       {renderEditorModal()}
 
@@ -9247,6 +10520,19 @@ function GymScreen() {
           setWebCameraModalVisible(false);
           restoreDefaultMedia();
         }}
+      />
+
+      {/* Add/Edit Cardio Modal for Estructura */}
+      <AddCardioModal
+        visible={showGymAddCardio}
+        onClose={() => {
+          setShowGymAddCardio(false);
+          setGymEditingCardioId(null);
+          setGymEditingCardioData(null);
+        }}
+        onSave={gymEditingCardioId ? handleGymUpdateCardio : handleGymAddCardio}
+        hasDualSession={false}
+        editData={gymEditingCardioData}
       />
 
       {/* GLOBAL UPLOAD INDICATOR - Se muestra sobre todo cuando está subiendo */}

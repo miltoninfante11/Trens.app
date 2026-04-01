@@ -8,13 +8,15 @@ import { View, Text, ScrollView, Pressable, RefreshControl } from 'react-native'
 import { PWAGuard } from '../../../components/auth/PWAGuard';
 import { Alert } from '../../../lib/alert';
 import Animated, { useAnimatedStyle, withSpring } from 'react-native-reanimated';
-import { Plus, Pill, Sparkles, ShoppingCart, StickyNote } from 'lucide-react-native';
+import { Plus, Pill, Sparkles, ShoppingCart, StickyNote, Flame } from 'lucide-react-native';
 import * as Haptics from '../../../lib/haptics';
 import { useRouter, useFocusEffect } from 'expo-router';
 
 import { MealCard } from '../../../components/plan/MealCard';
 import { StackCard } from '../../../components/plan/StackCard';
 import { DraggableWorkoutBlock } from '../../../components/plan/DraggableWorkoutBlock';
+import { WorkoutBlock } from '../../../components/plan/WorkoutBlock';
+import { CardioBlockCard, CardioBlock } from '../../../components/plan/CardioBlockCard';
 import { AddMealModal } from '../../../components/plan/AddMealModal';
 import { EditMealModal } from '../../../components/plan/EditMealModal';
 import { TimePickerModal } from '../../../components/plan/TimePickerModal';
@@ -22,6 +24,7 @@ import { StackManagerModal } from '../../../components/plan/StackManagerModal';
 import { AddOptionModal } from '../../../components/plan/AddOptionModal';
 import { ShoppingListModal } from '../../../components/plan/ShoppingListModal';
 import { PlanNotesModal } from '../../../components/plan/PlanNotesModal';
+import { AddCardioModal, AddCardioData } from '../../../components/plan/AddCardioModal';
 import { supabase } from '../../../lib/supabase';
 import { useHank } from '../../../context/HankContext';
 import { useSaveGuard } from '../../_layout';
@@ -113,6 +116,7 @@ interface StackItem {
   isPreWorkout?: boolean;
   isPostWorkout?: boolean;
   daysOfWeek?: number[];
+  workoutSessionIndex?: number; // 0 = Sesión A, 1 = Sesión B
 }
 
 interface Stack {
@@ -139,11 +143,12 @@ interface WorkoutBlockData {
   estimatedTime?: string | null; // HH:MM format
   isFasted?: boolean; // True si entrenamiento en ayunas
   timeDescription?: string; // "Después de Desayuno, antes de Almuerzo"
+  sessionLabel?: string; // "SESIÓN A" | "SESIÓN B" for dual session
 }
 
 interface TimelineItem {
-  type: 'meal' | 'stack' | 'workout';
-  data: Meal | Stack | WorkoutBlockData;
+  type: 'meal' | 'stack' | 'workout' | 'cardio';
+  data: Meal | Stack | WorkoutBlockData | CardioBlock;
   time?: string;
 }
 
@@ -397,6 +402,25 @@ function PlanScreen() {
       videoUrl?: string;
     }[]
   >([]);
+  // Dual session B state
+  const [hasDualSession, setHasDualSession] = useState(false);
+  const [workoutPosIndexB, setWorkoutPosIndexB] = useState(4);
+  const [todayRoutineB, setTodayRoutineB] = useState<string>('SESIÓN B');
+  const [todayExercisesB, setTodayExercisesB] = useState<
+    {
+      id: string;
+      name: string;
+      sets?: number;
+      reps?: string;
+      imageUrl?: string;
+      videoUrl?: string;
+    }[]
+  >([]);
+  const [workoutTimeEstimateB, setWorkoutTimeEstimateB] = useState<WorkoutTimeEstimate>({
+    estimatedTime: null,
+    isFasted: false,
+    description: '',
+  });
 
   // Modals
   const [showAddMeal, setShowAddMeal] = useState(false);
@@ -437,6 +461,13 @@ function PlanScreen() {
   const [isAdjustingMacros, setIsAdjustingMacros] = useState(false);
   const [isDraggingWorkout, setIsDraggingWorkout] = useState(false);
   const [dragTargetIndex, setDragTargetIndex] = useState<number | null>(null);
+  const [draggingSessionIdx, setDraggingSessionIdx] = useState<number>(0);
+
+  // Cardio blocks state
+  const [cardioBlocks, setCardioBlocks] = useState<CardioBlock[]>([]);
+  const [showAddCardio, setShowAddCardio] = useState(false);
+  const [editingCardioId, setEditingCardioId] = useState<string | null>(null);
+  const [editingCardioData, setEditingCardioData] = useState<AddCardioData | null>(null);
 
   // Workout time estimation - calcula dinámicamente basándose en posición del bloque
   const [workoutTimeEstimate, setWorkoutTimeEstimate] = useState<WorkoutTimeEstimate>({
@@ -757,21 +788,37 @@ function PlanScreen() {
           isPreWorkout: item.is_pre_workout,
           isPostWorkout: item.is_post_workout,
           daysOfWeek: item.days_of_week,
+          workoutSessionIndex: item.workout_session_index ?? 0,
         }));
         setStackItems(formattedStack);
       }
 
-      // Fetch workout block position
+      // Fetch cardio blocks for today's training day
+      const { data: cardioData } = await supabase
+        .from('cardio_blocks')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('display_order', { ascending: true });
+
+      if (cardioData && cardioData.length > 0) {
+        setCardioBlocks(cardioData as CardioBlock[]);
+      } else {
+        setCardioBlocks([]);
+      }
+
+      // Fetch workout block position (both sessions)
       const { data: posData, error: posError } = await supabase
         .from('workout_block_position')
-        .select('position')
+        .select('position, session_index')
         .eq('user_id', user.id)
-        .order('updated_at', { ascending: false })
-        .limit(1);
+        .order('session_index', { ascending: true });
 
-      console.warn('🏋️ PLAN: Posición cargada:', posData, posError);
+      console.warn('🏋️ PLAN: Posiciones cargadas:', posData, posError);
       if (posData && posData.length > 0) {
-        setWorkoutPosIndex(posData[0].position);
+        const posA = posData.find((p: any) => (p.session_index || 0) === 0);
+        const posB = posData.find((p: any) => p.session_index === 1);
+        if (posA) setWorkoutPosIndex(posA.position);
+        if (posB) setWorkoutPosIndexB(posB.position);
       }
 
       // Fetch current training day from profiles
@@ -780,7 +827,7 @@ function PlanScreen() {
       const { data: profileData } = await supabase
         .from('profiles')
         .select(
-          'training_current_day, training_routine_names, training_last_access, training_frequency'
+          'training_current_day, training_routine_names, training_last_access, training_frequency, training_session_names'
         )
         .eq('id', user.id)
         .single();
@@ -800,17 +847,16 @@ function PlanScreen() {
       const todayName = dayNames[new Date().getDay()];
 
       // ===========================================================================
-      // MODO PERSONALIZADO: Usa el sistema rotativo de TRENS
+      // DETECTAR MODO Y NOMBRE DE RUTINA
       // ===========================================================================
+      const currentTrainingDay = profileData?.training_current_day ?? 0;
+      const routineNames = profileData?.training_routine_names || {};
+      let externalRoutineName: string | null = null;
+
       if (trainingMode === 'external' && Object.keys(externalSchedule).length > 0) {
-        // TRENS usa sistema ROTATIVO: training_current_day (0, 1, 2...)
-        // NO basado en día de la semana (Lunes, Martes)
-        const currentDayIndex = profileData?.training_current_day ?? 0;
         const scheduleEntries = Object.entries(externalSchedule);
         const totalDays = scheduleEntries.length;
-
-        // Obtener el día de entrenamiento actual (rotativo)
-        const safeIndex = currentDayIndex % totalDays;
+        const safeIndex = currentTrainingDay % totalDays;
         const [dayName, muscleGroup] = scheduleEntries[safeIndex] || ['', ''];
         const todayMuscle = muscleGroup ? String(muscleGroup) : null;
         setIsExternalMode(true);
@@ -818,165 +864,155 @@ function PlanScreen() {
         console.warn(
           `🏋️ PLAN [PERSONALIZADO]: Día ${safeIndex + 1}/${totalDays} → ${dayName}: ${todayMuscle || 'DESCANSO'}`
         );
-        console.warn('   Schedule:', scheduleEntries.map(([d, m]) => `${d}:${m}`).join(', '));
 
         if (todayMuscle) {
-          // Limpiar prefijo "Día X:" si ya viene incluido en el valor
-          const cleanMuscle = todayMuscle.replace(/^Día\s*\d+\s*:\s*/i, '');
-          setTodayRoutine(cleanMuscle);
-          setTodayExercises([]); // Modo personalizado - ejercicios pendientes de agregar
-          console.warn(`🏋️ PLAN [PERSONALIZADO]: Mostrando ${cleanMuscle}`);
-        } else {
-          setTodayRoutine('DESCANSO');
-          setTodayExercises([]);
-          console.warn('🏋️ PLAN [PERSONALIZADO]: Sin entrenamiento configurado');
+          externalRoutineName = todayMuscle.replace(/^Día\s*\d+\s*:\s*/i, '');
         }
       } else {
-        // ===========================================================================
-        // MODO GYM MODULE: Cargar ejercicios del día actual
-        // ===========================================================================
         setIsExternalMode(false);
+      }
 
-        // Usar el día guardado en la base de datos
-        const currentTrainingDay = profileData?.training_current_day ?? 0;
+      console.warn(
+        `🏋️ PLAN: Día: ${currentTrainingDay}, Rutina: ${routineNames[String(currentTrainingDay)] || externalRoutineName || 'NO SINCRONIZADO'}`
+      );
 
-        // Leer nombres de rutinas directamente de la base de datos
-        // Si no hay, mostrará "ENTRENAMIENTO" para indicar que GYM no ha sincronizado
-        const routineNames = profileData?.training_routine_names || {};
-
-        console.warn(
-          `🏋️ PLAN: Día: ${currentTrainingDay}, Rutina: ${routineNames[String(currentTrainingDay)] || 'NO SINCRONIZADO'}`
-        );
-
-        // Fetch exercises for current training day
-        // ARQUITECTURA: user_exercise_config + exercises (igual que GYM)
-        const { data: userConfigs, error: exercisesError } = await supabase
-          .from('user_exercise_config')
-          .select(
-            `
+      // ===========================================================================
+      // CARGAR EJERCICIOS DEL DÍA ACTUAL (ambos modos)
+      // ===========================================================================
+      const { data: userConfigs, error: exercisesError } = await supabase
+        .from('user_exercise_config')
+        .select(
+          `
+          id,
+          exercise_id,
+          training_days,
+          display_order,
+          custom_media_url,
+          session_index,
+          exercises (
             id,
-            exercise_id,
-            training_days,
-            display_order,
-            custom_media_url,
-            exercises (
-              id,
-            name,
-            default_media_url,
-            thumbnail_url,
-            video_url
-          )
-        `
-          )
-          .eq('user_id', user.id)
-          .order('display_order', { ascending: true, nullsFirst: false })
-          .order('created_at', { ascending: true });
+          name,
+          default_media_url,
+          thumbnail_url,
+          video_url
+        )
+      `
+        )
+        .eq('user_id', user.id)
+        .order('display_order', { ascending: true, nullsFirst: false })
+        .order('created_at', { ascending: true });
 
-        // Mapear al formato simplificado
-        const exercisesData =
-          userConfigs?.map((item: any) => {
-            const exercise = item.exercises;
-            return {
-              id: item.id,
-              name: exercise?.name || 'UNNAMED',
-              media_url:
-                item.custom_media_url ||
-                exercise?.default_media_url ||
-                exercise?.thumbnail_url ||
-                '',
-              video_url: exercise?.video_url || '',
-              training_days: item.training_days || [0],
-            };
-          }) || [];
+      // Mapear al formato simplificado
+      const exercisesData =
+        userConfigs?.map((item: any) => {
+          const exercise = item.exercises;
+          return {
+            id: item.id,
+            name: exercise?.name || 'UNNAMED',
+            media_url:
+              item.custom_media_url || exercise?.default_media_url || exercise?.thumbnail_url || '',
+            video_url: exercise?.video_url || '',
+            training_days: item.training_days || [0],
+            session_index: item.session_index ?? 0,
+          };
+        }) || [];
 
-        console.warn(`🏋️ PLAN: Total ejercicios encontrados: ${exercisesData.length}`);
-        if (exercisesError) {
-          console.error('Error fetching exercises:', exercisesError);
-        }
+      console.warn(`🏋️ PLAN: Total ejercicios encontrados: ${exercisesData.length}`);
+      if (exercisesError) {
+        console.error('Error fetching exercises:', exercisesError);
+      }
 
-        // Log detallado de ejercicios y sus días
-        if (exercisesData.length > 0) {
-          console.warn(
-            '🏋️ PLAN: Ejercicios con días:',
-            exercisesData
-              .map((e: any) => `${e.name}: [${(e.training_days || [0]).join(',')}]`)
-              .join(' | ')
-          );
-        }
+      // Log detallado de ejercicios y sus días
+      if (exercisesData.length > 0) {
+        console.warn(
+          '🏋️ PLAN: Ejercicios con días:',
+          exercisesData
+            .map(
+              (e: any) => `${e.name}: [${(e.training_days || [0]).join(',')}] S${e.session_index}`
+            )
+            .join(' | ')
+        );
+      }
 
-        // Filtrar por día de entrenamiento
-        const todayExercisesFiltered = exercisesData.filter((item: any) => {
-          const itemDays = item.training_days || [0];
-          return itemDays.includes(currentTrainingDay);
+      // Filtrar por día de entrenamiento Y sesión
+      const todayExercisesA = exercisesData.filter((item: any) => {
+        const itemDays = item.training_days || [0];
+        return itemDays.includes(currentTrainingDay) && (item.session_index ?? 0) === 0;
+      });
+      const todayExercisesB = exercisesData.filter((item: any) => {
+        const itemDays = item.training_days || [0];
+        return itemDays.includes(currentTrainingDay) && item.session_index === 1;
+      });
+
+      // Detectar dual session para este día
+      const sessionNamesProfile = profileData?.training_session_names || {};
+      const daySessionNames = sessionNamesProfile[String(currentTrainingDay)] || {};
+      const dayHasDualSession = todayExercisesB.length > 0 || !!daySessionNames['1'];
+      setHasDualSession(dayHasDualSession);
+
+      // Session B routine name
+      if (dayHasDualSession) {
+        const sessionBName = daySessionNames['1'] || 'SESIÓN B';
+        setTodayRoutineB(sessionBName);
+      }
+
+      console.warn(
+        `🏋️ PLAN: Ejercicios Sesión A: ${todayExercisesA.length}, Sesión B: ${todayExercisesB.length}, DualSession: ${dayHasDualSession}`
+      );
+
+      // Helper para verificar si es video
+      const isVideoUrl = (url: string) => {
+        if (!url) return false;
+        const videoExtensions = ['.mp4', '.mov', '.avi', '.webm', '.m4v'];
+        return videoExtensions.some((ext) => url.toLowerCase().includes(ext));
+      };
+
+      // Formateador de ejercicios
+      const formatExercises = (items: any[]) =>
+        items.map((item: any, idx: number) => {
+          const mediaUrl = item.media_url || '';
+          const explicitVideoUrl = item.video_url || '';
+          let imageUrl: string | undefined = undefined;
+          let videoUrl: string | undefined = undefined;
+          if (explicitVideoUrl) {
+            videoUrl = explicitVideoUrl;
+            imageUrl = mediaUrl || undefined;
+          } else if (isVideoUrl(mediaUrl)) {
+            videoUrl = mediaUrl;
+          } else {
+            imageUrl = mediaUrl || undefined;
+          }
+          return { id: item.id || `ex-${idx}`, name: item.name, imageUrl, videoUrl };
         });
 
-        console.warn(
-          `🏋️ PLAN: Ejercicios para día ${currentTrainingDay}: ${todayExercisesFiltered.length}`
-        );
+      if (todayExercisesA.length > 0 || todayExercisesB.length > 0) {
+        // Usar nombre de rutina guardado de la base de datos
+        const savedRoutineName = routineNames[String(currentTrainingDay)];
+        const cleanRoutineName = savedRoutineName
+          ? savedRoutineName.replace(/^Día\s*\d+\s*:\s*/i, '')
+          : null;
+        const finalRoutineName = dayHasDualSession
+          ? daySessionNames['0'] || externalRoutineName || cleanRoutineName || 'SESIÓN A'
+          : externalRoutineName || daySessionNames['0'] || cleanRoutineName || 'ENTRENAMIENTO';
+        setTodayRoutine(finalRoutineName);
+        setTodayExercises(formatExercises(todayExercisesA));
+        setTodayExercisesB(formatExercises(todayExercisesB));
 
-        // Si no hay ejercicios para el día actual = DESCANSO
-        // (igual que ADN - no mostrar todos los ejercicios)
-
-        if (todayExercisesFiltered.length > 0) {
-          // Usar nombre de rutina guardado de la base de datos
-          const savedRoutineName = routineNames[String(currentTrainingDay)];
-
-          // Limpiar prefijo "Día X:" si ya viene incluido
-          const cleanRoutineName = savedRoutineName
-            ? savedRoutineName.replace(/^Día\s*\d+\s*:\s*/i, '')
-            : null;
-
-          // Si no hay nombre guardado, usar 'ENTRENAMIENTO' simple
-          const finalRoutineName = cleanRoutineName || 'ENTRENAMIENTO';
-
-          setTodayRoutine(finalRoutineName);
-
-          // Helper para verificar si es video
-          const isVideoUrl = (url: string) => {
-            if (!url) return false;
-            const videoExtensions = ['.mp4', '.mov', '.avi', '.webm', '.m4v'];
-            return videoExtensions.some((ext) => url.toLowerCase().includes(ext));
-          };
-
-          // Formatear ejercicios para el slider
-          const formattedExercises = todayExercisesFiltered.map((item: any, idx: number) => {
-            const mediaUrl = item.media_url || '';
-            const explicitVideoUrl = item.video_url || '';
-
-            // Priorizar video_url explícito, luego verificar si media_url es video
-            let imageUrl: string | undefined = undefined;
-            let videoUrl: string | undefined = undefined;
-
-            if (explicitVideoUrl) {
-              // Tiene video_url explícito
-              videoUrl = explicitVideoUrl;
-              imageUrl = mediaUrl || undefined; // media_url como thumbnail
-            } else if (isVideoUrl(mediaUrl)) {
-              // media_url es un video
-              videoUrl = mediaUrl;
-            } else {
-              // Es imagen
-              imageUrl = mediaUrl || undefined;
-            }
-
-            return {
-              id: item.id || `ex-${idx}`,
-              name: item.name,
-              imageUrl,
-              videoUrl,
-            };
-          });
-
-          console.warn('🏋️ Rutina:', finalRoutineName);
-          console.warn('🏋️ Ejercicios formateados:', formattedExercises.length);
-          setTodayExercises(formattedExercises);
-        } else {
-          // No hay ejercicios para hoy - día de descanso
-          console.warn('🏋️ Sin ejercicios para hoy - DESCANSO');
-          setTodayRoutine('DESCANSO');
-          setTodayExercises([]);
-        }
-      } // Fin del else (modo GYM MODULE)
+        console.warn('🏋️ Rutina A:', finalRoutineName);
+        console.warn('🏋️ Ejercicios A:', todayExercisesA.length, 'B:', todayExercisesB.length);
+      } else if (externalRoutineName) {
+        // Modo externo sin ejercicios aún - mostrar nombre de rutina
+        setTodayRoutine(externalRoutineName);
+        setTodayExercises([]);
+        setTodayExercisesB([]);
+        console.warn(`🏋️ PLAN [PERSONALIZADO]: ${externalRoutineName} (sin ejercicios)`);
+      } else {
+        console.warn('🏋️ Sin ejercicios para hoy - DESCANSO');
+        setTodayRoutine('DESCANSO');
+        setTodayExercises([]);
+        setTodayExercisesB([]);
+        setHasDualSession(false);
+      }
 
       // ===========================================================================
       // SYNC NOTIFICATIONS - Actualizar recordatorios basados en el plan actual
@@ -1040,6 +1076,14 @@ function PlanScreen() {
     });
   }, [workoutPosIndex, meals, setScreenContext]);
 
+  // Calcular hora estimada para sesión B cuando aplique
+  useEffect(() => {
+    if (!hasDualSession) return;
+    const mealTimes = meals.map((m) => ({ time: m.time, name: m.name }));
+    const estimateB = calculateWorkoutTime(workoutPosIndexB, mealTimes);
+    setWorkoutTimeEstimateB(estimateB);
+  }, [workoutPosIndexB, meals, hasDualSession]);
+
   const onRefresh = () => {
     setRefreshing(true);
     fetchData();
@@ -1086,7 +1130,15 @@ function PlanScreen() {
     isInternalUpdate.current = true;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
-    if (timePickerMode === 'meal' && timePickerMealId) {
+    if (timePickerMode === ('cardio' as any) && cardioTimePickerId.current) {
+      // Update cardio block time
+      const cardioId = cardioTimePickerId.current;
+      await supabase.from('cardio_blocks').update({ scheduled_time: newTime }).eq('id', cardioId);
+      setCardioBlocks((prev) =>
+        prev.map((c) => (c.id === cardioId ? { ...c, scheduled_time: newTime } : c))
+      );
+      cardioTimePickerId.current = null;
+    } else if (timePickerMode === 'meal' && timePickerMealId) {
       // Update meal time
       const updated = meals
         .map((m) => (m.id === timePickerMealId ? { ...m, time: newTime } : m))
@@ -1172,6 +1224,211 @@ function PlanScreen() {
 
     return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
   };
+
+  // ============================================================================
+  // CARDIO BLOCK HANDLERS
+  // ============================================================================
+  const handleAddCardio = async (data: AddCardioData) => {
+    isInternalUpdate.current = true;
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) return;
+
+      // Smart fasted detection: compare cardio time vs first meal
+      const sortedMeals = [...meals]
+        .filter((m) => m.time)
+        .sort((a, b) => a.time.localeCompare(b.time));
+      const firstMealTime = sortedMeals.length > 0 ? sortedMeals[0].time : null;
+      let isFasted = false;
+
+      if (data.is_pre_workout || data.is_post_workout) {
+        // Pre/post workout: check if the linked workout is fasted
+        const sessionIdx = data.workout_session_index;
+        if (sessionIdx === 0 || sessionIdx === 2) {
+          // Uses session A — check workoutTimeEstimate
+          const estimate = calculateWorkoutTime(workoutPosIndex, meals);
+          isFasted = estimate.isFasted;
+        }
+        if (sessionIdx === 1) {
+          // Uses session B
+          const estimateB = calculateWorkoutTime(workoutPosIndexB, meals);
+          isFasted = estimateB.isFasted;
+        }
+        if (sessionIdx === 2) {
+          // Both sessions: fasted if either is fasted
+          const estimateA = calculateWorkoutTime(workoutPosIndex, meals);
+          const estimateB = calculateWorkoutTime(workoutPosIndexB, meals);
+          isFasted = estimateA.isFasted || estimateB.isFasted;
+        }
+      } else {
+        // Time-based cardio: fasted if before first meal
+        isFasted = !firstMealTime || data.scheduled_time < firstMealTime;
+      }
+
+      const newOrder = cardioBlocks.length;
+      const { data: inserted, error } = await supabase
+        .from('cardio_blocks')
+        .insert({
+          user_id: user.id,
+          training_day: 0,
+          scheduled_time: data.scheduled_time,
+          cardio_type: data.cardio_type,
+          activity: data.activity,
+          duration_minutes: data.duration_minutes,
+          intensity: data.intensity,
+          notes: data.notes,
+          is_fasted: isFasted,
+          is_completed: false,
+          display_order: newOrder,
+          target_heart_rate: data.target_heart_rate,
+          speed: data.speed,
+          incline: data.incline,
+          days_of_week: data.days_of_week,
+          is_pre_workout: data.is_pre_workout,
+          is_post_workout: data.is_post_workout,
+          workout_session_index: data.workout_session_index,
+        })
+        .select()
+        .single();
+
+      if (error) {
+        console.error('Error adding cardio:', error);
+        return;
+      }
+      if (inserted) {
+        setCardioBlocks((prev) => [...prev, inserted as CardioBlock]);
+      }
+    } catch (err) {
+      console.error('Error adding cardio block:', err);
+    }
+  };
+
+  const handleDeleteCardio = async (cardioId: string) => {
+    isInternalUpdate.current = true;
+    Alert.alert('Eliminar Cardio', '¿Estás seguro de que quieres eliminar este bloque de cardio?', [
+      { text: 'Cancelar', style: 'cancel' },
+      {
+        text: 'Eliminar',
+        style: 'destructive',
+        onPress: async () => {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+          await supabase.from('cardio_blocks').delete().eq('id', cardioId);
+          setCardioBlocks((prev) => prev.filter((c) => c.id !== cardioId));
+        },
+      },
+    ]);
+  };
+
+  const handleToggleCardioComplete = async (cardioId: string, completed: boolean) => {
+    isInternalUpdate.current = true;
+    await supabase.from('cardio_blocks').update({ is_completed: completed }).eq('id', cardioId);
+    setCardioBlocks((prev) =>
+      prev.map((c) => (c.id === cardioId ? { ...c, is_completed: completed } : c))
+    );
+  };
+
+  const handleCardioTimeChange = (cardioId: string) => {
+    const cardio = cardioBlocks.find((c) => c.id === cardioId);
+    if (!cardio) return;
+    setTimePickerMode('cardio' as any);
+    setTimePickerCurrentTime(cardio.scheduled_time || '06:00');
+    (cardioTimePickerId as any).current = cardioId;
+    setShowTimePicker(true);
+  };
+
+  // Edit cardio: open modal with existing data
+  const handleEditCardio = (cardioId: string) => {
+    const cardio = cardioBlocks.find((c) => c.id === cardioId);
+    if (!cardio) return;
+    setEditingCardioId(cardioId);
+    setEditingCardioData({
+      cardio_type: cardio.cardio_type,
+      activity: cardio.activity,
+      duration_minutes: cardio.duration_minutes,
+      intensity: cardio.intensity as any,
+      target_heart_rate: cardio.target_heart_rate ?? null,
+      speed: cardio.speed ?? null,
+      incline: cardio.incline ?? null,
+      scheduled_time: cardio.scheduled_time,
+      notes: cardio.notes || '',
+      days_of_week: cardio.days_of_week || [0, 1, 2, 3, 4, 5, 6],
+      is_pre_workout: cardio.is_pre_workout || false,
+      is_post_workout: cardio.is_post_workout || false,
+      workout_session_index: cardio.workout_session_index ?? 0,
+    });
+    setShowAddCardio(true);
+  };
+
+  // Update cardio in DB
+  const handleUpdateCardio = async (data: AddCardioData) => {
+    if (!editingCardioId) return;
+    isInternalUpdate.current = true;
+    try {
+      // Smart fasted detection (same logic as add)
+      const sortedMeals = [...meals]
+        .filter((m) => m.time)
+        .sort((a, b) => a.time.localeCompare(b.time));
+      const firstMealTime = sortedMeals.length > 0 ? sortedMeals[0].time : null;
+      let isFasted = false;
+
+      if (data.is_pre_workout || data.is_post_workout) {
+        const sessionIdx = data.workout_session_index;
+        if (sessionIdx === 0) {
+          isFasted = calculateWorkoutTime(workoutPosIndex, meals).isFasted;
+        } else if (sessionIdx === 1) {
+          isFasted = calculateWorkoutTime(workoutPosIndexB, meals).isFasted;
+        } else if (sessionIdx === 2) {
+          const a = calculateWorkoutTime(workoutPosIndex, meals);
+          const b = calculateWorkoutTime(workoutPosIndexB, meals);
+          isFasted = a.isFasted || b.isFasted;
+        }
+      } else {
+        isFasted = !firstMealTime || data.scheduled_time < firstMealTime;
+      }
+
+      const { data: updated, error } = await supabase
+        .from('cardio_blocks')
+        .update({
+          scheduled_time: data.scheduled_time,
+          cardio_type: data.cardio_type,
+          activity: data.activity,
+          duration_minutes: data.duration_minutes,
+          intensity: data.intensity,
+          notes: data.notes,
+          is_fasted: isFasted,
+          target_heart_rate: data.target_heart_rate,
+          speed: data.speed,
+          incline: data.incline,
+          days_of_week: data.days_of_week,
+          is_pre_workout: data.is_pre_workout,
+          is_post_workout: data.is_post_workout,
+          workout_session_index: data.workout_session_index,
+        })
+        .eq('id', editingCardioId)
+        .select()
+        .single();
+
+      if (error) {
+        console.error('Error updating cardio:', error);
+        return;
+      }
+      if (updated) {
+        setCardioBlocks((prev) =>
+          prev.map((c) => (c.id === editingCardioId ? (updated as CardioBlock) : c))
+        );
+      }
+    } catch (err) {
+      console.error('Error updating cardio block:', err);
+    } finally {
+      setEditingCardioId(null);
+      setEditingCardioData(null);
+    }
+  };
+
+  // Ref for tracking which cardio is being time-edited
+  const cardioTimePickerId = useRef<string | null>(null);
 
   // Eliminar comida
   const handleDeleteMeal = async (mealId: string) => {
@@ -1871,6 +2128,7 @@ function PlanScreen() {
         is_pre_workout: item.isPreWorkout || false,
         is_post_workout: item.isPostWorkout || false,
         days_of_week: item.daysOfWeek || [0, 1, 2, 3, 4, 5, 6],
+        workout_session_index: item.workoutSessionIndex ?? 0,
       });
 
       if (error) {
@@ -1917,6 +2175,8 @@ function PlanScreen() {
       if (updates.isPreWorkout !== undefined) dbUpdates.is_pre_workout = updates.isPreWorkout;
       if (updates.isPostWorkout !== undefined) dbUpdates.is_post_workout = updates.isPostWorkout;
       if (updates.daysOfWeek !== undefined) dbUpdates.days_of_week = updates.daysOfWeek;
+      if (updates.workoutSessionIndex !== undefined)
+        dbUpdates.workout_session_index = updates.workoutSessionIndex;
 
       const { error } = await supabase.from('supplement_stack').update(dbUpdates).eq('id', id);
 
@@ -2011,12 +2271,12 @@ function PlanScreen() {
     }
   };
 
-  const handleMoveWorkout = async (direction: 'up' | 'down') => {
+  const handleMoveWorkout = async (direction: 'up' | 'down', sessionIdx: number = 0) => {
     isInternalUpdate.current = true;
-    const newIndex = direction === 'up' ? Math.max(0, workoutPosIndex - 1) : workoutPosIndex + 1;
-    await saveWorkoutPosition(newIndex);
+    const posIdx = sessionIdx === 0 ? workoutPosIndex : workoutPosIndexB;
+    const newIndex = direction === 'up' ? Math.max(0, posIdx - 1) : posIdx + 1;
+    await saveWorkoutPosition(newIndex, sessionIdx);
 
-    // Auto-scroll al bloque de entreno después de moverlo
     setTimeout(() => {
       const workoutLayout = itemLayouts.current[newIndex];
       if (workoutLayout && workoutLayout.y > 0 && scrollViewRef.current) {
@@ -2029,81 +2289,88 @@ function PlanScreen() {
   };
 
   // Handler for drag & drop
-  const handleDragEnd = async (newIndex: number) => {
+  const handleDragEnd = async (newIndex: number, sessionIdx: number = 0) => {
     isInternalUpdate.current = true;
     setDragTargetIndex(null);
     setIsDraggingWorkout(false);
-    await saveWorkoutPosition(newIndex);
+    setDraggingSessionIdx(0);
+    await saveWorkoutPosition(newIndex, sessionIdx);
 
-    // Auto-scroll al bloque de entreno después de moverlo
-    // Esperar a que los layouts se actualicen
     setTimeout(() => {
       const workoutLayout = itemLayouts.current[newIndex];
       if (workoutLayout && workoutLayout.y > 0 && scrollViewRef.current) {
         scrollViewRef.current.scrollTo({
-          y: Math.max(0, workoutLayout.y - 100), // 100px de margen arriba
+          y: Math.max(0, workoutLayout.y - 100),
           animated: true,
         });
       }
     }, 300);
   };
 
-  // Shared function to save position
-  const saveWorkoutPosition = async (newIndex: number) => {
-    setWorkoutPosIndex(newIndex);
-    console.warn('🏋️ PLAN: Nueva posición:', newIndex);
+  // Shared function to save position (supports session A and B)
+  const saveWorkoutPosition = async (newIndex: number, sessionIdx: number = 0) => {
+    if (sessionIdx === 0) {
+      setWorkoutPosIndex(newIndex);
+    } else {
+      setWorkoutPosIndexB(newIndex);
+    }
+    console.warn(`🏋️ PLAN: Nueva posición S${sessionIdx}:`, newIndex);
 
     const {
       data: { user },
     } = await supabase.auth.getUser();
     if (user) {
-      // Primero intentar actualizar
+      // Buscar registro existente para esta sesión
       const { data: existing } = await supabase
         .from('workout_block_position')
         .select('id')
         .eq('user_id', user.id)
+        .eq('session_index', sessionIdx)
         .limit(1)
         .single();
 
       if (existing) {
-        // Actualizar el existente
         const { error } = await supabase
           .from('workout_block_position')
           .update({ position: newIndex, updated_at: new Date().toISOString() })
           .eq('id', existing.id);
         console.warn(
-          '🏋️ PLAN: Actualizando posición:',
+          `🏋️ PLAN: Actualizando posición S${sessionIdx}:`,
           newIndex,
           error ? `Error: ${error.message}` : 'OK'
         );
       } else {
-        // Insertar nuevo
         const { error } = await supabase
           .from('workout_block_position')
-          .insert({ user_id: user.id, position: newIndex });
+          .insert({ user_id: user.id, position: newIndex, session_index: sessionIdx });
         console.warn(
-          '🏋️ PLAN: Insertando posición:',
+          `🏋️ PLAN: Insertando posición S${sessionIdx}:`,
           newIndex,
           error ? `Error: ${error.message}` : 'OK'
         );
       }
 
       // Calcular y guardar hora estimada del entrenamiento en user_profiles
-      // Esto permite que Hank y otros módulos sepan cuándo entrena el usuario
       const mealTimes = meals.map((m) => ({ time: m.time, name: m.name }));
       const estimate = calculateWorkoutTime(newIndex, mealTimes);
 
-      await supabase
-        .from('user_profiles')
-        .update({
-          estimated_workout_time: estimate.estimatedTime,
-          is_fasted_training: estimate.isFasted,
-          workout_time_description: estimate.description,
-        })
-        .eq('user_id', user.id);
+      const updateFields: Record<string, any> =
+        sessionIdx === 0
+          ? {
+              estimated_workout_time: estimate.estimatedTime,
+              is_fasted_training: estimate.isFasted,
+              workout_time_description: estimate.description,
+            }
+          : {
+              estimated_workout_time_b: estimate.estimatedTime,
+              is_fasted_training_b: estimate.isFasted,
+              workout_time_description_b: estimate.description,
+            };
+
+      await supabase.from('user_profiles').update(updateFields).eq('user_id', user.id);
 
       console.log(
-        `🏋️ PLAN: Hora estimada guardada: ${estimate.estimatedTime} - ${estimate.description}`
+        `🏋️ PLAN: Hora estimada S${sessionIdx} guardada: ${estimate.estimatedTime} - ${estimate.description}`
       );
     }
   };
@@ -2152,18 +2419,51 @@ function PlanScreen() {
       });
     });
 
-    // Create timeline with meals and stacks
+    // Create timeline with meals, stacks, and cardio blocks
+    // Separate cardio: pre/post workout vs regular (by time)
+    const sortedMealTimes = [...meals]
+      .filter((m) => m.time)
+      .sort((a, b) => a.time.localeCompare(b.time));
+    const firstMealTime = sortedMealTimes.length > 0 ? sortedMealTimes[0].time : null;
+    const workoutEstA = calculateWorkoutTime(workoutPosIndex, meals);
+    const workoutEstB = hasDualSession ? calculateWorkoutTime(workoutPosIndexB, meals) : null;
+
+    // Recompute is_fasted dynamically for all cardio blocks
+    const todayCardioRaw = cardioBlocks.filter((c) => c.days_of_week?.includes(today) ?? true);
+    const todayCardio = todayCardioRaw.map((c) => {
+      let fasted = false;
+      if (c.is_pre_workout || c.is_post_workout) {
+        const si = c.workout_session_index ?? 0;
+        if (si === 0) fasted = workoutEstA.isFasted;
+        else if (si === 1) fasted = workoutEstB?.isFasted ?? false;
+        else if (si === 2) fasted = workoutEstA.isFasted || (workoutEstB?.isFasted ?? false);
+      } else {
+        fasted = !firstMealTime || c.scheduled_time < firstMealTime;
+      }
+      return { ...c, is_fasted: fasted };
+    });
+
+    const regularCardio = todayCardio.filter((c) => !c.is_pre_workout && !c.is_post_workout);
+
     const timeline: TimelineItem[] = [
       ...meals.map((m) => ({ type: 'meal' as const, data: m, time: m.time })),
       ...groupedStacks.map((s) => ({ type: 'stack' as const, data: s, time: s.time })),
+      ...regularCardio.map((c) => ({ type: 'cardio' as const, data: c, time: c.scheduled_time })),
     ].sort((a, b) => (a.time || '').localeCompare(b.time || ''));
 
-    // Insert workout block at position
+    // Insert workout block A at position
+    // workoutSessionIndex: 0 = Session A, 1 = Session B, 2 = Both
     const preStack = stackItems.filter(
-      (i) => i.isPreWorkout && (i.daysOfWeek?.includes(today) ?? true)
+      (i) =>
+        i.isPreWorkout &&
+        (i.daysOfWeek?.includes(today) ?? true) &&
+        ((i.workoutSessionIndex ?? 0) === 0 || i.workoutSessionIndex === 2)
     );
     const postStack = stackItems.filter(
-      (i) => i.isPostWorkout && (i.daysOfWeek?.includes(today) ?? true)
+      (i) =>
+        i.isPostWorkout &&
+        (i.daysOfWeek?.includes(today) ?? true) &&
+        ((i.workoutSessionIndex ?? 0) === 0 || i.workoutSessionIndex === 2)
     );
 
     const workoutBlock: WorkoutBlockData = {
@@ -2172,19 +2472,76 @@ function PlanScreen() {
       preStack,
       postStack,
       exercises: todayExercises,
-      isExternalMode: isExternalMode, // Indica si es modo personalizado
-      // Workout time estimation
+      isExternalMode: isExternalMode,
       estimatedTime: workoutTimeEstimate.estimatedTime,
       isFasted: workoutTimeEstimate.isFasted,
       timeDescription: workoutTimeEstimate.description,
+      sessionLabel: hasDualSession ? 'SESIÓN A' : undefined,
     };
 
     const safeIndex = Math.min(Math.max(0, workoutPosIndex), timeline.length);
-    const finalTimeline = [
+
+    // Pre/post cardio for session A
+    const preCardioA = todayCardio.filter(
+      (c) =>
+        c.is_pre_workout && ((c.workout_session_index ?? 0) === 0 || c.workout_session_index === 2)
+    );
+    const postCardioA = todayCardio.filter(
+      (c) =>
+        c.is_post_workout && ((c.workout_session_index ?? 0) === 0 || c.workout_session_index === 2)
+    );
+
+    let finalTimeline = [
       ...timeline.slice(0, safeIndex),
+      ...preCardioA.map((c) => ({ type: 'cardio' as const, data: c, time: c.scheduled_time })),
       { type: 'workout' as const, data: workoutBlock },
+      ...postCardioA.map((c) => ({ type: 'cardio' as const, data: c, time: c.scheduled_time })),
       ...timeline.slice(safeIndex),
     ];
+
+    // Insert workout block B if dual session is active
+    if (hasDualSession) {
+      const workoutBlockB: WorkoutBlockData = {
+        id: 'workout-block-b',
+        routineName: todayRoutineB,
+        preStack: stackItems.filter(
+          (i) =>
+            i.isPreWorkout &&
+            (i.daysOfWeek?.includes(today) ?? true) &&
+            (i.workoutSessionIndex === 1 || i.workoutSessionIndex === 2)
+        ),
+        postStack: stackItems.filter(
+          (i) =>
+            i.isPostWorkout &&
+            (i.daysOfWeek?.includes(today) ?? true) &&
+            (i.workoutSessionIndex === 1 || i.workoutSessionIndex === 2)
+        ),
+        exercises: todayExercisesB,
+        isExternalMode: isExternalMode,
+        estimatedTime: workoutTimeEstimateB.estimatedTime,
+        isFasted: workoutTimeEstimateB.isFasted,
+        timeDescription: workoutTimeEstimateB.description,
+        sessionLabel: 'SESIÓN B',
+      };
+
+      const safeIndexB = Math.min(Math.max(0, workoutPosIndexB), finalTimeline.length);
+
+      // Pre/post cardio for session B
+      const preCardioB = todayCardio.filter(
+        (c) => c.is_pre_workout && (c.workout_session_index === 1 || c.workout_session_index === 2)
+      );
+      const postCardioB = todayCardio.filter(
+        (c) => c.is_post_workout && (c.workout_session_index === 1 || c.workout_session_index === 2)
+      );
+
+      finalTimeline = [
+        ...finalTimeline.slice(0, safeIndexB),
+        ...preCardioB.map((c) => ({ type: 'cardio' as const, data: c, time: c.scheduled_time })),
+        { type: 'workout' as const, data: workoutBlockB },
+        ...postCardioB.map((c) => ({ type: 'cardio' as const, data: c, time: c.scheduled_time })),
+        ...finalTimeline.slice(safeIndexB),
+      ];
+    }
 
     return finalTimeline;
   };
@@ -2591,9 +2948,19 @@ function PlanScreen() {
               // Calcular offset de animación basado en la posición del drag
               const getAnimatedOffset = () => {
                 if (!isDraggingWorkout || dragTargetIndex === null) return 0;
-                if (item.type === 'workout') return 0;
+                // El otro bloque workout también debe animarse (no skip)
+                if (item.type === 'workout') {
+                  const thisWorkout = item.data as WorkoutBlockData;
+                  const thisIsBeingDragged =
+                    draggingSessionIdx === 0
+                      ? thisWorkout.id !== 'workout-block-b'
+                      : thisWorkout.id === 'workout-block-b';
+                  if (thisIsBeingDragged) return 0; // El que se arrastra no se desplaza
+                }
 
-                const workoutCurrentPos = workoutPosIndex;
+                // Usar la posición del bloque que se está arrastrando
+                const workoutCurrentPos =
+                  draggingSessionIdx === 0 ? workoutPosIndex : workoutPosIndexB;
                 const workoutTargetPos = dragTargetIndex;
 
                 // Si el bloque se mueve hacia abajo
@@ -2663,27 +3030,58 @@ function PlanScreen() {
 
               if (item.type === 'workout') {
                 const workout = item.data as WorkoutBlockData;
+                const isSessionB = workout.id === 'workout-block-b';
+                const sessionIdx = isSessionB ? 1 : 0;
+                const posIdx = isSessionB ? workoutPosIndexB : workoutPosIndex;
+                const isBeingDragged = isDraggingWorkout && draggingSessionIdx === sessionIdx;
+                const offset = getAnimatedOffset();
+
+                // Si NO es el bloque que se arrastra, pero hay otro arrastrándose,
+                // renderizar comprimido con offset animado (como meals/stacks)
+                if (isDraggingWorkout && !isBeingDragged) {
+                  return (
+                    <View
+                      key={workout.id}
+                      onLayout={(e) => handleItemLayout(timelineIndex, e.nativeEvent.layout.y)}
+                    >
+                      <AnimatedTimelineItem offset={offset}>
+                        <WorkoutBlock
+                          data={workout}
+                          onMoveUp={() => handleMoveWorkout('up', sessionIdx)}
+                          onMoveDown={() => handleMoveWorkout('down', sessionIdx)}
+                          isFirst={posIdx === 0}
+                          isLast={posIdx >= timeline.length - 1}
+                          onPressRoutine={() => router.push('/(tabs)/gym')}
+                          isCompressed={true}
+                        />
+                      </AnimatedTimelineItem>
+                    </View>
+                  );
+                }
+
                 return (
                   <View
-                    key="workout-block"
+                    key={workout.id}
                     onLayout={(e) => handleItemLayout(timelineIndex, e.nativeEvent.layout.y)}
                   >
                     <DraggableWorkoutBlock
                       data={workout}
-                      currentIndex={workoutPosIndex}
+                      currentIndex={posIdx}
                       totalItems={timeline.length}
-                      onMoveUp={() => handleMoveWorkout('up')}
-                      onMoveDown={() => handleMoveWorkout('down')}
-                      onDragEnd={handleDragEnd}
+                      onMoveUp={() => handleMoveWorkout('up', sessionIdx)}
+                      onMoveDown={() => handleMoveWorkout('down', sessionIdx)}
+                      onDragEnd={(newIndex) => handleDragEnd(newIndex, sessionIdx)}
                       onDragStart={() => {
                         isInternalUpdate.current = true;
+                        setDraggingSessionIdx(sessionIdx);
                         setIsDraggingWorkout(true);
-                        setDragTargetIndex(workoutPosIndex);
+                        setDragTargetIndex(posIdx);
                       }}
                       onDragCancel={() => {
                         isInternalUpdate.current = true;
                         setIsDraggingWorkout(false);
                         setDragTargetIndex(null);
+                        setDraggingSessionIdx(0);
                       }}
                       onPositionChange={(targetIndex) => {
                         isInternalUpdate.current = true;
@@ -2693,6 +3091,31 @@ function PlanScreen() {
                       itemHeight={isDraggingWorkout ? 85 : 160}
                       scrollRef={scrollViewRef}
                     />
+                  </View>
+                );
+              }
+
+              if (item.type === 'cardio') {
+                const cardio = item.data as CardioBlock;
+                const cardioIndex = cardioBlocks.findIndex((c) => c.id === cardio.id);
+                const offset = getAnimatedOffset();
+                const cardioLabel =
+                  cardioBlocks.length === 1 ? 'CARDIO' : `CARDIO ${cardioIndex + 1}`;
+                return (
+                  <View
+                    key={cardio.id}
+                    onLayout={(e) => handleItemLayout(timelineIndex, e.nativeEvent.layout.y)}
+                  >
+                    <AnimatedTimelineItem offset={offset}>
+                      <CardioBlockCard
+                        cardio={cardio}
+                        cardioLabel={cardioLabel}
+                        onTimeChange={handleCardioTimeChange}
+                        onDelete={handleDeleteCardio}
+                        onEdit={handleEditCardio}
+                        isCompressed={isDraggingWorkout}
+                      />
+                    </AnimatedTimelineItem>
                   </View>
                 );
               }
@@ -2775,6 +3198,38 @@ function PlanScreen() {
             </Text>
           </View>
         </Pressable>
+
+        {/* Add Cardio Button - SAVAGE RED */}
+        <Pressable
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            setShowAddCardio(true);
+          }}
+          className="w-full py-5 mt-3 mb-28 rounded-2xl active:scale-[0.98]"
+          style={{
+            backgroundColor: 'rgba(39, 39, 42, 0.4)',
+            borderWidth: 1.5,
+            borderStyle: 'dashed',
+            borderColor: 'rgba(239, 68, 68, 0.4)',
+            shadowColor: '#EF4444',
+            shadowOffset: { width: 0, height: 0 },
+            shadowOpacity: 0.15,
+            shadowRadius: 24,
+          }}
+        >
+          <View className="items-center">
+            <View
+              className="w-12 h-12 rounded-xl items-center justify-center mb-2"
+              style={{ backgroundColor: 'rgba(239, 68, 68, 0.15)' }}
+            >
+              <Flame size={24} color="#EF4444" />
+            </View>
+            <Text style={{ color: '#EF4444' }} className="font-bold tracking-widest text-sm">
+              AGREGAR CARDIO
+            </Text>
+            <Text className="text-zinc-500 text-[10px] font-mono mt-1">Nuevo bloque de cardio</Text>
+          </View>
+        </Pressable>
       </ScrollView>
 
       {/* Modals */}
@@ -2816,6 +3271,7 @@ function PlanScreen() {
         onAddItem={handleAddStackItem}
         onRemoveItem={handleRemoveStackItem}
         onUpdateItem={handleUpdateStackItem}
+        hasDualSession={hasDualSession}
       />
 
       <AddOptionModal
@@ -2840,6 +3296,18 @@ function PlanScreen() {
       />
 
       <PlanNotesModal visible={showPlanNotes} onClose={() => setShowPlanNotes(false)} />
+
+      <AddCardioModal
+        visible={showAddCardio}
+        onClose={() => {
+          setShowAddCardio(false);
+          setEditingCardioId(null);
+          setEditingCardioData(null);
+        }}
+        onSave={editingCardioId ? handleUpdateCardio : handleAddCardio}
+        hasDualSession={hasDualSession}
+        editData={editingCardioData}
+      />
     </View>
   );
 }

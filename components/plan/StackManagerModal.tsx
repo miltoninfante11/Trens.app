@@ -49,6 +49,7 @@ interface StackItem {
   isPreWorkout?: boolean;
   isPostWorkout?: boolean;
   daysOfWeek?: number[];
+  workoutSessionIndex?: number; // 0 = Sesión A, 1 = Sesión B
 }
 
 interface StackManagerModalProps {
@@ -58,12 +59,29 @@ interface StackManagerModalProps {
   onAddItem: (item: Omit<StackItem, 'id'>) => void;
   onRemoveItem: (id: string) => void;
   onUpdateItem?: (id: string, item: Partial<Omit<StackItem, 'id'>>) => void;
+  hasDualSession?: boolean;
 }
 
 // ============================================================================
 // CONSTANTS
 // ============================================================================
-const DAYS = ['D', 'L', 'M', 'M', 'J', 'V', 'S'];
+// Visual order: Monday first. Each entry maps visual position → JS day index (0=Sun)
+const DAYS_ORDER = [1, 2, 3, 4, 5, 6, 0]; // Lun, Mar, Mié, Jue, Vie, Sáb, Dom
+const DAYS_LABELS = ['L', 'M', 'M', 'J', 'V', 'S', 'D'];
+const DAYS_FULL = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+
+const formatDaysOfWeek = (days?: number[]): string => {
+  if (!days || days.length === 0) return '';
+  if (days.length === 7) return 'Todos los días';
+  // Sort following Monday-first order
+  const sorted = [...days].sort((a, b) => {
+    const orderA = a === 0 ? 7 : a; // Sunday last
+    const orderB = b === 0 ? 7 : b;
+    return orderA - orderB;
+  });
+  return sorted.map((d) => DAYS_FULL[d]).join(', ');
+};
+
 const TYPES: { key: StackItem['type']; icon: React.ReactNode; label: string }[] = [
   { key: 'pill', icon: <Pill size={20} color="#A855F7" />, label: 'Oral' },
   { key: 'syringe', icon: <Syringe size={20} color="#A855F7" />, label: 'Inyectable' },
@@ -325,9 +343,16 @@ interface EditItemViewProps {
   onSave: (updatedItem: Partial<Omit<StackItem, 'id'>>) => void;
   onCancel: () => void;
   onDelete: () => void;
+  hasDualSession?: boolean;
 }
 
-const EditItemView: React.FC<EditItemViewProps> = ({ item, onSave, onCancel, onDelete }) => {
+const EditItemView: React.FC<EditItemViewProps> = ({
+  item,
+  onSave,
+  onCancel,
+  onDelete,
+  hasDualSession,
+}) => {
   const insets = useSafeAreaInsets();
   const [name, setName] = useState(item.name);
   const [dose, setDose] = useState(item.dose);
@@ -336,6 +361,9 @@ const EditItemView: React.FC<EditItemViewProps> = ({ item, onSave, onCancel, onD
   const [times, setTimes] = useState<string[]>(item.times || (item.time ? [item.time] : ['08:00']));
   const [isPreWorkout, setIsPreWorkout] = useState(item.isPreWorkout || false);
   const [isPostWorkout, setIsPostWorkout] = useState(item.isPostWorkout || false);
+  const [workoutSessionIndex, setWorkoutSessionIndex] = useState<number>(
+    item.workoutSessionIndex ?? 0
+  );
   const [showAdditionalTimes, setShowAdditionalTimes] = useState(
     (item.isPreWorkout || item.isPostWorkout) && item.times && item.times.length > 0
   );
@@ -391,6 +419,7 @@ const EditItemView: React.FC<EditItemViewProps> = ({ item, onSave, onCancel, onD
       isPreWorkout,
       isPostWorkout,
       daysOfWeek: selectedDays,
+      workoutSessionIndex: isPreWorkout || isPostWorkout ? workoutSessionIndex : undefined,
     });
   };
 
@@ -406,9 +435,7 @@ const EditItemView: React.FC<EditItemViewProps> = ({ item, onSave, onCancel, onD
           <Trash2 size={20} color="#EF4444" />
         </Pressable>
       </View>
-
-      {/* Name */}
-      <Text className="text-zinc-500 text-xs mb-2 font-bold uppercase">Nombre</Text>
+      {/* Name */} <Text className="text-zinc-500 text-xs mb-2 font-bold uppercase">Nombre</Text>
       <TextInput
         value={name}
         onChangeText={setName}
@@ -416,7 +443,6 @@ const EditItemView: React.FC<EditItemViewProps> = ({ item, onSave, onCancel, onD
         placeholderTextColor="#666"
         className="bg-black/40 border border-white/10 rounded-lg p-3 text-white mb-4"
       />
-
       {/* Type Selector */}
       <Text className="text-zinc-500 text-xs mb-2 font-bold uppercase">Tipo</Text>
       <View className="flex-row gap-2 mb-4">
@@ -440,7 +466,6 @@ const EditItemView: React.FC<EditItemViewProps> = ({ item, onSave, onCancel, onD
           </Pressable>
         ))}
       </View>
-
       {/* Dose */}
       <Text className="text-zinc-500 text-xs mb-2 font-bold uppercase">Dosis</Text>
       <TextInput
@@ -450,29 +475,29 @@ const EditItemView: React.FC<EditItemViewProps> = ({ item, onSave, onCancel, onD
         placeholderTextColor="#666"
         className="bg-black/40 border border-white/10 rounded-lg p-3 text-white mb-4"
       />
-
       {/* Days Selector */}
       <Text className="text-zinc-500 text-xs mb-2 font-bold uppercase">Días de la semana</Text>
       <View className="flex-row gap-1 mb-4">
-        {DAYS.map((day, idx) => (
+        {DAYS_ORDER.map((dayIdx, visualIdx) => (
           <Pressable
-            key={idx}
-            onPress={() => toggleDay(idx)}
+            key={dayIdx}
+            onPress={() => toggleDay(dayIdx)}
             className={`flex-1 py-2 rounded-lg items-center ${
-              selectedDays.includes(idx) ? 'bg-purple-500' : 'bg-[#111111] border border-white/10'
+              selectedDays.includes(dayIdx)
+                ? 'bg-purple-500'
+                : 'bg-[#111111] border border-white/10'
             }`}
           >
             <Text
               className={`font-bold text-xs ${
-                selectedDays.includes(idx) ? 'text-white' : 'text-zinc-500'
+                selectedDays.includes(dayIdx) ? 'text-white' : 'text-zinc-500'
               }`}
             >
-              {day}
+              {DAYS_LABELS[visualIdx]}
             </Text>
           </Pressable>
         ))}
       </View>
-
       {/* Pre/Post Workout Toggle */}
       <Text className="text-zinc-500 text-xs mb-2 font-bold uppercase">
         Vinculación al Entrenamiento
@@ -513,7 +538,73 @@ const EditItemView: React.FC<EditItemViewProps> = ({ item, onSave, onCancel, onD
           </Text>
         </Pressable>
       </View>
-
+      {/* Session Selector - Only when PRE/POST is active and dual session exists */}
+      {(isPreWorkout || isPostWorkout) && hasDualSession && (
+        <>
+          <Text className="text-zinc-500 text-xs mb-2 font-bold uppercase">
+            Sesión de Entrenamiento
+          </Text>
+          <View className="flex-row gap-2 mb-4">
+            <Pressable
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                setWorkoutSessionIndex(0);
+              }}
+              className={`flex-1 p-3 rounded-lg border items-center ${
+                workoutSessionIndex === 0
+                  ? 'bg-red-500/20 border-red-500'
+                  : 'bg-[#111111] border-white/10'
+              }`}
+            >
+              <Text
+                className={`text-sm font-bold ${
+                  workoutSessionIndex === 0 ? 'text-red-500' : 'text-zinc-500'
+                }`}
+              >
+                SESIÓN A
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                setWorkoutSessionIndex(1);
+              }}
+              className={`flex-1 p-3 rounded-lg border items-center ${
+                workoutSessionIndex === 1
+                  ? 'bg-red-500/20 border-red-500'
+                  : 'bg-[#111111] border-white/10'
+              }`}
+            >
+              <Text
+                className={`text-sm font-bold ${
+                  workoutSessionIndex === 1 ? 'text-red-500' : 'text-zinc-500'
+                }`}
+              >
+                SESIÓN B
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                setWorkoutSessionIndex(2);
+              }}
+              className={`flex-1 p-3 rounded-lg border items-center ${
+                workoutSessionIndex === 2
+                  ? 'bg-red-500/20 border-red-500'
+                  : 'bg-[#111111] border-white/10'
+              }`}
+            >
+              <Text
+                className={`text-sm font-bold ${
+                  workoutSessionIndex === 2 ? 'text-red-500' : 'text-zinc-500'
+                }`}
+              >
+                AMBAS
+              </Text>
+            </Pressable>
+          </View>
+        </>
+      )}
       {/* Times - Multiple Time Pickers */}
       {isPreWorkout || isPostWorkout ? (
         <>
@@ -589,7 +680,6 @@ const EditItemView: React.FC<EditItemViewProps> = ({ item, onSave, onCancel, onD
           </Pressable>
         </>
       )}
-
       {/* Notes */}
       <Text className="text-zinc-500 text-xs mb-2 font-bold uppercase">Notas</Text>
       <TextInput
@@ -600,7 +690,6 @@ const EditItemView: React.FC<EditItemViewProps> = ({ item, onSave, onCancel, onD
         className="bg-black/40 border border-white/10 rounded-lg p-3 text-white mb-6"
         multiline
       />
-
       {/* Save Button */}
       <Pressable
         onPress={handleSave}
@@ -624,6 +713,7 @@ export const StackManagerModal: React.FC<StackManagerModalProps> = ({
   onAddItem,
   onRemoveItem,
   onUpdateItem,
+  hasDualSession,
 }) => {
   const insets = useSafeAreaInsets();
   const [viewMode, setViewMode] = useState<'list' | 'add' | 'edit'>('list');
@@ -667,6 +757,7 @@ export const StackManagerModal: React.FC<StackManagerModalProps> = ({
   const [times, setTimes] = useState<string[]>(['08:00']);
   const [isPreWorkout, setIsPreWorkout] = useState(false);
   const [isPostWorkout, setIsPostWorkout] = useState(false);
+  const [workoutSessionIndex, setWorkoutSessionIndex] = useState<number>(0);
   const [showAdditionalTimes, setShowAdditionalTimes] = useState(false);
   const [selectedDays, setSelectedDays] = useState<number[]>([0, 1, 2, 3, 4, 5, 6]);
 
@@ -693,6 +784,7 @@ export const StackManagerModal: React.FC<StackManagerModalProps> = ({
     setTimes(['08:00']);
     setIsPreWorkout(false);
     setIsPostWorkout(false);
+    setWorkoutSessionIndex(0);
     setShowAdditionalTimes(false);
     setSelectedDays([0, 1, 2, 3, 4, 5, 6]);
   };
@@ -745,6 +837,7 @@ export const StackManagerModal: React.FC<StackManagerModalProps> = ({
       isPreWorkout,
       isPostWorkout,
       daysOfWeek: selectedDays,
+      workoutSessionIndex: isPreWorkout || isPostWorkout ? workoutSessionIndex : undefined,
     });
 
     resetForm();
@@ -850,6 +943,7 @@ export const StackManagerModal: React.FC<StackManagerModalProps> = ({
                   setViewMode('list');
                 }}
                 onDelete={handleDeleteFromEdit}
+                hasDualSession={hasDualSession}
               />
             )}
 
@@ -903,7 +997,35 @@ export const StackManagerModal: React.FC<StackManagerModalProps> = ({
                                     <Text className="text-green-500 text-[10px]">POST</Text>
                                   </View>
                                 )}
+                                {(item.isPreWorkout || item.isPostWorkout) && hasDualSession && (
+                                  <View className="bg-red-500/20 px-1.5 py-0.5 rounded">
+                                    <Text className="text-red-500 text-[10px] font-bold">
+                                      {(item.workoutSessionIndex ?? 0) === 0
+                                        ? 'SESIÓN A'
+                                        : item.workoutSessionIndex === 1
+                                          ? 'SESIÓN B'
+                                          : 'A + B'}
+                                    </Text>
+                                  </View>
+                                )}
                               </View>
+                              {/* Days of week display */}
+                              {item.daysOfWeek &&
+                                item.daysOfWeek.length > 0 &&
+                                item.daysOfWeek.length < 7 && (
+                                  <View className="flex-row items-center gap-1 mt-1">
+                                    <Clock size={10} color="#A855F7" />
+                                    <Text className="text-purple-400 text-[10px]">
+                                      {formatDaysOfWeek(item.daysOfWeek)}
+                                    </Text>
+                                  </View>
+                                )}
+                              {(!item.daysOfWeek || item.daysOfWeek.length === 7) && (
+                                <View className="flex-row items-center gap-1 mt-1">
+                                  <Clock size={10} color="#666" />
+                                  <Text className="text-zinc-500 text-[10px]">Todos los días</Text>
+                                </View>
+                              )}
                               {/* Multiple times display */}
                               {itemTimes.length > 0 && (
                                 <View className="flex-row flex-wrap gap-1 mt-2">
@@ -1016,22 +1138,22 @@ export const StackManagerModal: React.FC<StackManagerModalProps> = ({
                   Días de la semana
                 </Text>
                 <View className="flex-row gap-1 mb-4">
-                  {DAYS.map((day, idx) => (
+                  {DAYS_ORDER.map((dayIdx, visualIdx) => (
                     <Pressable
-                      key={idx}
-                      onPress={() => toggleDay(idx)}
+                      key={dayIdx}
+                      onPress={() => toggleDay(dayIdx)}
                       className={`flex-1 py-2 rounded-lg items-center ${
-                        selectedDays.includes(idx)
+                        selectedDays.includes(dayIdx)
                           ? 'bg-purple-500'
                           : 'bg-[#111111] border border-white/10'
                       }`}
                     >
                       <Text
                         className={`font-bold text-xs ${
-                          selectedDays.includes(idx) ? 'text-white' : 'text-zinc-500'
+                          selectedDays.includes(dayIdx) ? 'text-white' : 'text-zinc-500'
                         }`}
                       >
-                        {day}
+                        {DAYS_LABELS[visualIdx]}
                       </Text>
                     </Pressable>
                   ))}
@@ -1085,6 +1207,74 @@ export const StackManagerModal: React.FC<StackManagerModalProps> = ({
                     </Text>
                   </Pressable>
                 </View>
+
+                {/* Session Selector - Only when PRE/POST is active and dual session exists */}
+                {(isPreWorkout || isPostWorkout) && hasDualSession && (
+                  <>
+                    <Text className="text-zinc-500 text-xs mb-2 font-bold uppercase">
+                      Sesión de Entrenamiento
+                    </Text>
+                    <View className="flex-row gap-2 mb-4">
+                      <Pressable
+                        onPress={() => {
+                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                          setWorkoutSessionIndex(0);
+                        }}
+                        className={`flex-1 p-3 rounded-lg border items-center ${
+                          workoutSessionIndex === 0
+                            ? 'bg-red-500/20 border-red-500'
+                            : 'bg-[#111111] border-white/10'
+                        }`}
+                      >
+                        <Text
+                          className={`text-sm font-bold ${
+                            workoutSessionIndex === 0 ? 'text-red-500' : 'text-zinc-500'
+                          }`}
+                        >
+                          SESIÓN A
+                        </Text>
+                      </Pressable>
+                      <Pressable
+                        onPress={() => {
+                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                          setWorkoutSessionIndex(1);
+                        }}
+                        className={`flex-1 p-3 rounded-lg border items-center ${
+                          workoutSessionIndex === 1
+                            ? 'bg-red-500/20 border-red-500'
+                            : 'bg-[#111111] border-white/10'
+                        }`}
+                      >
+                        <Text
+                          className={`text-sm font-bold ${
+                            workoutSessionIndex === 1 ? 'text-red-500' : 'text-zinc-500'
+                          }`}
+                        >
+                          SESIÓN B
+                        </Text>
+                      </Pressable>
+                      <Pressable
+                        onPress={() => {
+                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                          setWorkoutSessionIndex(2);
+                        }}
+                        className={`flex-1 p-3 rounded-lg border items-center ${
+                          workoutSessionIndex === 2
+                            ? 'bg-red-500/20 border-red-500'
+                            : 'bg-[#111111] border-white/10'
+                        }`}
+                      >
+                        <Text
+                          className={`text-sm font-bold ${
+                            workoutSessionIndex === 2 ? 'text-red-500' : 'text-zinc-500'
+                          }`}
+                        >
+                          AMBAS
+                        </Text>
+                      </Pressable>
+                    </View>
+                  </>
+                )}
 
                 {/* Times - Multiple Time Pickers */}
                 {isPreWorkout || isPostWorkout ? (

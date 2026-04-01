@@ -49,6 +49,7 @@ interface WorkoutBlockData {
   estimatedTime?: string | null;
   isFasted?: boolean;
   timeDescription?: string;
+  sessionLabel?: string;
 }
 
 interface DraggableWorkoutBlockProps {
@@ -102,6 +103,7 @@ const WebDraggableWorkoutBlock: React.FC<DraggableWorkoutBlockProps> = ({
   const scrollableParent = useRef<HTMLElement | null>(null);
   const initialScrollTop = useRef(0);
   const initialCompressionOffset = useRef(0); // Offset inicial por compresión de tarjetas anteriores
+  const globalCleanupRef = useRef<(() => void) | null>(null);
 
   // Sincronizar cuando cambia el índice (solo si no estamos arrastrando)
   useEffect(() => {
@@ -116,6 +118,10 @@ const WebDraggableWorkoutBlock: React.FC<DraggableWorkoutBlockProps> = ({
     return () => {
       if (longPressTimer.current) clearTimeout(longPressTimer.current);
       if (autoScrollTimer.current) clearInterval(autoScrollTimer.current);
+      if (globalCleanupRef.current) {
+        globalCleanupRef.current();
+        globalCleanupRef.current = null;
+      }
     };
   }, []);
 
@@ -248,11 +254,33 @@ const WebDraggableWorkoutBlock: React.FC<DraggableWorkoutBlockProps> = ({
     const finalIndex = calculateTargetIndex();
     const startIndex = dragStartIndex.current;
 
+    // Remover global listener
+    if (globalCleanupRef.current) {
+      globalCleanupRef.current();
+      globalCleanupRef.current = null;
+    }
+
+    // Liberar pointer capture si aún está activo
+    if (activePointerId.current !== null && containerRef.current) {
+      try {
+        containerRef.current.releasePointerCapture(activePointerId.current);
+      } catch {
+        // Ignorar
+      }
+    }
+
     // Resetear estado
     isDraggingRef.current = false;
     setIsDragging(false);
     setTranslateY(0);
     activePointerId.current = null;
+
+    // Forzar touchAction auto en el DOM directamente como safety net
+    requestAnimationFrame(() => {
+      if (containerRef.current) {
+        containerRef.current.style.touchAction = 'auto';
+      }
+    });
 
     // Callback
     if (finalIndex !== startIndex) {
@@ -261,6 +289,16 @@ const WebDraggableWorkoutBlock: React.FC<DraggableWorkoutBlockProps> = ({
       onDragCancel();
     }
   }, [calculateTargetIndex, onDragCancel, onDragEnd, stopAutoScroll]);
+
+  // Safety: si el browser pierde el pointer capture, limpiar todo
+  const handleLostPointerCapture = useCallback(() => {
+    if (isDraggingRef.current) {
+      finishDrag();
+    } else {
+      cleanup();
+      activePointerId.current = null;
+    }
+  }, [cleanup, finishDrag]);
 
   // POINTER DOWN en el handle
   const handlePointerDownOnHandle = useCallback(
@@ -302,6 +340,17 @@ const WebDraggableWorkoutBlock: React.FC<DraggableWorkoutBlockProps> = ({
         // Activar drag ANTES de onDragStart para que el estado local esté listo
         isDraggingRef.current = true;
         setIsDragging(true);
+
+        // Safety: listener global de pointerup como respaldo
+        const globalPointerUp = () => {
+          if (isDraggingRef.current) {
+            finishDrag();
+          }
+        };
+        window.addEventListener('pointerup', globalPointerUp, { once: true });
+        globalCleanupRef.current = () => {
+          window.removeEventListener('pointerup', globalPointerUp);
+        };
 
         // Haptic feedback
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
@@ -457,6 +506,7 @@ const WebDraggableWorkoutBlock: React.FC<DraggableWorkoutBlockProps> = ({
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerCancel}
+      onLostPointerCapture={handleLostPointerCapture}
       style={containerStyle}
     >
       <WorkoutBlock
