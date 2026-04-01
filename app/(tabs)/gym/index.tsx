@@ -2218,26 +2218,51 @@ function GymScreen() {
 
         // SINCRONIZAR: Crear días de entrenamiento basados en el horario personalizado
         // Esto permite que el usuario agregue ejercicios a sus días personalizados
+        // Usar training_routine_names guardados si existen (el usuario pudo renombrar)
+        const { data: savedProfile } = await supabase
+          .from('profiles')
+          .select('training_routine_names')
+          .eq('id', user.id)
+          .single();
+        const savedRoutineNames = savedProfile?.training_routine_names || {};
+
         const personalizedDays = Object.entries(extSchedule).map(([dayName, muscleGroup], idx) => ({
           id: String(idx + 1),
-          muscleGroups: `${dayName}: ${muscleGroup}`,
+          muscleGroups: savedRoutineNames[String(idx)] || `${dayName}: ${muscleGroup}`,
           exercises: [],
         }));
 
-        // Actualizar profiles con los días sincronizados
+        // Solo actualizar routine_names si NO hay nombres guardados ya
         const routineNamesFromSchedule: Record<string, string> = {};
+        let needsSync = false;
         Object.entries(extSchedule).forEach(([dayName, muscleGroup], idx) => {
-          routineNamesFromSchedule[String(idx)] = `${dayName}: ${muscleGroup}`;
+          const key = String(idx);
+          if (savedRoutineNames[key]) {
+            routineNamesFromSchedule[key] = savedRoutineNames[key];
+          } else {
+            routineNamesFromSchedule[key] = `${dayName}: ${muscleGroup}`;
+            needsSync = true;
+          }
         });
 
-        // Sincronizar con profiles para que los ejercicios funcionen
-        await supabase
-          .from('profiles')
-          .update({
-            training_frequency: personalizedDays.length,
-            training_routine_names: routineNamesFromSchedule,
-          })
-          .eq('id', user.id);
+        // Sincronizar con profiles solo si hay nuevos días sin nombre
+        if (needsSync) {
+          await supabase
+            .from('profiles')
+            .update({
+              training_frequency: personalizedDays.length,
+              training_routine_names: routineNamesFromSchedule,
+            })
+            .eq('id', user.id);
+        } else {
+          // Solo actualizar frecuencia si cambió
+          await supabase
+            .from('profiles')
+            .update({
+              training_frequency: personalizedDays.length,
+            })
+            .eq('id', user.id);
+        }
 
         setTrainingProgram((prev) => ({
           ...prev,
@@ -3007,13 +3032,28 @@ function GymScreen() {
 
       console.warn('✅ GYM: Nombres guardados correctamente');
 
-      // Actualizar estado local
+      // Actualizar estado local - trainingProgram
       setTrainingProgram((prev) => ({
         ...prev,
         days: prev.days.map((day, idx) =>
           idx === dayIndex ? { ...day, muscleGroups: newName.trim().toUpperCase() } : day
         ),
       }));
+
+      // Actualizar externalSchedule si estamos en modo externo
+      if (isExternalMode) {
+        const entries = Object.entries(externalSchedule);
+        if (entries[dayIndex]) {
+          const dayKey = entries[dayIndex][0]; // Nombre del día (e.g. "Lunes")
+          const newSchedule = { ...externalSchedule, [dayKey]: newName.trim().toUpperCase() };
+          setExternalSchedule(newSchedule);
+          // Persistir en user_profiles (donde PLAN y ADN leen external_schedule)
+          await supabase
+            .from('user_profiles')
+            .update({ external_schedule: newSchedule })
+            .eq('user_id', user.id);
+        }
+      }
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (error) {

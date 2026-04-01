@@ -76,9 +76,20 @@ export const AddMealModal: React.FC<AddMealModalProps> = ({
   onSave,
 }) => {
   const insets = useSafeAreaInsets();
-  const [selectedHour, setSelectedHour] = useState(12);
-  const [selectedMinute, setSelectedMinute] = useState(0);
-  const [selectedPeriod, setSelectedPeriod] = useState<'AM' | 'PM'>('PM');
+
+  // Default to current hour rounded to next quarter
+  const now = new Date();
+  const currentH = now.getHours();
+  const currentM = now.getMinutes();
+  const roundedMinute = Math.ceil(currentM / 15) * 15;
+  const defaultMinute = roundedMinute >= 60 ? 0 : roundedMinute;
+  const defaultH24 = roundedMinute >= 60 ? (currentH + 1) % 24 : currentH;
+  const defaultHour12 = defaultH24 === 0 ? 12 : defaultH24 > 12 ? defaultH24 - 12 : defaultH24;
+  const defaultPeriod: 'AM' | 'PM' = defaultH24 >= 12 ? 'PM' : 'AM';
+
+  const [selectedHour, setSelectedHour] = useState(defaultHour12);
+  const [selectedMinute, setSelectedMinute] = useState(defaultMinute);
+  const [selectedPeriod, setSelectedPeriod] = useState<'AM' | 'PM'>(defaultPeriod);
   const [ingredients, setIngredients] = useState<Ingredient[]>([
     { name: '', quantity: '', portion: '' },
   ]);
@@ -135,12 +146,18 @@ export const AddMealModal: React.FC<AddMealModalProps> = ({
     transform: [{ translateY: translateY.value }],
   }));
 
-  // Reset cuando se abre
+  // Reset cuando se abre — usar hora actual
   useEffect(() => {
     if (visible) {
-      setSelectedHour(12);
-      setSelectedMinute(0);
-      setSelectedPeriod('PM');
+      const n = new Date();
+      const h24 = n.getHours();
+      const m = n.getMinutes();
+      const rm = Math.ceil(m / 15) * 15;
+      const adjM = rm >= 60 ? 0 : rm;
+      const adjH = rm >= 60 ? (h24 + 1) % 24 : h24;
+      setSelectedHour(adjH === 0 ? 12 : adjH > 12 ? adjH - 12 : adjH);
+      setSelectedMinute(adjM);
+      setSelectedPeriod(adjH >= 12 ? 'PM' : 'AM');
       setIngredients([{ name: '', quantity: '', portion: '' }]);
       setEditModes(['portion']);
       setAnalysis(null);

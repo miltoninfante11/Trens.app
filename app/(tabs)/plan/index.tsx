@@ -655,7 +655,7 @@ function PlanScreen() {
           }
         }
 
-        const formattedMeals: Meal[] = mealsData.map((meal: any) => {
+        const formattedMeals: Meal[] = mealsData.map((meal: any, index: number) => {
           // Ingredientes principales de la comida (JSONB en meals.ingredients)
           const jsonIngredients = meal.ingredients || [];
 
@@ -738,7 +738,9 @@ function PlanScreen() {
           return {
             id: meal.id,
             name: meal.name || 'Comida',
-            time: meal.scheduled_time?.slice(0, 5) || '12:00',
+            time:
+              meal.scheduled_time?.slice(0, 5) ||
+              `${String(7 + ((index * 3) % 15)).padStart(2, '0')}:00`,
             selectedOption: validSelection,
             targetMacros: perMealMacros || undefined,
             actualMacros: actual,
@@ -1144,8 +1146,23 @@ function PlanScreen() {
         .map((m) => (m.id === timePickerMealId ? { ...m, time: newTime } : m))
         .sort((a, b) => a.time.localeCompare(b.time));
 
+      // Recalcular nombres inteligentes según nueva posición
+      const total = updated.length;
+      for (let i = 0; i < updated.length; i++) {
+        const expectedName = getSmartMealName(i, total);
+        if (updated[i].name !== expectedName) {
+          updated[i] = { ...updated[i], name: expectedName };
+          // Sync en DB silenciosamente
+          supabase
+            .from('meals')
+            .update({ name: expectedName, position: i })
+            .eq('id', updated[i].id)
+            .then(() => {});
+        }
+      }
+
       setMeals(updated);
-      await supabase.from('meals').update({ time: newTime }).eq('id', timePickerMealId);
+      await supabase.from('meals').update({ scheduled_time: newTime }).eq('id', timePickerMealId);
       setTimePickerMealId(null);
     } else if (timePickerMode === 'stack' && timePickerStackTime) {
       // Find items that have this time (check both time and times array)
