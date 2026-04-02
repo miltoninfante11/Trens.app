@@ -1,10 +1,11 @@
 // ============================================================================
 // FOCUS CARDIO SLIDE - Pantalla completa de cardio en modo Focus
 // PRE-workout al inicio, POST-workout al final del FlatList
+// Diseño premium sin temporizador - muestra toda la info del cardio
 // ============================================================================
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { View, Text, TouchableOpacity } from 'react-native';
+import React from 'react';
+import { View, Text } from 'react-native';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -20,11 +21,10 @@ import {
   TrendingUp,
   Gauge,
   Droplets,
-  Play,
-  Pause,
-  RotateCcw,
+  Clock,
+  ChevronDown,
+  Dumbbell,
 } from 'lucide-react-native';
-import * as Haptics from '../../lib/haptics';
 import { CardioBlock } from '../plan/CardioBlockCard';
 
 // ============================================================================
@@ -35,8 +35,6 @@ interface FocusCardioSlideProps {
   position: 'PRE' | 'POST';
   screenWidth: number;
   contentHeight: number;
-  totalItems: number;
-  currentIndex: number;
 }
 
 // ============================================================================
@@ -105,12 +103,6 @@ const getIntensityBars = (intensity: string): number => {
   }
 };
 
-const formatTimer = (totalSeconds: number): string => {
-  const mins = Math.floor(totalSeconds / 60);
-  const secs = totalSeconds % 60;
-  return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-};
-
 // ============================================================================
 // COMPONENT
 // ============================================================================
@@ -120,89 +112,27 @@ export const FocusCardioSlide: React.FC<FocusCardioSlideProps> = ({
   screenWidth,
   contentHeight,
 }) => {
-  const [timerState, setTimerState] = useState<'idle' | 'running' | 'paused'>('idle');
-  const [secondsRemaining, setSecondsRemaining] = useState(cardio.duration_minutes * 60);
-  const [secondsElapsed, setSecondsElapsed] = useState(0);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
   const typeColor = getCardioTypeColor(cardio.cardio_type);
   const TypeIcon = getCardioTypeIcon(cardio.cardio_type);
   const intensityBars = getIntensityBars(cardio.intensity);
   const intensityLabel = getIntensityLabel(cardio.intensity);
-  const totalSeconds = cardio.duration_minutes * 60;
 
-  // Pulse animation for the timer ring
-  const pulseScale = useSharedValue(1);
+  // Subtle breathing glow on the icon
+  const glowOpacity = useSharedValue(0.3);
+  React.useEffect(() => {
+    glowOpacity.value = withRepeat(
+      withSequence(
+        withTiming(0.8, { duration: 2000, easing: Easing.inOut(Easing.ease) }),
+        withTiming(0.3, { duration: 2000, easing: Easing.inOut(Easing.ease) })
+      ),
+      -1,
+      true
+    );
+  }, []);
 
-  useEffect(() => {
-    if (timerState === 'running') {
-      pulseScale.value = withRepeat(
-        withSequence(
-          withTiming(1.04, { duration: 800, easing: Easing.inOut(Easing.ease) }),
-          withTiming(1, { duration: 800, easing: Easing.inOut(Easing.ease) })
-        ),
-        -1,
-        true
-      );
-    } else {
-      pulseScale.value = withTiming(1, { duration: 300 });
-    }
-  }, [timerState]);
-
-  const pulseStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: pulseScale.value }],
+  const glowStyle = useAnimatedStyle(() => ({
+    opacity: glowOpacity.value,
   }));
-
-  // Timer logic
-  useEffect(() => {
-    if (timerState === 'running') {
-      intervalRef.current = setInterval(() => {
-        setSecondsRemaining((prev) => {
-          if (prev <= 1) {
-            clearInterval(intervalRef.current!);
-            setTimerState('idle');
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-            return totalSeconds;
-          }
-          return prev - 1;
-        });
-        setSecondsElapsed((prev) => {
-          if (prev + 1 >= totalSeconds) return 0;
-          return prev + 1;
-        });
-      }, 1000);
-    }
-    return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current);
-    };
-  }, [timerState]);
-
-  const handleStart = useCallback(() => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-    setTimerState('running');
-  }, []);
-
-  const handlePause = useCallback(() => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    if (intervalRef.current) clearInterval(intervalRef.current);
-    setTimerState('paused');
-  }, []);
-
-  const handleResume = useCallback(() => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    setTimerState('running');
-  }, []);
-
-  const handleReset = useCallback(() => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    if (intervalRef.current) clearInterval(intervalRef.current);
-    setSecondsRemaining(totalSeconds);
-    setSecondsElapsed(0);
-    setTimerState('idle');
-  }, [totalSeconds]);
-
-  // Progress percentage
-  const progress = totalSeconds > 0 ? secondsElapsed / totalSeconds : 0;
 
   return (
     <View
@@ -211,243 +141,254 @@ export const FocusCardioSlide: React.FC<FocusCardioSlideProps> = ({
         height: contentHeight,
         backgroundColor: '#000',
       }}
+      className="justify-between"
     >
-      {/* POSITION BADGE */}
-      <View className="items-center pt-8 pb-2">
+      {/* ================================================================ */}
+      {/* TOP - Position badge + Type */}
+      {/* ================================================================ */}
+      <View className="items-center pt-10">
+        {/* Position pill */}
         <View
-          className="px-4 py-1.5 rounded-full"
+          className="px-5 py-2 rounded-full mb-6"
           style={{
-            backgroundColor: `${typeColor}20`,
+            backgroundColor: `${typeColor}12`,
             borderWidth: 1,
-            borderColor: `${typeColor}60`,
+            borderColor: `${typeColor}40`,
           }}
         >
           <Text
-            className="text-xs font-bold font-mono tracking-widest"
+            className="text-[11px] font-bold font-mono tracking-[3px]"
             style={{ color: typeColor }}
           >
-            {position === 'PRE' ? '🔥 PRE-ENTRENO' : '⚡ POST-ENTRENO'}
+            {position === 'PRE' ? 'PRE-ENTRENO' : 'POST-ENTRENO'}
           </Text>
         </View>
-      </View>
 
-      {/* CARDIO TYPE + ACTIVITY */}
-      <View className="items-center px-6 mt-2">
-        <View className="flex-row items-center gap-2 mb-1">
-          <TypeIcon size={20} color={typeColor} />
-          <Text
-            className="text-2xl font-bold uppercase tracking-wider"
-            style={{ color: typeColor }}
+        {/* Icon with glow */}
+        <View className="items-center mb-4">
+          <Animated.View
+            style={[
+              glowStyle,
+              {
+                position: 'absolute',
+                width: 80,
+                height: 80,
+                borderRadius: 40,
+                backgroundColor: typeColor,
+              },
+            ]}
+          />
+          <View
+            className="w-20 h-20 rounded-full items-center justify-center"
+            style={{
+              backgroundColor: `${typeColor}20`,
+              borderWidth: 1.5,
+              borderColor: `${typeColor}50`,
+            }}
           >
-            {cardio.cardio_type.replace('_', ' ')}
-          </Text>
+            <TypeIcon size={32} color={typeColor} />
+          </View>
         </View>
-        <Text className="text-zinc-400 text-base font-mono uppercase tracking-wide">
+
+        {/* Type name */}
+        <Text
+          className="text-3xl font-black uppercase tracking-wider mb-1"
+          style={{ color: '#FFFFFF' }}
+        >
+          {cardio.cardio_type.replace('_', ' ')}
+        </Text>
+
+        {/* Activity */}
+        <Text
+          className="text-base font-mono tracking-widest uppercase"
+          style={{ color: `${typeColor}CC` }}
+        >
           {cardio.activity}
         </Text>
       </View>
 
-      {/* TIMER CIRCLE */}
-      <View className="flex-1 items-center justify-center" style={{ marginTop: -20 }}>
-        <Animated.View style={pulseStyle}>
-          <View
-            className="items-center justify-center rounded-full"
-            style={{
-              width: Math.min(screenWidth * 0.6, 260),
-              height: Math.min(screenWidth * 0.6, 260),
-              borderWidth: 4,
-              borderColor: timerState === 'running' ? typeColor : '#27272a',
-              shadowColor: timerState === 'running' ? typeColor : '#000',
-              shadowOffset: { width: 0, height: 0 },
-              shadowOpacity: timerState === 'idle' ? 0 : 0.6,
-              shadowRadius: 24,
-            }}
-          >
-            {/* Inner glow ring */}
-            <View
-              className="absolute rounded-full"
-              style={{
-                width: Math.min(screenWidth * 0.6, 260) - 20,
-                height: Math.min(screenWidth * 0.6, 260) - 20,
-                borderWidth: 1,
-                borderColor: timerState === 'running' ? `${typeColor}30` : '#18181b',
-              }}
-            />
-            <View className="items-center">
-              <Text
-                className="font-mono font-bold"
-                style={{
-                  fontSize: Math.min(screenWidth * 0.12, 52),
-                  color: timerState === 'running' ? typeColor : '#FFFFFF',
-                  letterSpacing: 2,
-                }}
-              >
-                {formatTimer(secondsRemaining)}
-              </Text>
-              <Text className="text-zinc-500 text-xs font-mono mt-1 tracking-wider">
-                {cardio.duration_minutes} MIN · {intensityLabel}
-              </Text>
-              {/* Progress text */}
-              {timerState !== 'idle' && (
-                <Text
-                  className="text-xs font-mono mt-2 tracking-wider"
-                  style={{ color: `${typeColor}80` }}
-                >
-                  {Math.round(progress * 100)}%
-                </Text>
-              )}
-            </View>
-          </View>
-        </Animated.View>
-      </View>
-
-      {/* STATS ROW */}
-      <View className="flex-row justify-center gap-4 px-6 mb-4">
-        {/* Intensity */}
+      {/* ================================================================ */}
+      {/* CENTER - Main metrics */}
+      {/* ================================================================ */}
+      <View className="px-5">
+        {/* Duration - Hero stat */}
         <View
-          className="flex-1 rounded-xl px-3 py-3 items-center"
-          style={{ backgroundColor: '#0a0a0a', borderWidth: 1, borderColor: '#1a1a1a' }}
+          className="rounded-2xl px-6 py-5 mb-4 items-center"
+          style={{
+            backgroundColor: `${typeColor}08`,
+            borderWidth: 1,
+            borderColor: `${typeColor}20`,
+          }}
         >
-          <View className="flex-row gap-1 mb-1.5">
-            {[1, 2, 3, 4].map((bar) => (
-              <View
-                key={bar}
-                className="rounded-full"
-                style={{
-                  width: 4,
-                  height: 12 + bar * 2,
-                  backgroundColor: bar <= intensityBars ? typeColor : '#27272a',
-                }}
-              />
-            ))}
-          </View>
-          <Text className="text-zinc-500 text-[10px] font-mono tracking-wider">INTENSIDAD</Text>
-        </View>
-
-        {/* Heart Rate */}
-        {cardio.target_heart_rate ? (
-          <View
-            className="flex-1 rounded-xl px-3 py-3 items-center"
-            style={{ backgroundColor: '#0a0a0a', borderWidth: 1, borderColor: '#1a1a1a' }}
-          >
-            <View className="flex-row items-center gap-1 mb-1.5">
-              <Activity size={14} color="#DC2626" />
-              <Text className="text-white font-bold font-mono text-sm">
-                {cardio.target_heart_rate}
-              </Text>
-            </View>
-            <Text className="text-zinc-500 text-[10px] font-mono tracking-wider">BPM</Text>
-          </View>
-        ) : null}
-
-        {/* Speed */}
-        {cardio.speed ? (
-          <View
-            className="flex-1 rounded-xl px-3 py-3 items-center"
-            style={{ backgroundColor: '#0a0a0a', borderWidth: 1, borderColor: '#1a1a1a' }}
-          >
-            <View className="flex-row items-center gap-1 mb-1.5">
-              <Gauge size={14} color="#F97316" />
-              <Text className="text-white font-bold font-mono text-sm">{cardio.speed}</Text>
-            </View>
-            <Text className="text-zinc-500 text-[10px] font-mono tracking-wider">KM/H</Text>
-          </View>
-        ) : null}
-
-        {/* Incline */}
-        {cardio.incline ? (
-          <View
-            className="flex-1 rounded-xl px-3 py-3 items-center"
-            style={{ backgroundColor: '#0a0a0a', borderWidth: 1, borderColor: '#1a1a1a' }}
-          >
-            <View className="flex-row items-center gap-1 mb-1.5">
-              <TrendingUp size={14} color="#8B5CF6" />
-              <Text className="text-white font-bold font-mono text-sm">{cardio.incline}%</Text>
-            </View>
-            <Text className="text-zinc-500 text-[10px] font-mono tracking-wider">INCLINE</Text>
-          </View>
-        ) : null}
-      </View>
-
-      {/* FASTED BADGE */}
-      {cardio.is_fasted && (
-        <View className="items-center mb-3">
-          <View
-            className="flex-row items-center gap-1.5 px-3 py-1.5 rounded-full"
-            style={{ backgroundColor: '#22C55E15', borderWidth: 1, borderColor: '#22C55E40' }}
-          >
-            <Droplets size={12} color="#22C55E" />
-            <Text className="text-green-500 text-[10px] font-bold font-mono tracking-wider">
-              EN AYUNAS
+          <View className="flex-row items-baseline gap-2">
+            <Clock size={18} color={typeColor} style={{ marginBottom: 2 }} />
+            <Text
+              className="font-mono font-black"
+              style={{ fontSize: 48, color: '#FFFFFF', letterSpacing: 2 }}
+            >
+              {cardio.duration_minutes}
+            </Text>
+            <Text
+              className="text-lg font-bold font-mono tracking-wider"
+              style={{ color: '#71717a' }}
+            >
+              MIN
             </Text>
           </View>
         </View>
-      )}
 
-      {/* NOTES */}
-      {cardio.notes ? (
-        <View className="px-6 mb-3">
-          <Text className="text-zinc-600 text-xs text-center italic" numberOfLines={2}>
-            {cardio.notes}
-          </Text>
-        </View>
-      ) : null}
-
-      {/* ACTION BUTTONS */}
-      <View className="px-6 pb-6">
-        {timerState === 'idle' && (
-          <TouchableOpacity
-            onPress={handleStart}
-            className="flex-row items-center justify-center gap-3 py-4 rounded-2xl"
+        {/* Metrics grid */}
+        <View className="flex-row gap-3 mb-4">
+          {/* Intensity */}
+          <View
+            className="flex-1 rounded-2xl py-4 items-center"
             style={{
-              backgroundColor: typeColor,
-              shadowColor: typeColor,
-              shadowOffset: { width: 0, height: 4 },
-              shadowOpacity: 0.5,
-              shadowRadius: 16,
+              backgroundColor: '#0a0a0a',
+              borderWidth: 1,
+              borderColor: '#18181b',
             }}
           >
-            <Play size={22} color="#FFFFFF" fill="#FFFFFF" />
-            <Text className="text-white font-bold text-lg tracking-wider">INICIAR</Text>
-          </TouchableOpacity>
-        )}
+            <View className="flex-row gap-[3px] mb-2">
+              {[1, 2, 3, 4].map((bar) => (
+                <View
+                  key={bar}
+                  style={{
+                    width: 5,
+                    height: 8 + bar * 4,
+                    borderRadius: 3,
+                    backgroundColor: bar <= intensityBars ? typeColor : '#1a1a1a',
+                  }}
+                />
+              ))}
+            </View>
+            <Text className="text-zinc-600 text-[9px] font-mono tracking-[2px] mb-1">
+              INTENSIDAD
+            </Text>
+            <Text className="text-white text-xs font-bold font-mono">{intensityLabel}</Text>
+          </View>
 
-        {timerState === 'running' && (
-          <TouchableOpacity
-            onPress={handlePause}
-            className="flex-row items-center justify-center gap-2 py-4 rounded-2xl"
-            style={{ backgroundColor: '#18181b', borderWidth: 1, borderColor: '#27272a' }}
-          >
-            <Pause size={18} color="#FFFFFF" />
-            <Text className="text-white font-bold tracking-wider">PAUSAR</Text>
-          </TouchableOpacity>
-        )}
-
-        {timerState === 'paused' && (
-          <View className="flex-row gap-3">
-            <TouchableOpacity
-              onPress={handleReset}
-              className="py-4 px-5 rounded-2xl items-center justify-center"
-              style={{ backgroundColor: '#18181b', borderWidth: 1, borderColor: '#27272a' }}
-            >
-              <RotateCcw size={18} color="#A1A1AA" />
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={handleResume}
-              className="flex-1 flex-row items-center justify-center gap-2 py-4 rounded-2xl"
+          {/* Heart Rate */}
+          {cardio.target_heart_rate ? (
+            <View
+              className="flex-1 rounded-2xl py-4 items-center"
               style={{
-                backgroundColor: typeColor,
-                shadowColor: typeColor,
-                shadowOffset: { width: 0, height: 4 },
-                shadowOpacity: 0.5,
-                shadowRadius: 16,
+                backgroundColor: '#0a0a0a',
+                borderWidth: 1,
+                borderColor: '#18181b',
               }}
             >
-              <Play size={18} color="#FFFFFF" fill="#FFFFFF" />
-              <Text className="text-white font-bold tracking-wider">CONTINUAR</Text>
-            </TouchableOpacity>
+              <Activity size={18} color="#DC2626" style={{ marginBottom: 6 }} />
+              <Text className="text-zinc-600 text-[9px] font-mono tracking-[2px] mb-1">
+                TARGET HR
+              </Text>
+              <Text className="text-white text-xs font-bold font-mono">
+                {cardio.target_heart_rate} BPM
+              </Text>
+            </View>
+          ) : null}
+
+          {/* Speed */}
+          {cardio.speed ? (
+            <View
+              className="flex-1 rounded-2xl py-4 items-center"
+              style={{
+                backgroundColor: '#0a0a0a',
+                borderWidth: 1,
+                borderColor: '#18181b',
+              }}
+            >
+              <Gauge size={18} color="#F97316" style={{ marginBottom: 6 }} />
+              <Text className="text-zinc-600 text-[9px] font-mono tracking-[2px] mb-1">
+                VELOCIDAD
+              </Text>
+              <Text className="text-white text-xs font-bold font-mono">
+                {cardio.speed} KM/H
+              </Text>
+            </View>
+          ) : null}
+
+          {/* Incline */}
+          {cardio.incline ? (
+            <View
+              className="flex-1 rounded-2xl py-4 items-center"
+              style={{
+                backgroundColor: '#0a0a0a',
+                borderWidth: 1,
+                borderColor: '#18181b',
+              }}
+            >
+              <TrendingUp size={18} color="#8B5CF6" style={{ marginBottom: 6 }} />
+              <Text className="text-zinc-600 text-[9px] font-mono tracking-[2px] mb-1">
+                INCLINACIÓN
+              </Text>
+              <Text className="text-white text-xs font-bold font-mono">{cardio.incline}%</Text>
+            </View>
+          ) : null}
+        </View>
+
+        {/* Badges row */}
+        <View className="flex-row justify-center gap-3 flex-wrap">
+          {cardio.is_fasted && (
+            <View
+              className="flex-row items-center gap-1.5 px-4 py-2 rounded-full"
+              style={{
+                backgroundColor: '#22C55E10',
+                borderWidth: 1,
+                borderColor: '#22C55E30',
+              }}
+            >
+              <Droplets size={12} color="#22C55E" />
+              <Text className="text-green-500 text-[10px] font-bold font-mono tracking-wider">
+                EN AYUNAS
+              </Text>
+            </View>
+          )}
+
+          {cardio.workout_session_index != null && cardio.workout_session_index < 2 && (
+            <View
+              className="flex-row items-center gap-1.5 px-4 py-2 rounded-full"
+              style={{
+                backgroundColor: '#A855F710',
+                borderWidth: 1,
+                borderColor: '#A855F730',
+              }}
+            >
+              <Dumbbell size={12} color="#A855F7" />
+              <Text className="text-purple-400 text-[10px] font-bold font-mono tracking-wider">
+                SESIÓN {cardio.workout_session_index === 0 ? 'A' : 'B'}
+              </Text>
+            </View>
+          )}
+        </View>
+      </View>
+
+      {/* ================================================================ */}
+      {/* BOTTOM - Notes + swipe hint */}
+      {/* ================================================================ */}
+      <View className="px-6 pb-8 items-center">
+        {cardio.notes ? (
+          <View
+            className="w-full rounded-xl px-4 py-3 mb-5"
+            style={{
+              backgroundColor: '#0a0a0a',
+              borderWidth: 1,
+              borderColor: '#18181b',
+            }}
+          >
+            <Text className="text-zinc-600 text-[9px] font-mono tracking-[2px] mb-1.5">
+              NOTAS
+            </Text>
+            <Text className="text-zinc-400 text-sm leading-5">{cardio.notes}</Text>
           </View>
-        )}
+        ) : null}
+
+        <View className="flex-row items-center gap-2">
+          <ChevronDown size={14} color="#27272a" />
+          <Text className="text-zinc-700 text-[10px] font-mono tracking-[2px]">
+            DESLIZA PARA CONTINUAR
+          </Text>
+          <ChevronDown size={14} color="#27272a" />
+        </View>
       </View>
     </View>
   );

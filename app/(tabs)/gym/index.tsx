@@ -10095,8 +10095,6 @@ function GymScreen() {
                 position={focusItem.position}
                 screenWidth={SCREEN_WIDTH}
                 contentHeight={CONTENT_HEIGHT}
-                totalItems={focusItems.length}
-                currentIndex={index}
               />
             );
           }
