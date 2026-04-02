@@ -5,7 +5,7 @@
 // ============================================================================
 
 import React from 'react';
-import { View, Text } from 'react-native';
+import { View, Text, TouchableOpacity } from 'react-native';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -24,6 +24,7 @@ import {
   Clock,
   ChevronDown,
   Dumbbell,
+  SlidersHorizontal,
 } from 'lucide-react-native';
 import { CardioBlock } from '../plan/CardioBlockCard';
 
@@ -35,6 +36,7 @@ interface FocusCardioSlideProps {
   position: 'PRE' | 'POST';
   screenWidth: number;
   contentHeight: number;
+  onEdit?: (cardioId: string) => void;
 }
 
 // ============================================================================
@@ -111,6 +113,7 @@ export const FocusCardioSlide: React.FC<FocusCardioSlideProps> = ({
   position,
   screenWidth,
   contentHeight,
+  onEdit,
 }) => {
   const typeColor = getCardioTypeColor(cardio.cardio_type);
   const TypeIcon = getCardioTypeIcon(cardio.cardio_type);
@@ -190,21 +193,43 @@ export const FocusCardioSlide: React.FC<FocusCardioSlideProps> = ({
           </View>
         </View>
 
-        {/* Type name */}
+        {/* CARDIO title */}
         <Text
           className="text-3xl font-black uppercase tracking-wider mb-1"
           style={{ color: '#FFFFFF' }}
         >
-          {cardio.cardio_type.replace('_', ' ')}
+          CARDIO
         </Text>
 
-        {/* Activity */}
+        {/* Type + Activity */}
         <Text
-          className="text-base font-mono tracking-widest uppercase"
+          className="text-sm font-mono tracking-widest uppercase"
           style={{ color: `${typeColor}CC` }}
         >
-          {cardio.activity}
+          {cardio.cardio_type.replace('_', ' ')} · {cardio.activity}
         </Text>
+
+        {/* Edit button */}
+        {onEdit && (
+          <TouchableOpacity
+            onPress={() => onEdit(cardio.id)}
+            activeOpacity={0.7}
+            className="flex-row items-center gap-2 mt-4 px-5 py-2.5 rounded-full"
+            style={{
+              backgroundColor: `${typeColor}15`,
+              borderWidth: 1,
+              borderColor: `${typeColor}40`,
+            }}
+          >
+            <SlidersHorizontal size={14} color={typeColor} />
+            <Text
+              className="text-xs font-bold font-mono tracking-widest"
+              style={{ color: typeColor }}
+            >
+              AJUSTAR
+            </Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       {/* ================================================================ */}
@@ -301,9 +326,7 @@ export const FocusCardioSlide: React.FC<FocusCardioSlideProps> = ({
               <Text className="text-zinc-600 text-[9px] font-mono tracking-[2px] mb-1">
                 VELOCIDAD
               </Text>
-              <Text className="text-white text-xs font-bold font-mono">
-                {cardio.speed} KM/H
-              </Text>
+              <Text className="text-white text-xs font-bold font-mono">{cardio.speed} KM/H</Text>
             </View>
           ) : null}
 
@@ -375,9 +398,7 @@ export const FocusCardioSlide: React.FC<FocusCardioSlideProps> = ({
               borderColor: '#18181b',
             }}
           >
-            <Text className="text-zinc-600 text-[9px] font-mono tracking-[2px] mb-1.5">
-              NOTAS
-            </Text>
+            <Text className="text-zinc-600 text-[9px] font-mono tracking-[2px] mb-1.5">NOTAS</Text>
             <Text className="text-zinc-400 text-sm leading-5">{cardio.notes}</Text>
           </View>
         ) : null}

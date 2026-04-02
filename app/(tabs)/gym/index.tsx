@@ -10095,6 +10095,7 @@ function GymScreen() {
                 position={focusItem.position}
                 screenWidth={SCREEN_WIDTH}
                 contentHeight={CONTENT_HEIGHT}
+                onEdit={handleGymEditCardio}
               />
             );
           }
