@@ -1182,14 +1182,28 @@ function GymScreen() {
     | { type: 'group'; group: ExerciseGroup; exercises: Exercise[]; originalIndex: number }
     | { type: 'cardio'; cardio: CardioBlock; position: 'PRE' | 'POST' };
 
-  // Cardio blocks filtrados para Focus: solo PRE y POST (no scheduled)
+  // Cardio blocks filtrados para Focus: solo PRE y POST (no scheduled), filtrados por sesión
   const focusPreCardio = useMemo(
-    () => cardioBlocks.filter((c) => c.is_pre_workout),
-    [cardioBlocks]
+    () =>
+      cardioBlocks.filter(
+        (c) =>
+          c.is_pre_workout &&
+          (c.workout_session_index === 2 ||
+            c.workout_session_index === selectedSessionIndex ||
+            c.workout_session_index == null)
+      ),
+    [cardioBlocks, selectedSessionIndex]
   );
   const focusPostCardio = useMemo(
-    () => cardioBlocks.filter((c) => c.is_post_workout),
-    [cardioBlocks]
+    () =>
+      cardioBlocks.filter(
+        (c) =>
+          c.is_post_workout &&
+          (c.workout_session_index === 2 ||
+            c.workout_session_index === selectedSessionIndex ||
+            c.workout_session_index == null)
+      ),
+    [cardioBlocks, selectedSessionIndex]
   );
 
   const focusItems: FocusItem[] = useMemo(() => {
@@ -10615,7 +10629,7 @@ function GymScreen() {
           setGymEditingCardioData(null);
         }}
         onSave={gymEditingCardioId ? handleGymUpdateCardio : handleGymAddCardio}
-        hasDualSession={false}
+        hasDualSession={!!dualSessionDays[String(selectedDayIndex)]}
         editData={gymEditingCardioData}
       />
 

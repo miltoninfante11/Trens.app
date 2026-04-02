@@ -256,12 +256,8 @@ export const FocusCardioSlide: React.FC<FocusCardioSlideProps> = ({
               width: Math.min(screenWidth * 0.6, 260),
               height: Math.min(screenWidth * 0.6, 260),
               borderWidth: 4,
-              borderColor:
-                timerState === 'running'
-                    ? typeColor
-                    : '#27272a',
-              shadowColor:
-                timerState === 'running' ? typeColor : '#000',
+              borderColor: timerState === 'running' ? typeColor : '#27272a',
+              shadowColor: timerState === 'running' ? typeColor : '#000',
               shadowOffset: { width: 0, height: 0 },
               shadowOpacity: timerState === 'idle' ? 0 : 0.6,
               shadowRadius: 24,
@@ -274,36 +270,33 @@ export const FocusCardioSlide: React.FC<FocusCardioSlideProps> = ({
                 width: Math.min(screenWidth * 0.6, 260) - 20,
                 height: Math.min(screenWidth * 0.6, 260) - 20,
                 borderWidth: 1,
-                borderColor:
-                  timerState === 'running'
-                    ? `${typeColor}30`
-                    : '#18181b',
+                borderColor: timerState === 'running' ? `${typeColor}30` : '#18181b',
               }}
             />
             <View className="items-center">
+              <Text
+                className="font-mono font-bold"
+                style={{
+                  fontSize: Math.min(screenWidth * 0.12, 52),
+                  color: timerState === 'running' ? typeColor : '#FFFFFF',
+                  letterSpacing: 2,
+                }}
+              >
+                {formatTimer(secondsRemaining)}
+              </Text>
+              <Text className="text-zinc-500 text-xs font-mono mt-1 tracking-wider">
+                {cardio.duration_minutes} MIN · {intensityLabel}
+              </Text>
+              {/* Progress text */}
+              {timerState !== 'idle' && (
                 <Text
-                  className="font-mono font-bold"
-                  style={{
-                    fontSize: Math.min(screenWidth * 0.12, 52),
-                    color: timerState === 'running' ? typeColor : '#FFFFFF',
-                    letterSpacing: 2,
-                  }}
+                  className="text-xs font-mono mt-2 tracking-wider"
+                  style={{ color: `${typeColor}80` }}
                 >
-                  {formatTimer(secondsRemaining)}
+                  {Math.round(progress * 100)}%
                 </Text>
-                <Text className="text-zinc-500 text-xs font-mono mt-1 tracking-wider">
-                  {cardio.duration_minutes} MIN · {intensityLabel}
-                </Text>
-                {/* Progress text */}
-                {timerState !== 'idle' && (
-                  <Text
-                    className="text-xs font-mono mt-2 tracking-wider"
-                    style={{ color: `${typeColor}80` }}
-                  >
-                    {Math.round(progress * 100)}%
-                  </Text>
-                )}
-              </View>
+              )}
+            </View>
           </View>
         </Animated.View>
       </View>
