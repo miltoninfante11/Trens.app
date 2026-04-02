@@ -3024,6 +3024,103 @@ function GymScreen() {
   }, [isFocused, user]);
 
   // ============================================================================
+  // SMART SESSION AUTO-SELECT: Seleccionar sesión según hora actual
+  // Estima la hora de cada sesión usando la posición del bloque entreno
+  // y los horarios de comidas del usuario (misma lógica que PLAN)
+  // ============================================================================
+  useEffect(() => {
+    const todayHasDual = dualSessionDays[String(selectedDayIndex)];
+    if (!todayHasDual || !user || !isFocused) return;
+
+    const autoSelectSession = async () => {
+      try {
+        // 1. Obtener posiciones de bloques de entrenamiento
+        const { data: posData } = await supabase
+          .from('workout_block_position')
+          .select('position, session_index')
+          .eq('user_id', user.id);
+
+        const posA = posData?.find((p: any) => (p.session_index || 0) === 0)?.position ?? 0;
+        const posB = posData?.find((p: any) => p.session_index === 1)?.position ?? 1;
+
+        // 2. Obtener comidas con horario
+        const { data: mealsData } = await supabase
+          .from('meals')
+          .select('name, scheduled_time')
+          .eq('user_id', user.id)
+          .not('scheduled_time', 'is', null)
+          .order('scheduled_time', { ascending: true });
+
+        const mealTimes = (mealsData || []).map((m: any) => ({
+          name: m.name || 'Comida',
+          time: m.scheduled_time?.slice(0, 5) || '',
+        })).filter((m: { time: string }) => m.time);
+
+        // 3. Calcular hora estimada de cada sesión (misma lógica que PLAN)
+        const estimateTime = (workoutIndex: number): string | null => {
+          const sorted = [...mealTimes].sort((a, b) => a.time.localeCompare(b.time));
+          if (sorted.length === 0) return null;
+          const before = sorted.slice(0, workoutIndex);
+          const after = sorted.slice(workoutIndex);
+          if (before.length === 0) {
+            if (after.length > 0) {
+              const [h, m] = after[0].time.split(':').map(Number);
+              const mins = Math.max(h * 60 + m - 120, 5 * 60);
+              return `${Math.floor(mins / 60).toString().padStart(2, '0')}:${(mins % 60).toString().padStart(2, '0')}`;
+            }
+            return '06:00';
+          }
+          const last = before[before.length - 1];
+          const [h, m] = last.time.split(':').map(Number);
+          const mins = h * 60 + m + 90;
+          return `${(Math.floor(mins / 60) % 24).toString().padStart(2, '0')}:${(mins % 60).toString().padStart(2, '0')}`;
+        };
+
+        const timeA = estimateTime(posA);
+        const timeB = estimateTime(posB);
+
+        if (!timeA || !timeB) return;
+
+        // 4. Hora actual HH:MM
+        const now = new Date();
+        const nowStr = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+
+        // 5. Lógica inteligente de auto-selección:
+        // - Antes de ambas sesiones → mostrar sesión A
+        // - Después de la hora de sesión A pero antes de B → mostrar sesión B
+        // - Después de ambas → mostrar sesión B (la más reciente)
+        // Se asume A es anterior a B cronológicamente
+        const [earlier, later] = timeA <= timeB ? [0, 1] : [1, 0];
+        const earlierTime = timeA <= timeB ? timeA : timeB;
+        const laterTime = timeA <= timeB ? timeB : timeA;
+
+        // Ventana de transición: 30 min después de la hora estimada de la sesión anterior
+        const [eH, eM] = earlierTime.split(':').map(Number);
+        const transitionMins = eH * 60 + eM + 30;
+        const transitionStr = `${(Math.floor(transitionMins / 60) % 24).toString().padStart(2, '0')}:${(transitionMins % 60).toString().padStart(2, '0')}`;
+
+        let targetSession: number;
+        if (nowStr < transitionStr) {
+          targetSession = earlier;  // Antes de terminar sesión A → mostrar A
+        } else {
+          targetSession = later;    // Ya pasó sesión A → mostrar B
+        }
+
+        // Solo cambiar si es diferente al actual
+        if (targetSession !== selectedSessionIndexRef.current) {
+          setSelectedSessionIndex(targetSession);
+          selectedSessionIndexRef.current = targetSession;
+          console.log(`🧠 Smart Session: Auto-seleccionada sesión ${targetSession === 0 ? 'A' : 'B'} (hora: ${nowStr}, A≈${timeA}, B≈${timeB})`);
+        }
+      } catch (err) {
+        console.error('Error en auto-select session:', err);
+      }
+    };
+
+    autoSelectSession();
+  }, [dualSessionDays, selectedDayIndex, isFocused, user]);
+
+  // ============================================================================
   // SAVE DAY NAME TO SUPABASE
   // ============================================================================
   const saveDayName = async (dayIndex: number, newName: string) => {
