@@ -1122,17 +1122,6 @@ function GymScreen() {
     ]);
   };
 
-  // Completar cardio desde Focus view
-  const handleFocusCardioComplete = useCallback(
-    async (cardioId: string) => {
-      await supabase.from('cardio_blocks').update({ is_completed: true }).eq('id', cardioId);
-      setCardioBlocks((prev) =>
-        prev.map((c) => (c.id === cardioId ? { ...c, is_completed: true } : c))
-      );
-    },
-    [supabase]
-  );
-
   // Estado para editar nombre de rutina
   const [editingRoutineName, setEditingRoutineName] = useState(false);
   const [tempRoutineName, setTempRoutineName] = useState('');
@@ -1195,11 +1184,11 @@ function GymScreen() {
 
   // Cardio blocks filtrados para Focus: solo PRE y POST (no scheduled)
   const focusPreCardio = useMemo(
-    () => cardioBlocks.filter((c) => c.is_pre_workout && !c.is_completed),
+    () => cardioBlocks.filter((c) => c.is_pre_workout),
     [cardioBlocks]
   );
   const focusPostCardio = useMemo(
-    () => cardioBlocks.filter((c) => c.is_post_workout && !c.is_completed),
+    () => cardioBlocks.filter((c) => c.is_post_workout),
     [cardioBlocks]
   );
 
@@ -10086,22 +10075,12 @@ function GymScreen() {
           // CARDIO ITEM - Render FocusCardioSlide
           // ============================================================
           if (focusItem.type === 'cardio') {
-            const nextItem = focusItems[index + 1];
-            const nextLabel = nextItem
-              ? nextItem.type === 'single'
-                ? nextItem.exercise.name
-                : nextItem.type === 'group'
-                  ? `⚡ ${nextItem.exercises.map((e) => e.name).join(' + ')}`
-                  : null
-              : null;
             return (
               <FocusCardioSlide
                 cardio={focusItem.cardio}
                 position={focusItem.position}
                 screenWidth={SCREEN_WIDTH}
                 contentHeight={CONTENT_HEIGHT}
-                onComplete={handleFocusCardioComplete}
-                nextLabel={nextLabel || undefined}
                 totalItems={focusItems.length}
                 currentIndex={index}
               />

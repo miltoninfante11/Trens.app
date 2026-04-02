@@ -20,11 +20,9 @@ import {
   TrendingUp,
   Gauge,
   Droplets,
-  ChevronDown,
   Play,
   Pause,
   RotateCcw,
-  Check,
 } from 'lucide-react-native';
 import * as Haptics from '../../lib/haptics';
 import { CardioBlock } from '../plan/CardioBlockCard';
@@ -37,8 +35,6 @@ interface FocusCardioSlideProps {
   position: 'PRE' | 'POST';
   screenWidth: number;
   contentHeight: number;
-  onComplete: (cardioId: string) => void;
-  nextLabel?: string;
   totalItems: number;
   currentIndex: number;
 }
@@ -123,10 +119,8 @@ export const FocusCardioSlide: React.FC<FocusCardioSlideProps> = ({
   position,
   screenWidth,
   contentHeight,
-  onComplete,
-  nextLabel,
 }) => {
-  const [timerState, setTimerState] = useState<'idle' | 'running' | 'paused' | 'done'>('idle');
+  const [timerState, setTimerState] = useState<'idle' | 'running' | 'paused'>('idle');
   const [secondsRemaining, setSecondsRemaining] = useState(cardio.duration_minutes * 60);
   const [secondsElapsed, setSecondsElapsed] = useState(0);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -166,13 +160,16 @@ export const FocusCardioSlide: React.FC<FocusCardioSlideProps> = ({
         setSecondsRemaining((prev) => {
           if (prev <= 1) {
             clearInterval(intervalRef.current!);
-            setTimerState('done');
+            setTimerState('idle');
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-            return 0;
+            return totalSeconds;
           }
           return prev - 1;
         });
-        setSecondsElapsed((prev) => prev + 1);
+        setSecondsElapsed((prev) => {
+          if (prev + 1 >= totalSeconds) return 0;
+          return prev + 1;
+        });
       }, 1000);
     }
     return () => {
@@ -203,13 +200,6 @@ export const FocusCardioSlide: React.FC<FocusCardioSlideProps> = ({
     setSecondsElapsed(0);
     setTimerState('idle');
   }, [totalSeconds]);
-
-  const handleComplete = useCallback(() => {
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    if (intervalRef.current) clearInterval(intervalRef.current);
-    setTimerState('done');
-    onComplete(cardio.id);
-  }, [cardio.id, onComplete]);
 
   // Progress percentage
   const progress = totalSeconds > 0 ? secondsElapsed / totalSeconds : 0;
@@ -267,13 +257,11 @@ export const FocusCardioSlide: React.FC<FocusCardioSlideProps> = ({
               height: Math.min(screenWidth * 0.6, 260),
               borderWidth: 4,
               borderColor:
-                timerState === 'done'
-                  ? '#22C55E'
-                  : timerState === 'running'
+                timerState === 'running'
                     ? typeColor
                     : '#27272a',
               shadowColor:
-                timerState === 'done' ? '#22C55E' : timerState === 'running' ? typeColor : '#000',
+                timerState === 'running' ? typeColor : '#000',
               shadowOffset: { width: 0, height: 0 },
               shadowOpacity: timerState === 'idle' ? 0 : 0.6,
               shadowRadius: 24,
@@ -287,20 +275,12 @@ export const FocusCardioSlide: React.FC<FocusCardioSlideProps> = ({
                 height: Math.min(screenWidth * 0.6, 260) - 20,
                 borderWidth: 1,
                 borderColor:
-                  timerState === 'running' || timerState === 'done'
-                    ? `${timerState === 'done' ? '#22C55E' : typeColor}30`
+                  timerState === 'running'
+                    ? `${typeColor}30`
                     : '#18181b',
               }}
             />
-            {timerState === 'done' ? (
-              <View className="items-center">
-                <Check size={48} color="#22C55E" />
-                <Text className="text-green-500 text-lg font-bold font-mono mt-2">
-                  COMPLETADO
-                </Text>
-              </View>
-            ) : (
-              <View className="items-center">
+            <View className="items-center">
                 <Text
                   className="font-mono font-bold"
                   style={{
@@ -324,7 +304,6 @@ export const FocusCardioSlide: React.FC<FocusCardioSlideProps> = ({
                   </Text>
                 )}
               </View>
-            )}
           </View>
         </Animated.View>
       </View>
@@ -441,30 +420,14 @@ export const FocusCardioSlide: React.FC<FocusCardioSlideProps> = ({
         )}
 
         {timerState === 'running' && (
-          <View className="flex-row gap-3">
-            <TouchableOpacity
-              onPress={handlePause}
-              className="flex-1 flex-row items-center justify-center gap-2 py-4 rounded-2xl"
-              style={{ backgroundColor: '#18181b', borderWidth: 1, borderColor: '#27272a' }}
-            >
-              <Pause size={18} color="#FFFFFF" />
-              <Text className="text-white font-bold tracking-wider">PAUSAR</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={handleComplete}
-              className="flex-1 flex-row items-center justify-center gap-2 py-4 rounded-2xl"
-              style={{
-                backgroundColor: '#22C55E',
-                shadowColor: '#22C55E',
-                shadowOffset: { width: 0, height: 4 },
-                shadowOpacity: 0.4,
-                shadowRadius: 12,
-              }}
-            >
-              <Check size={18} color="#FFFFFF" />
-              <Text className="text-white font-bold tracking-wider">LISTO</Text>
-            </TouchableOpacity>
-          </View>
+          <TouchableOpacity
+            onPress={handlePause}
+            className="flex-row items-center justify-center gap-2 py-4 rounded-2xl"
+            style={{ backgroundColor: '#18181b', borderWidth: 1, borderColor: '#27272a' }}
+          >
+            <Pause size={18} color="#FFFFFF" />
+            <Text className="text-white font-bold tracking-wider">PAUSAR</Text>
+          </TouchableOpacity>
         )}
 
         {timerState === 'paused' && (
@@ -490,33 +453,6 @@ export const FocusCardioSlide: React.FC<FocusCardioSlideProps> = ({
               <Play size={18} color="#FFFFFF" fill="#FFFFFF" />
               <Text className="text-white font-bold tracking-wider">CONTINUAR</Text>
             </TouchableOpacity>
-            <TouchableOpacity
-              onPress={handleComplete}
-              className="py-4 px-5 rounded-2xl items-center justify-center"
-              style={{
-                backgroundColor: '#22C55E20',
-                borderWidth: 1,
-                borderColor: '#22C55E60',
-              }}
-            >
-              <Check size={18} color="#22C55E" />
-            </TouchableOpacity>
-          </View>
-        )}
-
-        {timerState === 'done' && (
-          <View className="items-center">
-            <Text className="text-green-500 font-bold font-mono text-sm tracking-wider mb-3">
-              ✅ CARDIO COMPLETADO · {formatTimer(secondsElapsed)}
-            </Text>
-            {nextLabel && (
-              <View className="flex-row items-center gap-2">
-                <ChevronDown size={14} color="#F97316" />
-                <Text className="text-zinc-500 text-xs tracking-wider">
-                  Desliza para continuar
-                </Text>
-              </View>
-            )}
           </View>
         )}
       </View>
