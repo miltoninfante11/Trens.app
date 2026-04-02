@@ -3051,10 +3051,12 @@ function GymScreen() {
           .not('scheduled_time', 'is', null)
           .order('scheduled_time', { ascending: true });
 
-        const mealTimes = (mealsData || []).map((m: any) => ({
-          name: m.name || 'Comida',
-          time: m.scheduled_time?.slice(0, 5) || '',
-        })).filter((m: { time: string }) => m.time);
+        const mealTimes = (mealsData || [])
+          .map((m: any) => ({
+            name: m.name || 'Comida',
+            time: m.scheduled_time?.slice(0, 5) || '',
+          }))
+          .filter((m: { time: string }) => m.time);
 
         // 3. Calcular hora estimada de cada sesión (misma lógica que PLAN)
         const estimateTime = (workoutIndex: number): string | null => {
@@ -3066,7 +3068,9 @@ function GymScreen() {
             if (after.length > 0) {
               const [h, m] = after[0].time.split(':').map(Number);
               const mins = Math.max(h * 60 + m - 120, 5 * 60);
-              return `${Math.floor(mins / 60).toString().padStart(2, '0')}:${(mins % 60).toString().padStart(2, '0')}`;
+              return `${Math.floor(mins / 60)
+                .toString()
+                .padStart(2, '0')}:${(mins % 60).toString().padStart(2, '0')}`;
             }
             return '06:00';
           }
@@ -3079,38 +3083,44 @@ function GymScreen() {
         const timeA = estimateTime(posA);
         const timeB = estimateTime(posB);
 
+        console.log(`🧠 Smart Session DEBUG: posA=${posA}, posB=${posB}, meals=${JSON.stringify(mealTimes.map((m: { name: string; time: string }) => m.time))}, timeA=${timeA}, timeB=${timeB}`);
+
         if (!timeA || !timeB) return;
 
-        // 4. Hora actual HH:MM
+        // 4. Convertir a minutos para comparación numérica (más fiable que strings)
+        const toMinutes = (t: string) => {
+          const [h, m] = t.split(':').map(Number);
+          return h * 60 + m;
+        };
+        const minsA = toMinutes(timeA);
+        const minsB = toMinutes(timeB);
         const now = new Date();
-        const nowStr = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+        const nowMins = now.getHours() * 60 + now.getMinutes();
 
-        // 5. Lógica inteligente de auto-selección:
-        // - Antes de ambas sesiones → mostrar sesión A
-        // - Después de la hora de sesión A pero antes de B → mostrar sesión B
-        // - Después de ambas → mostrar sesión B (la más reciente)
-        // Se asume A es anterior a B cronológicamente
-        const [earlier, later] = timeA <= timeB ? [0, 1] : [1, 0];
-        const earlierTime = timeA <= timeB ? timeA : timeB;
-        const laterTime = timeA <= timeB ? timeB : timeA;
+        // 5. Determinar cuál es la sesión temprana y cuál la tardía
+        const [earlierIdx, laterIdx] = minsA <= minsB ? [0, 1] : [1, 0];
+        const earlierMins = Math.min(minsA, minsB);
+        const laterMins = Math.max(minsA, minsB);
 
-        // Ventana de transición: 30 min después de la hora estimada de la sesión anterior
-        const [eH, eM] = earlierTime.split(':').map(Number);
-        const transitionMins = eH * 60 + eM + 30;
-        const transitionStr = `${(Math.floor(transitionMins / 60) % 24).toString().padStart(2, '0')}:${(transitionMins % 60).toString().padStart(2, '0')}`;
+        // Punto de corte: punto medio entre ambas sesiones
+        // Si la distancia es grande (ej: 06:00 y 17:00), usar punto medio
+        // Si ambas son cercanas, usar 30 min después de la primera
+        const midpoint = Math.floor((earlierMins + laterMins) / 2);
 
         let targetSession: number;
-        if (nowStr < transitionStr) {
-          targetSession = earlier;  // Antes de terminar sesión A → mostrar A
+        if (nowMins < midpoint) {
+          targetSession = earlierIdx;
         } else {
-          targetSession = later;    // Ya pasó sesión A → mostrar B
+          targetSession = laterIdx;
         }
+
+        const nowStr = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+        console.log(`🧠 Smart Session: now=${nowStr}(${nowMins}min), A≈${timeA}(${minsA}min), B≈${timeB}(${minsB}min), midpoint=${midpoint}min → sesión ${targetSession === 0 ? 'A' : 'B'}`);
 
         // Solo cambiar si es diferente al actual
         if (targetSession !== selectedSessionIndexRef.current) {
           setSelectedSessionIndex(targetSession);
           selectedSessionIndexRef.current = targetSession;
-          console.log(`🧠 Smart Session: Auto-seleccionada sesión ${targetSession === 0 ? 'A' : 'B'} (hora: ${nowStr}, A≈${timeA}, B≈${timeB})`);
         }
       } catch (err) {
         console.error('Error en auto-select session:', err);
