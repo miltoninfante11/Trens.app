@@ -13,9 +13,7 @@ self.addEventListener('activate', (event) => {
     caches
       .keys()
       .then((cacheNames) => {
-        return Promise.all(
-          cacheNames.map((cacheName) => caches.delete(cacheName))
-        );
+        return Promise.all(cacheNames.map((cacheName) => caches.delete(cacheName)));
       })
       .then(() => self.clients.claim())
       .then(() => self.clients.matchAll({ type: 'window' }))

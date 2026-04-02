@@ -115,20 +115,38 @@ export function UserRoleProvider({ children }: { children: ReactNode }) {
   // -------------------------------------------------------------------------
   useEffect(() => {
     // Obtener sesión inicial
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        // IMPORTANTE: Esperar a que fetchRole termine antes de setLoading(false)
-        await fetchRole(session.user.id);
-        // 🎵 Cargar token de Spotify al inicio
-        const connected = await spotify.loadStoredTokens();
-        // 🔥 Warm-up silencioso si está conectado
-        if (connected) {
-          spotify.warmUp();
+    supabase.auth
+      .getSession()
+      .then(async ({ data: { session } }) => {
+        setUser(session?.user ?? null);
+        if (session?.user) {
+          // IMPORTANTE: Esperar a que fetchRole termine antes de setLoading(false)
+          await fetchRole(session.user.id);
+          // 🎵 Cargar token de Spotify al inicio (no bloquear loading)
+          try {
+            const connected = await spotify.loadStoredTokens();
+            // 🔥 Warm-up silencioso si está conectado
+            if (connected) {
+              spotify.warmUp();
+            }
+          } catch (spotifyErr) {
+            console.warn('🎵 Spotify load failed (non-blocking):', spotifyErr);
+          }
         }
-      }
-      setLoading(false);
-    });
+        setLoading(false);
+      })
+      .catch((err) => {
+        console.error('❌ getSession failed:', err);
+        setLoading(false);
+      });
+
+    // Failsafe: si en 8s no resolvió, desbloquear loading
+    const failsafe = setTimeout(() => {
+      setLoading((prev) => {
+        if (prev) console.warn('⚠️ Auth loading failsafe triggered after 8s');
+        return false;
+      });
+    }, 8000);
 
     // Escuchar cambios de autenticación
     const {
@@ -152,7 +170,10 @@ export function UserRoleProvider({ children }: { children: ReactNode }) {
       }
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      subscription.unsubscribe();
+      clearTimeout(failsafe);
+    };
   }, [fetchRole]);
 
   // -------------------------------------------------------------------------
