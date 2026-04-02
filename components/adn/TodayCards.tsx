@@ -613,7 +613,9 @@ export const TodayCards: React.FC<TodayCardsProps> = ({ userId }) => {
       // =====================================================================
       const { data: stacksData } = await supabase
         .from('supplement_stack')
-        .select('id, name, dose, time, type, days_of_week, is_pre_workout, is_post_workout, workout_session_index')
+        .select(
+          'id, name, dose, time, type, days_of_week, is_pre_workout, is_post_workout, workout_session_index'
+        )
         .eq('user_id', userId)
         .eq('is_active', true);
 
@@ -967,10 +969,34 @@ export const TodayCards: React.FC<TodayCardsProps> = ({ userId }) => {
           borderColor: `${accentColor}20`,
         }}
       >
-        {/* Session header */}
+        {/* PRE-workout items ABOVE session card */}
+        {hasPreContent && (
+          <View className="px-2 pt-2 pb-1">
+            <Text className="text-zinc-600 text-[9px] font-mono tracking-widest px-2 mb-1.5">
+              PRE-ENTRENO
+            </Text>
+            {sessionPreStacks.length > 0 && (
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                className="mb-2"
+                contentContainerStyle={{ paddingHorizontal: 8 }}
+              >
+                {sessionPreStacks.map(renderStackPill)}
+              </ScrollView>
+            )}
+            {sessionPreCardios.map((c) => (
+              <View key={c.id} className="px-1 mb-1">
+                {renderCardioCard(c, 'CARDIO PRE')}
+              </View>
+            ))}
+          </View>
+        )}
+
+        {/* Session card */}
         <Pressable
           onPress={handleWorkoutPress}
-          className="rounded-xl overflow-hidden mx-1 mt-1"
+          className="rounded-xl overflow-hidden mx-1 my-1"
           style={{ backgroundColor: bgColor, borderWidth: 1, borderColor }}
         >
           <View className="flex-row items-center justify-between px-4 pt-3 pb-2">
@@ -1013,33 +1039,9 @@ export const TodayCards: React.FC<TodayCardsProps> = ({ userId }) => {
           )}
         </Pressable>
 
-        {/* PRE-workout items for this session */}
-        {hasPreContent && (
-          <View className="px-2 pt-2">
-            <Text className="text-zinc-600 text-[9px] font-mono tracking-widest px-2 mb-1.5">
-              PRE-ENTRENO
-            </Text>
-            {sessionPreStacks.length > 0 && (
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                className="mb-2"
-                contentContainerStyle={{ paddingHorizontal: 8 }}
-              >
-                {sessionPreStacks.map(renderStackPill)}
-              </ScrollView>
-            )}
-            {sessionPreCardios.map((c) => (
-              <View key={c.id} className="px-1 mb-1">
-                {renderCardioCard(c, 'CARDIO PRE')}
-              </View>
-            ))}
-          </View>
-        )}
-
-        {/* POST-workout items for this session */}
+        {/* POST-workout items BELOW session card */}
         {hasPostContent && (
-          <View className="px-2 pt-2 pb-1">
+          <View className="px-2 pt-1 pb-2">
             <Text className="text-zinc-600 text-[9px] font-mono tracking-widest px-2 mb-1.5">
               POST-ENTRENO
             </Text>
@@ -1060,8 +1062,6 @@ export const TodayCards: React.FC<TodayCardsProps> = ({ userId }) => {
             ))}
           </View>
         )}
-
-        {!hasPreContent && !hasPostContent ? null : <View className="h-1" />}
       </View>
     );
   };
@@ -1166,20 +1166,14 @@ export const TodayCards: React.FC<TodayCardsProps> = ({ userId }) => {
 
                 <View className="flex-row items-center gap-2">
                   {!workout?.isRestDay && !workout?.isExternalMode && workout?.exercises && (
-                    <View
-                      className="px-2 py-1 rounded-md"
-                      style={{ backgroundColor: '#DC262620' }}
-                    >
+                    <View className="px-2 py-1 rounded-md" style={{ backgroundColor: '#DC262620' }}>
                       <Text className="text-fire-red text-[10px] font-mono font-bold">
                         {workout.exercises.length} ejercicios
                       </Text>
                     </View>
                   )}
                   {!workout?.isRestDay && workout?.isExternalMode && (
-                    <View
-                      className="px-2 py-1 rounded-md"
-                      style={{ backgroundColor: '#a855f720' }}
-                    >
+                    <View className="px-2 py-1 rounded-md" style={{ backgroundColor: '#a855f720' }}>
                       <Text className="text-purple-400 text-[10px] font-mono font-bold">
                         ⚡ PERSONALIZADO
                       </Text>
