@@ -79,6 +79,16 @@ interface StackItemData {
   type: 'pill' | 'syringe' | 'powder' | 'liquid';
 }
 
+interface WorkoutStackItem {
+  id: string;
+  name: string;
+  dose: string;
+  type: 'pill' | 'syringe' | 'powder' | 'liquid';
+  is_pre_workout: boolean;
+  is_post_workout: boolean;
+  workout_session_index?: number;
+}
+
 interface TodayCardsProps {
   userId: string;
 }
@@ -197,6 +207,7 @@ export const TodayCards: React.FC<TodayCardsProps> = ({ userId }) => {
   const [cardioItems, setCardioItems] = useState<CardioItem[]>([]);
   const [nextMeal, setNextMeal] = useState<MealItem | null>(null);
   const [nextStack, setNextStack] = useState<StackItemData | null>(null);
+  const [workoutStacks, setWorkoutStacks] = useState<WorkoutStackItem[]>([]);
 
   // -------------------------------------------------------------------------
   // FETCH DATA - Usando lógica de PLAN para calcular próximos items
@@ -356,7 +367,9 @@ export const TodayCards: React.FC<TodayCardsProps> = ({ userId }) => {
               .select('training_session_names')
               .eq('id', userId)
               .single();
-            const sNames = (profSessions?.training_session_names as Record<string, Record<string, string>>) || {};
+            const sNames =
+              (profSessions?.training_session_names as Record<string, Record<string, string>>) ||
+              {};
             const daySessionNames = sNames[String(safeIndex)] || {};
 
             const sessA: SessionWorkout = {
@@ -398,7 +411,9 @@ export const TodayCards: React.FC<TodayCardsProps> = ({ userId }) => {
         // =====================================================================
         const { data: profileData } = await supabase
           .from('profiles')
-          .select('training_current_day, training_routine_names, training_frequency, plan_source, training_session_names')
+          .select(
+            'training_current_day, training_routine_names, training_frequency, plan_source, training_session_names'
+          )
           .eq('id', userId)
           .single();
 
@@ -408,7 +423,8 @@ export const TodayCards: React.FC<TodayCardsProps> = ({ userId }) => {
         const routineName = rawRoutineName.replace(/^Día\s*\d+\s*:\s*/i, '');
         const frequency = profileData?.training_frequency ?? 0;
         const planSource = profileData?.plan_source;
-        const sessionNamesMap = (profileData?.training_session_names as Record<string, Record<string, string>>) || {};
+        const sessionNamesMap =
+          (profileData?.training_session_names as Record<string, Record<string, string>>) || {};
 
         const isManualPlan = frequency > 0 && (planSource === 'custom' || !planSource);
 
@@ -477,7 +493,8 @@ export const TodayCards: React.FC<TodayCardsProps> = ({ userId }) => {
 
         // Detectar dual session para este día
         const daySessionNames = sessionNamesMap[String(currentTrainingDay)] || {};
-        const hasSessionB = todayExercises.some((ex) => ex.sessionIndex === 1) || !!daySessionNames['1'];
+        const hasSessionB =
+          todayExercises.some((ex) => ex.sessionIndex === 1) || !!daySessionNames['1'];
         setHasDualSession(hasSessionB);
 
         if (hasSessionB) {
@@ -596,7 +613,7 @@ export const TodayCards: React.FC<TodayCardsProps> = ({ userId }) => {
       // =====================================================================
       const { data: stacksData } = await supabase
         .from('supplement_stack')
-        .select('id, name, dose, time, type, days_of_week, is_pre_workout, is_post_workout')
+        .select('id, name, dose, time, type, days_of_week, is_pre_workout, is_post_workout, workout_session_index')
         .eq('user_id', userId)
         .eq('is_active', true);
 
@@ -611,18 +628,28 @@ export const TodayCards: React.FC<TodayCardsProps> = ({ userId }) => {
       }
 
       const stackCandidates: StackCandidate[] = [];
+      const prePostStacks: WorkoutStackItem[] = [];
 
       stacksData?.forEach((stack) => {
-        // Solo stacks que:
-        // - Tienen hora
-        // - NO son pre/post workout
-        // - Están programados para hoy
-        if (
-          stack.time &&
-          !stack.is_pre_workout &&
-          !stack.is_post_workout &&
-          (stack.days_of_week?.includes(today) ?? true)
-        ) {
+        const matchesToday = stack.days_of_week?.includes(today) ?? true;
+        if (!matchesToday) return;
+
+        // Collect pre/post workout stacks
+        if (stack.is_pre_workout || stack.is_post_workout) {
+          prePostStacks.push({
+            id: stack.id,
+            name: stack.name,
+            dose: stack.dose || '',
+            type: (stack.type as any) || 'pill',
+            is_pre_workout: stack.is_pre_workout || false,
+            is_post_workout: stack.is_post_workout || false,
+            workout_session_index: stack.workout_session_index ?? undefined,
+          });
+          return;
+        }
+
+        // Regular timed stacks
+        if (stack.time) {
           const timeStr = stack.time.slice(0, 5);
           const minutes = parseTimeToMinutes(timeStr);
           const diff = minutes - currentMinutes;
@@ -660,6 +687,8 @@ export const TodayCards: React.FC<TodayCardsProps> = ({ userId }) => {
       } else {
         setNextStack(null);
       }
+
+      setWorkoutStacks(prePostStacks);
     } catch (error) {
       console.error('Error fetching today data:', error);
     } finally {
@@ -705,16 +734,86 @@ export const TodayCards: React.FC<TodayCardsProps> = ({ userId }) => {
   // -------------------------------------------------------------------------
   const preCardios = cardioItems.filter((c) => c.is_pre_workout);
   const postCardios = cardioItems.filter((c) => c.is_post_workout);
-  const scheduledCardios = cardioItems.filter((c) => !c.is_pre_workout && !c.is_post_workout && c.scheduled_time);
+  const scheduledCardios = cardioItems.filter(
+    (c) => !c.is_pre_workout && !c.is_post_workout && c.scheduled_time
+  );
+
+  // HELPERS: Stack grouping
+  const preStacks = workoutStacks.filter((s) => s.is_pre_workout);
+  const postStacks = workoutStacks.filter((s) => s.is_post_workout);
+
+  // Filter cardio/stacks by session
+  const getSessionPreCardios = (sessionIdx: number) =>
+    preCardios.filter(
+      (c) =>
+        c.workout_session_index === sessionIdx ||
+        c.workout_session_index === 2 ||
+        c.workout_session_index == null
+    );
+  const getSessionPostCardios = (sessionIdx: number) =>
+    postCardios.filter(
+      (c) =>
+        c.workout_session_index === sessionIdx ||
+        c.workout_session_index === 2 ||
+        c.workout_session_index == null
+    );
+  const getSessionPreStacks = (sessionIdx: number) =>
+    preStacks.filter(
+      (s) =>
+        s.workout_session_index === sessionIdx ||
+        s.workout_session_index === 2 ||
+        s.workout_session_index == null
+    );
+  const getSessionPostStacks = (sessionIdx: number) =>
+    postStacks.filter(
+      (s) =>
+        s.workout_session_index === sessionIdx ||
+        s.workout_session_index === 2 ||
+        s.workout_session_index == null
+    );
 
   // Get cardio color by type
   const getCardioColor = (type: string): string => {
     switch (type) {
-      case 'HIIT': case 'SPRINT': case 'TABATA': return '#DC2626';
-      case 'LISS': return '#22C55E';
-      case 'EMOM': return '#3B82F6';
-      default: return '#F97316';
+      case 'HIIT':
+      case 'SPRINT':
+      case 'TABATA':
+        return '#DC2626';
+      case 'LISS':
+        return '#22C55E';
+      case 'EMOM':
+        return '#3B82F6';
+      default:
+        return '#F97316';
     }
+  };
+
+  // Current time for scheduled cardio countdown
+  const currentMinutesNow = getCurrentMinutes();
+
+  // -------------------------------------------------------------------------
+  // RENDER: Stack pill (compact inline)
+  // -------------------------------------------------------------------------
+  const renderStackPill = (stack: WorkoutStackItem) => {
+    return (
+      <View
+        key={stack.id}
+        className="flex-row items-center gap-1.5 px-3 py-1.5 rounded-full mr-2"
+        style={{
+          backgroundColor: '#A855F710',
+          borderWidth: 1,
+          borderColor: '#A855F725',
+        }}
+      >
+        {getStackTypeIcon(stack.type)}
+        <Text className="text-purple-400 text-[10px] font-bold" numberOfLines={1}>
+          {stack.name}
+        </Text>
+        {stack.dose ? (
+          <Text className="text-purple-400/60 text-[9px] font-mono">{stack.dose}</Text>
+        ) : null}
+      </View>
+    );
   };
 
   // -------------------------------------------------------------------------
@@ -722,15 +821,21 @@ export const TodayCards: React.FC<TodayCardsProps> = ({ userId }) => {
   // -------------------------------------------------------------------------
   const renderCardioCard = (cardio: CardioItem, label: string, sessionLabel?: string) => {
     const color = getCardioColor(cardio.cardio_type);
+    // Countdown for scheduled cardios
+    let countdown: string | undefined;
+    if (cardio.scheduled_time) {
+      const targetMin = parseTimeToMinutes(cardio.scheduled_time.slice(0, 5));
+      countdown = formatTimeUntil(targetMin, currentMinutesNow);
+    }
     return (
       <Pressable
         key={cardio.id}
         onPress={handleWorkoutPress}
-        className="mb-2 rounded-xl overflow-hidden"
+        className="rounded-xl overflow-hidden"
         style={{
           backgroundColor: '#080808',
           borderWidth: 1,
-          borderColor: `${color}30`,
+          borderColor: `${color}25`,
         }}
       >
         <View className="flex-row items-center justify-between px-4 py-3">
@@ -751,18 +856,22 @@ export const TodayCards: React.FC<TodayCardsProps> = ({ userId }) => {
                 </Text>
                 {sessionLabel && (
                   <View className="px-1.5 py-0.5 rounded" style={{ backgroundColor: '#A855F715' }}>
-                    <Text className="text-purple-400 text-[8px] font-bold font-mono">{sessionLabel}</Text>
+                    <Text className="text-purple-400 text-[8px] font-bold font-mono">
+                      {sessionLabel}
+                    </Text>
                   </View>
                 )}
               </View>
-              <Text className="text-white font-bold text-sm uppercase tracking-tight" numberOfLines={1}>
+              <Text
+                className="text-white font-bold text-sm uppercase tracking-tight"
+                numberOfLines={1}
+              >
                 {cardio.cardio_type.replace('_', ' ')} · {cardio.activity}
               </Text>
             </View>
           </View>
 
           <View className="flex-row items-center gap-3">
-            {/* Metrics pills */}
             <View className="items-end gap-1">
               <View className="flex-row items-center gap-1">
                 <Clock size={9} color={color} />
@@ -770,11 +879,23 @@ export const TodayCards: React.FC<TodayCardsProps> = ({ userId }) => {
                   {cardio.duration_minutes} MIN
                 </Text>
               </View>
+              {countdown && (
+                <Text
+                  className="text-[9px] font-bold font-mono"
+                  style={{
+                    color: countdown === 'AHORA' ? color : '#71717a',
+                  }}
+                >
+                  {countdown}
+                </Text>
+              )}
               <View className="flex-row items-center gap-2">
                 {cardio.target_heart_rate ? (
                   <View className="flex-row items-center gap-0.5">
                     <Activity size={8} color="#DC2626" />
-                    <Text className="text-zinc-500 text-[8px] font-mono">{cardio.target_heart_rate}</Text>
+                    <Text className="text-zinc-500 text-[8px] font-mono">
+                      {cardio.target_heart_rate}
+                    </Text>
                   </View>
                 ) : null}
                 {cardio.speed ? (
@@ -799,13 +920,18 @@ export const TodayCards: React.FC<TodayCardsProps> = ({ userId }) => {
         {(cardio.is_fasted || cardio.intensity) && (
           <View className="flex-row gap-1.5 px-4 pb-2.5">
             <View className="px-2 py-0.5 rounded-full" style={{ backgroundColor: `${color}10` }}>
-              <Text className="text-[8px] font-mono font-bold tracking-wider" style={{ color: `${color}99` }}>
+              <Text
+                className="text-[8px] font-mono font-bold tracking-wider"
+                style={{ color: `${color}99` }}
+              >
                 {cardio.intensity}
               </Text>
             </View>
             {cardio.is_fasted && (
               <View className="px-2 py-0.5 rounded-full" style={{ backgroundColor: '#22C55E10' }}>
-                <Text className="text-green-600 text-[8px] font-mono font-bold tracking-wider">EN AYUNAS</Text>
+                <Text className="text-green-600 text-[8px] font-mono font-bold tracking-wider">
+                  EN AYUNAS
+                </Text>
               </View>
             )}
           </View>
@@ -815,56 +941,128 @@ export const TodayCards: React.FC<TodayCardsProps> = ({ userId }) => {
   };
 
   // -------------------------------------------------------------------------
-  // RENDER: Session workout card
+  // RENDER: Session block (session + its pre/post cardio + stacks)
   // -------------------------------------------------------------------------
-  const renderSessionCard = (session: SessionWorkout, isSecondary: boolean = false) => {
+  const renderSessionBlock = (session: SessionWorkout, isSecondary: boolean = false) => {
     const accentColor = isSecondary ? '#A855F7' : '#DC2626';
     const bgColor = isSecondary ? '#0a050f' : '#0a0505';
     const borderColor = isSecondary ? '#A855F740' : '#DC262660';
+    const sessionIdx = session.sessionIndex;
+
+    const sessionPreCardios = getSessionPreCardios(sessionIdx);
+    const sessionPostCardios = getSessionPostCardios(sessionIdx);
+    const sessionPreStacks = getSessionPreStacks(sessionIdx);
+    const sessionPostStacks = getSessionPostStacks(sessionIdx);
+
+    const hasPreContent = sessionPreCardios.length > 0 || sessionPreStacks.length > 0;
+    const hasPostContent = sessionPostCardios.length > 0 || sessionPostStacks.length > 0;
 
     return (
-      <Pressable
-        key={`session-${session.sessionIndex}`}
-        onPress={handleWorkoutPress}
-        className="mb-2 rounded-xl overflow-hidden"
-        style={{ backgroundColor: bgColor, borderWidth: 1, borderColor }}
+      <View
+        key={`session-block-${sessionIdx}`}
+        className="mb-3 rounded-2xl overflow-hidden"
+        style={{
+          backgroundColor: '#050505',
+          borderWidth: 1,
+          borderColor: `${accentColor}20`,
+        }}
       >
-        <View className="flex-row items-center justify-between px-4 pt-3 pb-2">
-          <View className="flex-row items-center gap-2">
-            <View
-              className="w-7 h-7 rounded-full items-center justify-center"
-              style={{ backgroundColor: `${accentColor}20` }}
-            >
-              <Dumbbell size={12} color={accentColor} />
-            </View>
-            <View>
-              <Text
-                className="text-[10px] font-bold uppercase tracking-widest"
-                style={{ color: accentColor }}
+        {/* Session header */}
+        <Pressable
+          onPress={handleWorkoutPress}
+          className="rounded-xl overflow-hidden mx-1 mt-1"
+          style={{ backgroundColor: bgColor, borderWidth: 1, borderColor }}
+        >
+          <View className="flex-row items-center justify-between px-4 pt-3 pb-2">
+            <View className="flex-row items-center gap-2">
+              <View
+                className="w-7 h-7 rounded-full items-center justify-center"
+                style={{ backgroundColor: `${accentColor}20` }}
               >
-                {session.name}
-              </Text>
-              <Text className="font-bold text-sm text-white uppercase tracking-tight" numberOfLines={1}>
-                {session.exercises.length} ejercicios
-              </Text>
+                <Dumbbell size={12} color={accentColor} />
+              </View>
+              <View>
+                <Text
+                  className="text-[10px] font-bold uppercase tracking-widest"
+                  style={{ color: accentColor }}
+                >
+                  {session.name}
+                </Text>
+                <Text
+                  className="font-bold text-sm text-white uppercase tracking-tight"
+                  numberOfLines={1}
+                >
+                  {session.exercises.length} ejercicios
+                </Text>
+              </View>
             </View>
+            <ChevronRight size={14} color="#52525b" />
           </View>
-          <ChevronRight size={14} color="#52525b" />
-        </View>
 
-        {session.exercises.length > 0 && (
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            className="pb-3"
-            contentContainerStyle={{ paddingHorizontal: 16 }}
-          >
-            {session.exercises.map((ex) => (
-              <ExerciseMiniCard key={ex.id} exercise={ex} />
+          {session.exercises.length > 0 && (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              className="pb-3"
+              contentContainerStyle={{ paddingHorizontal: 16 }}
+            >
+              {session.exercises.map((ex) => (
+                <ExerciseMiniCard key={ex.id} exercise={ex} />
+              ))}
+            </ScrollView>
+          )}
+        </Pressable>
+
+        {/* PRE-workout items for this session */}
+        {hasPreContent && (
+          <View className="px-2 pt-2">
+            <Text className="text-zinc-600 text-[9px] font-mono tracking-widest px-2 mb-1.5">
+              PRE-ENTRENO
+            </Text>
+            {sessionPreStacks.length > 0 && (
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                className="mb-2"
+                contentContainerStyle={{ paddingHorizontal: 8 }}
+              >
+                {sessionPreStacks.map(renderStackPill)}
+              </ScrollView>
+            )}
+            {sessionPreCardios.map((c) => (
+              <View key={c.id} className="px-1 mb-1">
+                {renderCardioCard(c, 'CARDIO PRE')}
+              </View>
             ))}
-          </ScrollView>
+          </View>
         )}
-      </Pressable>
+
+        {/* POST-workout items for this session */}
+        {hasPostContent && (
+          <View className="px-2 pt-2 pb-1">
+            <Text className="text-zinc-600 text-[9px] font-mono tracking-widest px-2 mb-1.5">
+              POST-ENTRENO
+            </Text>
+            {sessionPostStacks.length > 0 && (
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                className="mb-2"
+                contentContainerStyle={{ paddingHorizontal: 8 }}
+              >
+                {sessionPostStacks.map(renderStackPill)}
+              </ScrollView>
+            )}
+            {sessionPostCardios.map((c) => (
+              <View key={c.id} className="px-1 mb-1">
+                {renderCardioCard(c, 'CARDIO POST')}
+              </View>
+            ))}
+          </View>
+        )}
+
+        {!hasPreContent && !hasPostContent ? null : <View className="h-1" />}
+      </View>
     );
   };
 
@@ -880,146 +1078,182 @@ export const TodayCards: React.FC<TodayCardsProps> = ({ userId }) => {
       </View>
 
       {/* ================================================================== */}
-      {/* TRAINING BLOCK: Sessions + Cardio agrupados inteligentemente      */}
+      {/* TRAINING BLOCK: Sessions + Cardio + Stacks agrupados              */}
       {/* ================================================================== */}
 
-      {/* PRE-WORKOUT CARDIO (antes de todo entrenamiento) */}
-      {preCardios.map((c) => {
-        const sessionLabel = hasDualSession && c.workout_session_index != null && c.workout_session_index < 2
-          ? `SESIÓN ${c.workout_session_index === 0 ? 'A' : 'B'}`
-          : undefined;
-        return renderCardioCard(c, '🏃 CARDIO PRE-ENTRENO', sessionLabel);
-      })}
-
-      {/* ================================================================== */}
-      {/* DUAL SESSION MODE: Sesión A y B separadas                         */}
-      {/* ================================================================== */}
       {hasDualSession && sessions.length > 0 ? (
         <>
-          {/* SESIÓN A */}
-          {renderSessionCard(sessions[0], false)}
-
-          {/* POST cardio específico de sesión A */}
-          {postCardios
-            .filter((c) => c.workout_session_index === 0)
-            .map((c) => renderCardioCard(c, '🏃 CARDIO POST', 'SESIÓN A'))}
-
-          {/* SESIÓN B */}
-          {sessions.length > 1 && renderSessionCard(sessions[1], true)}
-
-          {/* POST cardio específico de sesión B */}
-          {postCardios
-            .filter((c) => c.workout_session_index === 1)
-            .map((c) => renderCardioCard(c, '🏃 CARDIO POST', 'SESIÓN B'))}
-
-          {/* POST cardio para AMBAS sesiones (index 2 o null) */}
-          {postCardios
-            .filter((c) => c.workout_session_index === 2 || c.workout_session_index == null)
-            .map((c) => renderCardioCard(c, '🏃 CARDIO POST-ENTRENO'))}
+          {/* ============================================================ */}
+          {/* DUAL SESSION MODE: Sesión A y B como bloques independientes  */}
+          {/* ============================================================ */}
+          {renderSessionBlock(sessions[0], false)}
+          {sessions.length > 1 && renderSessionBlock(sessions[1], true)}
         </>
       ) : (
         <>
-          {/* ================================================================ */}
-          {/* SINGLE SESSION MODE: Card original de entrenamiento              */}
-          {/* ================================================================ */}
-          <Pressable
-            onPress={handleWorkoutPress}
-            className="mb-3 rounded-xl overflow-hidden"
+          {/* ============================================================ */}
+          {/* SINGLE SESSION MODE: Un bloque con todo                      */}
+          {/* ============================================================ */}
+          <View
+            className="mb-3 rounded-2xl overflow-hidden"
             style={{
-              backgroundColor: '#0a0505',
+              backgroundColor: '#050505',
               borderWidth: 1,
-              borderColor: workout?.isRestDay ? '#3f3f46' : '#DC262660',
+              borderColor: workout?.isRestDay ? '#27272a20' : '#DC262620',
             }}
           >
-            <View className="flex-row items-center justify-between px-4 pt-3 pb-2">
-              <View className="flex-row items-center gap-2">
-                <View
-                  className="w-7 h-7 rounded-full items-center justify-center"
-                  style={{
-                    backgroundColor: workout?.isRestDay ? '#27272a' : '#DC262620',
-                  }}
-                >
-                  {workout?.isRestDay ? (
-                    <Zap size={12} color="#71717a" />
-                  ) : (
-                    <Dumbbell size={12} color="#DC2626" />
-                  )}
-                </View>
-                <View>
-                  <Text className="text-fire-red text-[10px] font-bold uppercase tracking-widest">
-                    🔥 BLOQUE ENTRENO
-                  </Text>
-                  <Text
-                    className="font-bold text-sm uppercase tracking-tight"
-                    style={{ color: workout?.isRestDay ? '#71717a' : '#ffffff' }}
-                    numberOfLines={1}
+            {/* PRE stacks + cardio */}
+            {(preStacks.length > 0 || preCardios.length > 0) && (
+              <View className="px-2 pt-2">
+                <Text className="text-zinc-600 text-[9px] font-mono tracking-widest px-2 mb-1.5">
+                  PRE-ENTRENO
+                </Text>
+                {preStacks.length > 0 && (
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    className="mb-2"
+                    contentContainerStyle={{ paddingHorizontal: 8 }}
                   >
-                    {workout?.routineName || 'SIN RUTINA'}
-                  </Text>
-                </View>
-              </View>
-
-              <View className="flex-row items-center gap-2">
-                {!workout?.isRestDay && !workout?.isExternalMode && workout?.exercises && (
-                  <View className="px-2 py-1 rounded-md" style={{ backgroundColor: '#DC262620' }}>
-                    <Text className="text-fire-red text-[10px] font-mono font-bold">
-                      {workout.exercises.length} ejercicios
-                    </Text>
-                  </View>
+                    {preStacks.map(renderStackPill)}
+                  </ScrollView>
                 )}
-                {!workout?.isRestDay && workout?.isExternalMode && (
-                  <View className="px-2 py-1 rounded-md" style={{ backgroundColor: '#a855f720' }}>
-                    <Text className="text-purple-400 text-[10px] font-mono font-bold">
-                      ⚡ PERSONALIZADO
-                    </Text>
+                {preCardios.map((c) => (
+                  <View key={c.id} className="px-1 mb-1">
+                    {renderCardioCard(c, 'CARDIO PRE')}
                   </View>
-                )}
-                <ChevronRight size={14} color="#52525b" />
-              </View>
-            </View>
-
-            {!workout?.isRestDay && workout?.exercises && workout.exercises.length > 0 && (
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                className="pb-3"
-                contentContainerStyle={{ paddingHorizontal: 16 }}
-              >
-                {workout.exercises.map((ex) => (
-                  <ExerciseMiniCard key={ex.id} exercise={ex} />
                 ))}
-              </ScrollView>
+              </View>
             )}
 
-            {!workout?.isRestDay &&
-              workout?.isExternalMode &&
-              (!workout?.exercises || workout.exercises.length === 0) && (
+            {/* Main workout card */}
+            <Pressable
+              onPress={handleWorkoutPress}
+              className="rounded-xl overflow-hidden mx-1 mt-1"
+              style={{
+                backgroundColor: '#0a0505',
+                borderWidth: 1,
+                borderColor: workout?.isRestDay ? '#3f3f46' : '#DC262660',
+              }}
+            >
+              <View className="flex-row items-center justify-between px-4 pt-3 pb-2">
+                <View className="flex-row items-center gap-2">
+                  <View
+                    className="w-7 h-7 rounded-full items-center justify-center"
+                    style={{
+                      backgroundColor: workout?.isRestDay ? '#27272a' : '#DC262620',
+                    }}
+                  >
+                    {workout?.isRestDay ? (
+                      <Zap size={12} color="#71717a" />
+                    ) : (
+                      <Dumbbell size={12} color="#DC2626" />
+                    )}
+                  </View>
+                  <View>
+                    <Text className="text-fire-red text-[10px] font-bold uppercase tracking-widest">
+                      🔥 BLOQUE ENTRENO
+                    </Text>
+                    <Text
+                      className="font-bold text-sm uppercase tracking-tight"
+                      style={{ color: workout?.isRestDay ? '#71717a' : '#ffffff' }}
+                      numberOfLines={1}
+                    >
+                      {workout?.routineName || 'SIN RUTINA'}
+                    </Text>
+                  </View>
+                </View>
+
+                <View className="flex-row items-center gap-2">
+                  {!workout?.isRestDay && !workout?.isExternalMode && workout?.exercises && (
+                    <View
+                      className="px-2 py-1 rounded-md"
+                      style={{ backgroundColor: '#DC262620' }}
+                    >
+                      <Text className="text-fire-red text-[10px] font-mono font-bold">
+                        {workout.exercises.length} ejercicios
+                      </Text>
+                    </View>
+                  )}
+                  {!workout?.isRestDay && workout?.isExternalMode && (
+                    <View
+                      className="px-2 py-1 rounded-md"
+                      style={{ backgroundColor: '#a855f720' }}
+                    >
+                      <Text className="text-purple-400 text-[10px] font-mono font-bold">
+                        ⚡ PERSONALIZADO
+                      </Text>
+                    </View>
+                  )}
+                  <ChevronRight size={14} color="#52525b" />
+                </View>
+              </View>
+
+              {!workout?.isRestDay && workout?.exercises && workout.exercises.length > 0 && (
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  className="pb-3"
+                  contentContainerStyle={{ paddingHorizontal: 16 }}
+                >
+                  {workout.exercises.map((ex) => (
+                    <ExerciseMiniCard key={ex.id} exercise={ex} />
+                  ))}
+                </ScrollView>
+              )}
+
+              {!workout?.isRestDay &&
+                workout?.isExternalMode &&
+                (!workout?.exercises || workout.exercises.length === 0) && (
+                  <View className="px-4 pb-3">
+                    <Text className="text-zinc-400 text-xs font-mono">
+                      ⚡ Toca para agregar ejercicios a tu rutina
+                    </Text>
+                  </View>
+                )}
+
+              {workout?.isRestDay && (
                 <View className="px-4 pb-3">
-                  <Text className="text-zinc-400 text-xs font-mono">
-                    ⚡ Toca para agregar ejercicios a tu rutina
+                  <Text className="text-zinc-600 text-xs font-mono">
+                    ⚡ Recuperación activa recomendada
                   </Text>
                 </View>
               )}
+            </Pressable>
 
-            {workout?.isRestDay && (
-              <View className="px-4 pb-3">
-                <Text className="text-zinc-600 text-xs font-mono">
-                  ⚡ Recuperación activa recomendada
+            {/* POST stacks + cardio */}
+            {(postStacks.length > 0 || postCardios.length > 0) && (
+              <View className="px-2 pt-2 pb-1">
+                <Text className="text-zinc-600 text-[9px] font-mono tracking-widest px-2 mb-1.5">
+                  POST-ENTRENO
                 </Text>
+                {postStacks.length > 0 && (
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    className="mb-2"
+                    contentContainerStyle={{ paddingHorizontal: 8 }}
+                  >
+                    {postStacks.map(renderStackPill)}
+                  </ScrollView>
+                )}
+                {postCardios.map((c) => (
+                  <View key={c.id} className="px-1 mb-1">
+                    {renderCardioCard(c, 'CARDIO POST')}
+                  </View>
+                ))}
               </View>
             )}
-          </Pressable>
 
-          {/* POST-WORKOUT CARDIO (después del bloque de entrenamiento) */}
-          {postCardios.map((c) => renderCardioCard(c, '🏃 CARDIO POST-ENTRENO'))}
+            <View className="h-1" />
+          </View>
         </>
       )}
 
       {/* SCHEDULED CARDIO (con hora específica, no PRE/POST) */}
-      {scheduledCardios.map((c) => renderCardioCard(
-        c,
-        `🏃 CARDIO · ${formatTime12h(c.scheduled_time || '')}`
-      ))}
+      {scheduledCardios.map((c) =>
+        renderCardioCard(c, `🏃 CARDIO · ${formatTime12h(c.scheduled_time || '')}`)
+      )}
 
       {/* ================================================================== */}
       {/* CARD: PRÓXIMA COMIDA                                              */}
@@ -1106,7 +1340,7 @@ export const TodayCards: React.FC<TodayCardsProps> = ({ userId }) => {
       </Pressable>
 
       {/* ================================================================== */}
-      {/* CARD 3: PRÓXIMO STACK - Sub-tarjeta compacta                      */}
+      {/* CARD: PRÓXIMO STACK                                               */}
       {/* ================================================================== */}
       {nextStack && (
         <Pressable
