@@ -101,6 +101,7 @@ import { useSport } from '../../../context/SportContext';
 import { calculateFabPositions } from '../../../constants/floatingTools';
 import { CardioBlock } from '../../../components/plan/CardioBlockCard';
 import { AddCardioModal, AddCardioData } from '../../../components/plan/AddCardioModal';
+import { FocusCardioSlide } from '../../../components/gym/FocusCardioSlide';
 
 // Import sport-specific screens
 import GarajeScreen from '../garaje';
@@ -1121,6 +1122,17 @@ function GymScreen() {
     ]);
   };
 
+  // Completar cardio desde Focus view
+  const handleFocusCardioComplete = useCallback(
+    async (cardioId: string) => {
+      await supabase.from('cardio_blocks').update({ is_completed: true }).eq('id', cardioId);
+      setCardioBlocks((prev) =>
+        prev.map((c) => (c.id === cardioId ? { ...c, is_completed: true } : c))
+      );
+    },
+    [supabase]
+  );
+
   // Estado para editar nombre de rutina
   const [editingRoutineName, setEditingRoutineName] = useState(false);
   const [tempRoutineName, setTempRoutineName] = useState('');
@@ -1178,11 +1190,25 @@ function GymScreen() {
   // ============================================================================
   type FocusItem =
     | { type: 'single'; exercise: Exercise; originalIndex: number }
-    | { type: 'group'; group: ExerciseGroup; exercises: Exercise[]; originalIndex: number };
+    | { type: 'group'; group: ExerciseGroup; exercises: Exercise[]; originalIndex: number }
+    | { type: 'cardio'; cardio: CardioBlock; position: 'PRE' | 'POST' };
+
+  // Cardio blocks filtrados para Focus: solo PRE y POST (no scheduled)
+  const focusPreCardio = useMemo(
+    () => cardioBlocks.filter((c) => c.is_pre_workout && !c.is_completed),
+    [cardioBlocks]
+  );
+  const focusPostCardio = useMemo(
+    () => cardioBlocks.filter((c) => c.is_post_workout && !c.is_completed),
+    [cardioBlocks]
+  );
 
   const focusItems: FocusItem[] = useMemo(() => {
     const items: FocusItem[] = [];
     const processedGroupIds = new Set<string>();
+
+    // PRE-workout cardio slides al inicio
+    focusPreCardio.forEach((c) => items.push({ type: 'cardio', cardio: c, position: 'PRE' }));
 
     // Usar ref como fallback si el estado aún no se sincronizó
     const groups = exerciseGroups.length > 0 ? exerciseGroups : exerciseGroupsRef.current;
@@ -1202,8 +1228,11 @@ function GymScreen() {
       }
     });
 
+    // POST-workout cardio slides al final
+    focusPostCardio.forEach((c) => items.push({ type: 'cardio', cardio: c, position: 'POST' }));
+
     return items;
-  }, [exercises, exerciseGroups]);
+  }, [exercises, exerciseGroups, focusPreCardio, focusPostCardio]);
   // Ref para persistir el estado de alternativas durante re-renders (evita pérdida en modales)
   const activeAlternativesRef = useRef<Record<number, number>>({});
 
@@ -9959,11 +9988,17 @@ function GymScreen() {
           .map((fi) =>
             fi.type === 'single'
               ? `${fi.exercise.id}:${fi.exercise.alternatives?.length || 0}:${fi.exercise.alternatives?.map((a) => a.name).join(',') || ''}`
-              : `group-${fi.group.id}:${fi.exercises.length}`
+              : fi.type === 'group'
+                ? `group-${fi.group.id}:${fi.exercises.length}`
+                : `cardio-${fi.cardio.id}:${fi.cardio.is_completed}`
           )
           .join('|')}
         keyExtractor={(item) =>
-          item.type === 'single' ? item.exercise.id : `group-${item.group.id}`
+          item.type === 'single'
+            ? item.exercise.id
+            : item.type === 'group'
+              ? `group-${item.group.id}`
+              : `cardio-${item.cardio.id}`
         }
         pagingEnabled={Platform.OS !== 'web' && focusItems.length > 0}
         scrollEnabled={Platform.OS !== 'web' && focusItems.length > 0}
@@ -10047,6 +10082,32 @@ function GymScreen() {
           </View>
         }
         renderItem={({ item: focusItem, index }) => {
+          // ============================================================
+          // CARDIO ITEM - Render FocusCardioSlide
+          // ============================================================
+          if (focusItem.type === 'cardio') {
+            const nextItem = focusItems[index + 1];
+            const nextLabel = nextItem
+              ? nextItem.type === 'single'
+                ? nextItem.exercise.name
+                : nextItem.type === 'group'
+                  ? `⚡ ${nextItem.exercises.map((e) => e.name).join(' + ')}`
+                  : null
+              : null;
+            return (
+              <FocusCardioSlide
+                cardio={focusItem.cardio}
+                position={focusItem.position}
+                screenWidth={SCREEN_WIDTH}
+                contentHeight={CONTENT_HEIGHT}
+                onComplete={handleFocusCardioComplete}
+                nextLabel={nextLabel || undefined}
+                totalItems={focusItems.length}
+                currentIndex={index}
+              />
+            );
+          }
+
           // ============================================================
           // GROUP ITEM - Render FocusGroupView
           // ============================================================
@@ -10480,7 +10541,9 @@ function GymScreen() {
                       const nextImage =
                         next?.type === 'single'
                           ? next.exercise.image_url
-                          : next?.exercises?.[0]?.image_url;
+                          : next?.type === 'group'
+                            ? next?.exercises?.[0]?.image_url
+                            : null;
                       return nextImage ? (
                         <View
                           className="rounded-lg overflow-hidden"
@@ -10515,6 +10578,8 @@ function GymScreen() {
                         {(() => {
                           const next = focusItems[index + 1];
                           if (!next) return 'Siguiente ejercicio';
+                          if (next.type === 'cardio')
+                            return `🔥 ${next.position === 'POST' ? 'POST' : 'PRE'} · ${next.cardio.cardio_type.replace('_', ' ')}`;
                           return next.type === 'single'
                             ? next.exercise.name
                             : `⚡ ${next.exercises.map((e) => e.name).join(' + ')}`;
