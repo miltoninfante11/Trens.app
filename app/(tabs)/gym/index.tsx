@@ -1331,9 +1331,10 @@ function GymScreen() {
       isScrollingRef.current = true;
       lastScrollTime.current = now;
 
+      const maxIndex = focusItems.length - 1;
       const newIndex =
         direction === 'down'
-          ? Math.min(activeExerciseIndex + 1, exercises.length - 1)
+          ? Math.min(activeExerciseIndex + 1, maxIndex)
           : Math.max(activeExerciseIndex - 1, 0);
 
       if (newIndex !== activeExerciseIndex) {
@@ -1354,7 +1355,7 @@ function GymScreen() {
         isScrollingRef.current = false;
       }, SCROLL_COOLDOWN);
     },
-    [activeExerciseIndex, exercises.length, viewMode]
+    [activeExerciseIndex, focusItems.length, viewMode]
   );
 
   // Función para mover exactamente 1 alternativa (horizontal)
@@ -3137,7 +3138,7 @@ function GymScreen() {
           // BUGFIX: No intentar scroll si exercises está vacío (evita crash en web)
           if (exerciseListRef.current && previousIndex >= 0 && exercises.length > 0) {
             // Usar Math.min para asegurar que el índice es válido
-            const safeIndex = Math.min(previousIndex, Math.max(0, exercises.length - 1));
+            const safeIndex = Math.min(previousIndex, Math.max(0, focusItems.length - 1));
             exerciseListRef.current.scrollToIndex({
               index: safeIndex,
               animated: false,
