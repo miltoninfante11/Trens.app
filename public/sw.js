@@ -1,34 +1,35 @@
 // Service Worker mínimo - solo para PWA install
-// Cache version: 2026-04-02-v1 - FIX LOADING STUCK
-const CACHE_VERSION = '2026-04-02-v1';
+// Cache version: 2026-04-02-v2 - FIX INSTALL + NO HANG
+const CACHE_VERSION = '2026-04-02-v2';
 
 self.addEventListener('install', () => {
-  console.log('🔄 SW: Installing new version', CACHE_VERSION);
   self.skipWaiting();
 });
 
 self.addEventListener('activate', (event) => {
-  console.log('🔄 SW: Activating new version', CACHE_VERSION);
   event.waitUntil(
     caches
       .keys()
-      .then((cacheNames) => {
-        return Promise.all(cacheNames.map((cacheName) => caches.delete(cacheName)));
-      })
+      .then((cacheNames) =>
+        Promise.all(cacheNames.map((cacheName) => caches.delete(cacheName)))
+      )
       .then(() => self.clients.claim())
-      .then(() => self.clients.matchAll({ type: 'window' }))
-      .then((clients) => {
-        clients.forEach((client) => {
-          client.postMessage({ type: 'CACHE_CLEARED', version: CACHE_VERSION });
-        });
-      })
   );
 });
 
-// NO interceptar requests - dejar que el browser los maneje normalmente.
-// El SW existe SOLO para habilitar la instalación PWA.
-// Antes hacíamos event.respondWith(fetch(...)) que colgaba la PWA
-// si el fetch fallaba sin catch.
-self.addEventListener('fetch', () => {
-  // no-op: browser handles request natively
+// Fetch handler requerido por Chrome para instalar PWA.
+// Network-only: pasa todo al network con fallback seguro.
+self.addEventListener('fetch', (event) => {
+  event.respondWith(
+    fetch(event.request).catch(() => {
+      // Si falla el network, devolver respuesta vacía en vez de colgar
+      if (event.request.mode === 'navigate') {
+        return new Response(
+          '<!DOCTYPE html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="1"></head><body style="background:#000"></body></html>',
+          { headers: { 'Content-Type': 'text/html' } }
+        );
+      }
+      return new Response('', { status: 408 });
+    })
+  );
 });
