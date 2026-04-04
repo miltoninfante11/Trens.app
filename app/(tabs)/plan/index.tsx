@@ -8,7 +8,7 @@ import { View, Text, ScrollView, Pressable, RefreshControl } from 'react-native'
 import { PWAGuard } from '../../../components/auth/PWAGuard';
 import { Alert } from '../../../lib/alert';
 import Animated, { useAnimatedStyle, withSpring } from 'react-native-reanimated';
-import { Plus, Pill, Sparkles, ShoppingCart, StickyNote, Flame } from 'lucide-react-native';
+import { Plus, Pill, Sparkles, ShoppingCart, StickyNote, Flame, Layers } from 'lucide-react-native';
 import * as Haptics from '../../../lib/haptics';
 import { useRouter, useFocusEffect } from 'expo-router';
 
@@ -432,6 +432,7 @@ function PlanScreen() {
   const [timePickerMode, setTimePickerMode] = useState<'meal' | 'stack'>('meal');
   const [timePickerStackTime, setTimePickerStackTime] = useState<string | null>(null);
   const [showStackManager, setShowStackManager] = useState(false);
+  const [stackManagerInitialView, setStackManagerInitialView] = useState<'list' | 'add'>('list');
   const [showShoppingList, setShowShoppingList] = useState(false);
   const [showPlanNotes, setShowPlanNotes] = useState(false);
   const [showAddOption, setShowAddOption] = useState(false);
@@ -2814,6 +2815,7 @@ function PlanScreen() {
             <Pressable
               onPress={() => {
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                setStackManagerInitialView('list');
                 setShowStackManager(true);
               }}
               className="items-center px-3 py-2.5 rounded-xl active:scale-95"
@@ -3190,7 +3192,7 @@ function PlanScreen() {
             }
             setShowAddMeal(true);
           }}
-          className="w-full py-5 mt-6 mb-28 rounded-2xl active:scale-[0.98]"
+          className="w-full py-5 mt-6 rounded-2xl active:scale-[0.98]"
           style={{
             backgroundColor: 'rgba(39, 39, 42, 0.4)',
             borderWidth: 1.5,
@@ -3218,7 +3220,42 @@ function PlanScreen() {
           </View>
         </Pressable>
 
-        {/* Add Cardio Button - SAVAGE RED */}
+        {/* Add Stack Button - PURPLE */}
+        <Pressable
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            setStackManagerInitialView('add');
+            setShowStackManager(true);
+          }}
+          className="w-full py-5 mt-3 rounded-2xl active:scale-[0.98]"
+          style={{
+            backgroundColor: 'rgba(39, 39, 42, 0.4)',
+            borderWidth: 1.5,
+            borderStyle: 'dashed',
+            borderColor: 'rgba(168, 85, 247, 0.4)',
+            shadowColor: '#A855F7',
+            shadowOffset: { width: 0, height: 0 },
+            shadowOpacity: 0.15,
+            shadowRadius: 24,
+          }}
+        >
+          <View className="items-center">
+            <View
+              className="w-12 h-12 rounded-xl items-center justify-center mb-2"
+              style={{ backgroundColor: 'rgba(168, 85, 247, 0.15)' }}
+            >
+              <Layers size={24} color="#A855F7" />
+            </View>
+            <Text style={{ color: '#A855F7' }} className="font-bold tracking-widest text-sm">
+              AGREGAR STACK
+            </Text>
+            <Text className="text-zinc-500 text-[10px] font-mono mt-1">
+              Suplementos y compuestos
+            </Text>
+          </View>
+        </Pressable>
+
+        {/* Add Cardio Button - ZINC/PLOMO */}
         <Pressable
           onPress={() => {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -3229,8 +3266,8 @@ function PlanScreen() {
             backgroundColor: 'rgba(39, 39, 42, 0.4)',
             borderWidth: 1.5,
             borderStyle: 'dashed',
-            borderColor: 'rgba(239, 68, 68, 0.4)',
-            shadowColor: '#EF4444',
+            borderColor: 'rgba(113, 113, 122, 0.4)',
+            shadowColor: '#71717A',
             shadowOffset: { width: 0, height: 0 },
             shadowOpacity: 0.15,
             shadowRadius: 24,
@@ -3239,11 +3276,11 @@ function PlanScreen() {
           <View className="items-center">
             <View
               className="w-12 h-12 rounded-xl items-center justify-center mb-2"
-              style={{ backgroundColor: 'rgba(239, 68, 68, 0.15)' }}
+              style={{ backgroundColor: 'rgba(113, 113, 122, 0.15)' }}
             >
-              <Flame size={24} color="#EF4444" />
+              <Flame size={24} color="#71717A" />
             </View>
-            <Text style={{ color: '#EF4444' }} className="font-bold tracking-widest text-sm">
+            <Text style={{ color: '#71717A' }} className="font-bold tracking-widest text-sm">
               AGREGAR CARDIO
             </Text>
             <Text className="text-zinc-500 text-[10px] font-mono mt-1">Nuevo bloque de cardio</Text>
@@ -3285,12 +3322,16 @@ function PlanScreen() {
 
       <StackManagerModal
         visible={showStackManager}
-        onClose={() => setShowStackManager(false)}
+        onClose={() => {
+          setShowStackManager(false);
+          setStackManagerInitialView('list');
+        }}
         items={stackItems}
         onAddItem={handleAddStackItem}
         onRemoveItem={handleRemoveStackItem}
         onUpdateItem={handleUpdateStackItem}
         hasDualSession={hasDualSession}
+        initialViewMode={stackManagerInitialView}
       />
 
       <AddOptionModal

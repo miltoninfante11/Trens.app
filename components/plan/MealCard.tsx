@@ -320,29 +320,28 @@ export const MealCard: React.FC<MealCardProps> = ({
                 <Text className="text-savage-red text-[10px] font-bold">{idx + 1}</Text>
               </View>
 
-              {/* Ingredient Name */}
+              {/* Ingredient Name (includes portion in new format) */}
               <View className="flex-1">
                 <Text className="text-white font-semibold text-[13px] tracking-tight">
                   {ingredient.name}
                 </Text>
-                {ingredient.portion && (
-                  <Text className="text-zinc-400 text-[10px] mt-0.5">{ingredient.portion}</Text>
-                )}
               </View>
 
-              {/* Quantity Badge */}
-              <View
-                className="px-3 py-1.5 rounded-lg"
-                style={{
-                  backgroundColor: 'rgba(220, 38, 38, 0.12)',
-                  borderWidth: 1,
-                  borderColor: 'rgba(220, 38, 38, 0.2)',
-                }}
-              >
-                <Text className="text-white font-bold font-mono text-xs tracking-tight">
-                  {ingredient.quantity}
-                </Text>
-              </View>
+              {/* Weight Badge - show quantity if it has actual weight value */}
+              {ingredient.quantity && ingredient.quantity.trim() && (
+                <View
+                  className="px-3 py-1.5 rounded-lg"
+                  style={{
+                    backgroundColor: 'rgba(220, 38, 38, 0.12)',
+                    borderWidth: 1,
+                    borderColor: 'rgba(220, 38, 38, 0.2)',
+                  }}
+                >
+                  <Text className="text-white font-bold font-mono text-xs tracking-tight">
+                    {ingredient.quantity}
+                  </Text>
+                </View>
+              )}
             </View>
           ))}
 

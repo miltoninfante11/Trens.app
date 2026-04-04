@@ -60,6 +60,7 @@ interface StackManagerModalProps {
   onRemoveItem: (id: string) => void;
   onUpdateItem?: (id: string, item: Partial<Omit<StackItem, 'id'>>) => void;
   hasDualSession?: boolean;
+  initialViewMode?: 'list' | 'add';
 }
 
 // ============================================================================
@@ -714,6 +715,7 @@ export const StackManagerModal: React.FC<StackManagerModalProps> = ({
   onRemoveItem,
   onUpdateItem,
   hasDualSession,
+  initialViewMode,
 }) => {
   const insets = useSafeAreaInsets();
   const [viewMode, setViewMode] = useState<'list' | 'add' | 'edit'>('list');
@@ -769,6 +771,10 @@ export const StackManagerModal: React.FC<StackManagerModalProps> = ({
       resetForm();
     } else {
       translateY.value = 0;
+      // Si se especificó un modo inicial, usarlo
+      if (initialViewMode) {
+        setViewMode(initialViewMode);
+      }
       // Haptic feedback cuando abre
       setTimeout(() => {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);

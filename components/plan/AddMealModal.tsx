@@ -31,9 +31,6 @@ import {
   Sparkles,
   Clock,
   Scale,
-  Layers,
-  Lock,
-  Unlock,
 } from 'lucide-react-native';
 import {
   analyzeIngredientsSmart,
@@ -55,9 +52,6 @@ interface TargetMacros {
   carbs: number;
   fat: number;
 }
-
-// Modo de edición por ingrediente
-type EditMode = 'quantity' | 'portion';
 
 interface AddMealModalProps {
   visible: boolean;
@@ -90,10 +84,9 @@ export const AddMealModal: React.FC<AddMealModalProps> = ({
   const [selectedHour, setSelectedHour] = useState(defaultHour12);
   const [selectedMinute, setSelectedMinute] = useState(defaultMinute);
   const [selectedPeriod, setSelectedPeriod] = useState<'AM' | 'PM'>(defaultPeriod);
-  const [ingredients, setIngredients] = useState<Ingredient[]>([
-    { name: '', quantity: '', portion: '' },
+  const [ingredients, setIngredients] = useState<{ name: string; weightGrams: string }[]>([
+    { name: '', weightGrams: '' },
   ]);
-  const [editModes, setEditModes] = useState<EditMode[]>(['portion']);
   const [analysis, setAnalysis] = useState<IngredientAnalysis | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -158,15 +151,20 @@ export const AddMealModal: React.FC<AddMealModalProps> = ({
       setSelectedHour(adjH === 0 ? 12 : adjH > 12 ? adjH - 12 : adjH);
       setSelectedMinute(adjM);
       setSelectedPeriod(adjH >= 12 ? 'PM' : 'AM');
-      setIngredients([{ name: '', quantity: '', portion: '' }]);
-      setEditModes(['portion']);
+      setIngredients([{ name: '', weightGrams: '' }]);
       setAnalysis(null);
     }
   }, [visible]);
 
   // Analizar ingredientes automáticamente (siempre activo)
   useEffect(() => {
-    const validIngredients = ingredients.filter((ing) => ing.name.trim().length >= 3);
+    const validIngredients = ingredients
+      .filter((ing) => ing.name.trim().length >= 3)
+      .map((ing) => ({
+        name: ing.name,
+        quantity: ing.weightGrams ? `${ing.weightGrams}g` : '',
+        portion: '',
+      }));
     if (validIngredients.length === 0) {
       setAnalysis(null);
       return;
@@ -191,29 +189,26 @@ export const AddMealModal: React.FC<AddMealModalProps> = ({
 
   const addIngredient = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    setIngredients([...ingredients, { name: '', quantity: '', portion: '' }]);
-    setEditModes([...editModes, 'portion']);
+    setIngredients([...ingredients, { name: '', weightGrams: '' }]);
   };
 
   const removeIngredient = (index: number) => {
     if (ingredients.length > 1) {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       setIngredients(ingredients.filter((_, i) => i !== index));
-      setEditModes(editModes.filter((_, i) => i !== index));
     }
   };
 
-  const updateIngredient = (index: number, field: keyof Ingredient, value: string) => {
+  const updateIngredient = (index: number, field: 'name' | 'weightGrams', value: string) => {
     const newIngs = [...ingredients];
-    newIngs[index] = { ...newIngs[index], [field]: value };
+    if (field === 'weightGrams') {
+      // Solo permitir números y punto decimal
+      const numericValue = value.replace(/[^0-9.]/g, '');
+      newIngs[index] = { ...newIngs[index], [field]: numericValue };
+    } else {
+      newIngs[index] = { ...newIngs[index], [field]: value };
+    }
     setIngredients(newIngs);
-  };
-
-  const toggleEditMode = (index: number) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    const newModes = [...editModes];
-    newModes[index] = newModes[index] === 'quantity' ? 'portion' : 'quantity';
-    setEditModes(newModes);
   };
 
   const getTime24h = (): string => {
@@ -241,12 +236,6 @@ export const AddMealModal: React.FC<AddMealModalProps> = ({
     setSelectedPeriod(selectedPeriod === 'AM' ? 'PM' : 'AM');
   };
 
-  /** Detecta si un valor es formato gramos puro */
-  const isGramsFormat = (value: string): boolean => {
-    if (!value || !value.trim()) return false;
-    return /^\d+(\.\d+)?\s*(?:g|gr|gramos|kg)?\s*$/i.test(value.trim());
-  };
-
   const handleSave = async () => {
     const validIngredients = ingredients.filter((ing) => ing.name.trim());
     if (validIngredients.length === 0) {
@@ -257,30 +246,17 @@ export const AddMealModal: React.FC<AddMealModalProps> = ({
     setIsSaving(true);
 
     try {
-      // Preparar ingredientes: el campo activo es source, el otro se limpia
-      const finalIngredients = validIngredients.map((ing, i) => {
-        const mode = editModes[i] || 'portion';
-
-        if (mode === 'quantity') {
-          // Gramos es el source → limpiar porción
-          return { name: ing.name, quantity: ing.quantity, portion: '' };
-        } else {
-          // Porciones es el source
-          const portionValue = (ing.portion || '').trim();
-          const quantityValue = (ing.quantity || '').trim();
-          // Si la porción está en el campo quantity (ej: "4 huevos")
-          if (!portionValue && quantityValue && !isGramsFormat(quantityValue)) {
-            return { name: ing.name, quantity: '', portion: quantityValue };
-          }
-          // Limpiar gramos para recálculo
-          return { name: ing.name, quantity: '', portion: ing.portion };
-        }
-      });
+      // Mapear al formato esperado por el sistema: name, quantity, portion
+      // name = texto combinado (nombre + porción), quantity = peso en gr, portion = vacío
+      const finalIngredients: Ingredient[] = validIngredients.map((ing) => ({
+        name: ing.name.trim(),
+        quantity: ing.weightGrams ? `${ing.weightGrams}g` : '',
+        portion: '',
+      }));
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       onSave(finalIngredients, getTime24h());
-      setIngredients([{ name: '', quantity: '', portion: '' }]);
-      setEditModes(['portion']);
+      setIngredients([{ name: '', weightGrams: '' }]);
       setSelectedHour(12);
       setSelectedMinute(0);
       setSelectedPeriod('PM');
@@ -531,125 +507,52 @@ export const AddMealModal: React.FC<AddMealModalProps> = ({
               {/* Ingredients */}
               <Text className="text-zinc-400 text-xs font-bold mb-2 uppercase">Ingredientes</Text>
 
-              {/* Info: modo de edición exclusivo */}
+              {/* Info: nuevo formato simplificado */}
               <View className="bg-purple-500/10 border border-purple-500/20 rounded-xl p-3 mb-3">
                 <Text className="text-purple-300 text-xs">
-                  ✏️ Edita un campo y el otro se calculará automáticamente al guardar. Toca el
-                  candado para cambiar qué campo editas.
+                  ✏️ Escribe el ingrediente con su porción. El peso en gramos es opcional.
                 </Text>
               </View>
 
-              {ingredients.map((ing, i) => {
-                const mode = editModes[i] || 'portion';
-                const isQtyActive = mode === 'quantity';
-
-                return (
-                  <View
-                    key={i}
-                    className="bg-zinc-900/80 p-4 rounded-xl border border-zinc-800 mb-3"
-                  >
-                    <View className="flex-row justify-between items-center mb-2">
-                      <Text className="text-zinc-500 text-xs">Ingrediente {i + 1}</Text>
-                      {ingredients.length > 1 && (
-                        <Pressable onPress={() => removeIngredient(i)}>
-                          <Trash2 size={16} color="#EF4444" />
-                        </Pressable>
-                      )}
-                    </View>
-                    <TextInput
-                      value={ing.name}
-                      onChangeText={(v) => updateIngredient(i, 'name', v)}
-                      placeholder="Nombre (ej. Pollo a la plancha)"
-                      placeholderTextColor="#666"
-                      className="bg-transparent border-b border-zinc-700 text-white py-2 mb-3"
-                    />
-
-                    {/* Campos exclusivos: solo uno editable a la vez */}
-                    <View className="flex-row gap-3">
-                      {/* GRAMOS */}
-                      <View className="flex-1">
-                        <Pressable
-                          onPress={() => {
-                            if (!isQtyActive) toggleEditMode(i);
-                          }}
-                          className="flex-row items-center gap-1.5 mb-1"
-                        >
-                          <Scale size={12} color={isQtyActive ? '#3B82F6' : '#52525b'} />
-                          <Text
-                            className={`text-[10px] font-bold uppercase ${isQtyActive ? 'text-blue-400' : 'text-zinc-600'}`}
-                          >
-                            Gramos
-                          </Text>
-                          {isQtyActive ? (
-                            <Unlock size={10} color="#3B82F6" />
-                          ) : (
-                            <Lock size={10} color="#52525b" />
-                          )}
-                        </Pressable>
-
-                        {isQtyActive ? (
-                          <TextInput
-                            value={ing.quantity}
-                            onChangeText={(v) => updateIngredient(i, 'quantity', v)}
-                            placeholder="ej. 200g"
-                            placeholderTextColor="#555"
-                            keyboardType="default"
-                            className="bg-zinc-800/60 border border-blue-500/40 rounded-lg text-white text-sm px-3 py-2 font-mono"
-                          />
-                        ) : (
-                          <Pressable
-                            onPress={() => toggleEditMode(i)}
-                            className="bg-zinc-800/30 border border-zinc-700/30 rounded-lg px-3 py-2"
-                            style={{ opacity: 0.5 }}
-                          >
-                            <Text className="text-zinc-500 text-sm font-mono">— auto —</Text>
-                          </Pressable>
-                        )}
-                      </View>
-
-                      {/* PORCIONES */}
-                      <View className="flex-1">
-                        <Pressable
-                          onPress={() => {
-                            if (isQtyActive) toggleEditMode(i);
-                          }}
-                          className="flex-row items-center gap-1.5 mb-1"
-                        >
-                          <Layers size={12} color={!isQtyActive ? '#A855F7' : '#52525b'} />
-                          <Text
-                            className={`text-[10px] font-bold uppercase ${!isQtyActive ? 'text-purple-400' : 'text-zinc-600'}`}
-                          >
-                            Porciones
-                          </Text>
-                          {!isQtyActive ? (
-                            <Unlock size={10} color="#A855F7" />
-                          ) : (
-                            <Lock size={10} color="#52525b" />
-                          )}
-                        </Pressable>
-
-                        {!isQtyActive ? (
-                          <TextInput
-                            value={ing.portion}
-                            onChangeText={(v) => updateIngredient(i, 'portion', v)}
-                            placeholder="ej. 4 huevos"
-                            placeholderTextColor="#555"
-                            className="bg-zinc-800/60 border border-purple-500/40 rounded-lg text-white text-sm px-3 py-2 font-mono"
-                          />
-                        ) : (
-                          <Pressable
-                            onPress={() => toggleEditMode(i)}
-                            className="bg-zinc-800/30 border border-zinc-700/30 rounded-lg px-3 py-2"
-                            style={{ opacity: 0.5 }}
-                          >
-                            <Text className="text-zinc-500 text-sm font-mono">— auto —</Text>
-                          </Pressable>
-                        )}
-                      </View>
-                    </View>
+              {ingredients.map((ing, i) => (
+                <View key={i} className="bg-zinc-900/80 p-4 rounded-xl border border-zinc-800 mb-3">
+                  <View className="flex-row justify-between items-center mb-2">
+                    <Text className="text-zinc-500 text-xs">Ingrediente {i + 1}</Text>
+                    {ingredients.length > 1 && (
+                      <Pressable onPress={() => removeIngredient(i)}>
+                        <Trash2 size={16} color="#EF4444" />
+                      </Pressable>
+                    )}
                   </View>
-                );
-              })}
+
+                  {/* Campo principal: Nombre + Porción */}
+                  <TextInput
+                    value={ing.name}
+                    onChangeText={(v) => updateIngredient(i, 'name', v)}
+                    placeholder="ej. Pechuga de Pollo 1 filete mediano"
+                    placeholderTextColor="#666"
+                    className="bg-transparent border-b border-zinc-700 text-white py-2 mb-3"
+                  />
+
+                  {/* Campo opcional: Peso en gramos (solo numérico) */}
+                  <View className="flex-row items-center gap-2">
+                    <Scale size={14} color="#3B82F6" />
+                    <TextInput
+                      value={ing.weightGrams}
+                      onChangeText={(v) => updateIngredient(i, 'weightGrams', v)}
+                      placeholder="Peso en gr (opcional)"
+                      placeholderTextColor="#555"
+                      keyboardType="numeric"
+                      className="flex-1 bg-zinc-800/60 border border-blue-500/30 rounded-lg text-white text-sm px-3 py-2 font-mono"
+                    />
+                    {ing.weightGrams ? (
+                      <Text className="text-blue-400 text-xs font-mono font-bold">
+                        {ing.weightGrams}gr
+                      </Text>
+                    ) : null}
+                  </View>
+                </View>
+              ))}
 
               <Pressable
                 onPress={addIngredient}

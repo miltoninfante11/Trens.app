@@ -425,7 +425,7 @@ export const AddCardioModal: React.FC<AddCardioModalProps> = ({
       >
         <Animated.View
           className="flex-1 justify-end"
-          style={[{ backgroundColor: 'rgba(0,0,0,0.8)' }, backdropAnimatedStyle]}
+          style={[{ backgroundColor: 'transparent' }, backdropAnimatedStyle]}
         >
           <Pressable className="flex-1" onPress={closeWithAnimation} />
 
@@ -433,7 +433,7 @@ export const AddCardioModal: React.FC<AddCardioModalProps> = ({
             style={[
               {
                 height: '92%',
-                backgroundColor: '#000',
+                backgroundColor: '#0a0a0a',
                 borderTopLeftRadius: 24,
                 borderTopRightRadius: 24,
                 borderTopWidth: 2,
