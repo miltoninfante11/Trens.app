@@ -463,23 +463,21 @@ export async function compressImage(
     img.onload = () => {
       URL.revokeObjectURL(url);
 
-      // Calcular nuevas dimensiones manteniendo aspect ratio
-      let { width, height } = img;
+      const origW = img.width;
+      const origH = img.height;
 
-      if (width > maxSize || height > maxSize) {
-        if (width > height) {
-          height = Math.round((height * maxSize) / width);
-          width = maxSize;
-        } else {
-          width = Math.round((width * maxSize) / height);
-          height = maxSize;
-        }
-      }
+      // Crop cuadrado centrado
+      const cropSide = Math.min(origW, origH);
+      const sx = Math.round((origW - cropSide) / 2);
+      const sy = Math.round((origH - cropSide) / 2);
 
-      // Crear canvas y dibujar imagen redimensionada
+      // Tamaño final: cuadrado limitado a maxSize
+      const finalSize = Math.min(cropSide, maxSize);
+
+      // Crear canvas cuadrado
       const canvas = document.createElement('canvas');
-      canvas.width = width;
-      canvas.height = height;
+      canvas.width = finalSize;
+      canvas.height = finalSize;
 
       const ctx = canvas.getContext('2d');
       if (!ctx) {
@@ -489,17 +487,17 @@ export async function compressImage(
 
       // Fondo negro para transparencias
       ctx.fillStyle = '#000000';
-      ctx.fillRect(0, 0, width, height);
+      ctx.fillRect(0, 0, finalSize, finalSize);
 
-      // Dibujar imagen
-      ctx.drawImage(img, 0, 0, width, height);
+      // Dibujar imagen con crop cuadrado centrado
+      ctx.drawImage(img, sx, sy, cropSide, cropSide, 0, 0, finalSize, finalSize);
 
       // Convertir a blob JPEG comprimido
       canvas.toBlob(
         (blob) => {
           if (blob) {
             console.log(
-              `📸 Image compressed: ${Math.round(file.size / 1024)}KB → ${Math.round(blob.size / 1024)}KB (${width}x${height})`
+              `📸 Image compressed: ${Math.round(file.size / 1024)}KB → ${Math.round(blob.size / 1024)}KB (${finalSize}x${finalSize})`
             );
             resolve(blob);
           } else {
@@ -547,39 +545,28 @@ export async function compressVideo(
     video.onloadedmetadata = async () => {
       try {
         // Calcular nuevas dimensiones
-        let { videoWidth: width, videoHeight: height } = video;
+        const origVW = video.videoWidth;
+        const origVH = video.videoHeight;
         const duration = Math.min(video.duration, maxDuration);
 
-        // Si ya es pequeño, no comprimir
-        if (width <= maxSize && height <= maxSize) {
-          console.log('🎬 Video resolution is small enough, skipping compression');
-          URL.revokeObjectURL(url);
-          resolve(file);
-          return;
-        }
+        // Crop cuadrado centrado
+        const cropSide = Math.min(origVW, origVH);
+        const sx = Math.round((origVW - cropSide) / 2);
+        const sy = Math.round((origVH - cropSide) / 2);
 
-        if (width > maxSize || height > maxSize) {
-          if (width > height) {
-            height = Math.round((height * maxSize) / width);
-            width = maxSize;
-          } else {
-            width = Math.round((width * maxSize) / height);
-            height = maxSize;
-          }
-        }
-
-        // Asegurar que sean pares (requerido por algunos codecs)
-        width = width % 2 === 0 ? width : width + 1;
-        height = height % 2 === 0 ? height : height + 1;
+        // Tamaño final cuadrado, limitado a maxSize
+        let finalSize = Math.min(cropSide, maxSize);
+        // Asegurar que sea par (requerido por algunos codecs)
+        finalSize = finalSize % 2 === 0 ? finalSize : finalSize + 1;
 
         console.log(
-          `🎬 Compressing video: ${video.videoWidth}x${video.videoHeight} → ${width}x${height}, duration: ${duration.toFixed(1)}s`
+          `🎬 Compressing video: ${origVW}x${origVH} → ${finalSize}x${finalSize} (square crop), duration: ${duration.toFixed(1)}s`
         );
 
-        // Crear canvas para capturar frames
+        // Crear canvas cuadrado para capturar frames
         const canvas = document.createElement('canvas');
-        canvas.width = width;
-        canvas.height = height;
+        canvas.width = finalSize;
+        canvas.height = finalSize;
         const ctx = canvas.getContext('2d');
 
         if (!ctx) {
@@ -638,7 +625,7 @@ export async function compressVideo(
         // Dibujar frames en el canvas
         const drawFrame = () => {
           if (video.currentTime < duration && !video.paused && !video.ended) {
-            ctx.drawImage(video, 0, 0, width, height);
+            ctx.drawImage(video, sx, sy, cropSide, cropSide, 0, 0, finalSize, finalSize);
             requestAnimationFrame(drawFrame);
           } else {
             // Terminar grabación

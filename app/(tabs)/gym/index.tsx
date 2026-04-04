@@ -46,6 +46,7 @@ import {
   Target,
   MoreVertical,
   Flame,
+  Eye,
 } from 'lucide-react-native';
 import * as Haptics from '../../../lib/haptics';
 import { CameraView, useCameraPermissions } from 'expo-camera';
@@ -56,6 +57,7 @@ import {
   compressVideo,
 } from '../../../lib/webCamera';
 import { WebCameraModal, WebCameraResult } from '../../../components/ui/WebCameraModal';
+import { BottomSheetModal } from '../../../components/ui/BottomSheetModal';
 import * as FileSystem from 'expo-file-system/legacy';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
@@ -191,6 +193,26 @@ const VideoHero = ({
 };
 
 // ============================================================================
+// EXERCISE PREVIEW VIDEO - Video player para el modal de preview
+// ============================================================================
+const ExercisePreviewVideo = ({ videoUrl }: { videoUrl: string }) => {
+  const player = useVideoPlayer(videoUrl, (player) => {
+    player.loop = true;
+    player.muted = true;
+    player.play();
+  });
+
+  return (
+    <VideoView
+      style={{ width: '100%', height: '100%' }}
+      player={player}
+      contentFit="cover"
+      nativeControls={true}
+    />
+  );
+};
+
+// ============================================================================
 // TYPES
 // ============================================================================
 type ViewMode = 'LOADING' | 'FOCUS'; // STRUCTURE ahora es un modal separado
@@ -237,6 +259,8 @@ interface Exercise {
   series: Series[];
   training_days: number[]; // Array de días donde aparece este ejercicio
   alternatives?: ExerciseAlternative[]; // Ejercicios alternativos
+  description?: string; // Descripción del ejercicio desde DB
+  video_url?: string; // Video del ejercicio desde DB
 }
 
 interface ExerciseAlternative {
@@ -563,8 +587,8 @@ function GymScreen() {
   const SCREEN_WIDTH = initialDimensionsRef.current.width;
   const SCREEN_HEIGHT = initialDimensionsRef.current.height;
 
-  // Tab bar altura: 56px base + safe area bottom
-  const TAB_BAR_HEIGHT = 56 + insets.bottom;
+  // Tab bar altura: 70px en web, 56px en nativo + safe area bottom
+  const TAB_BAR_HEIGHT = (Platform.OS === 'web' ? 70 : 56) + insets.bottom;
   const CONTENT_HEIGHT = SCREEN_HEIGHT - TAB_BAR_HEIGHT;
   const { user } = useAuth();
   const {
@@ -629,6 +653,15 @@ function GymScreen() {
   // Modals State
   const [hankModalVisible, setHankModalVisible] = useState(false);
   const [notesModalVisible, setNotesModalVisible] = useState(false);
+  const [exercisePreviewVisible, setExercisePreviewVisible] = useState(false);
+  const [previewExercise, setPreviewExercise] = useState<{
+    name: string;
+    description: string;
+    video_url: string;
+    image_url: string;
+    exerciseIndex?: number;
+    variationId?: string;
+  } | null>(null);
   const [exerciseNotes, setExerciseNotes] = useState<Record<string, string>>({});
   const [exerciseTags, setExerciseTags] = useState<Record<string, string[]>>({});
   const [currentNoteText, setCurrentNoteText] = useState('');
@@ -1726,6 +1759,7 @@ function GymScreen() {
   const translateYCatalog = useSharedValue(0);
   const translateYSeriesConfig = useSharedValue(0);
   const translateYNotes = useSharedValue(0);
+  const translateYPreview = useSharedValue(0);
 
   const animatedStyleStructure = useAnimatedStyle(() => ({
     transform: [{ translateY: translateYStructure.value }],
@@ -1745,6 +1779,10 @@ function GymScreen() {
 
   const animatedStyleNotes = useAnimatedStyle(() => ({
     transform: [{ translateY: translateYNotes.value }],
+  }));
+
+  const animatedStylePreview = useAnimatedStyle(() => ({
+    transform: [{ translateY: translateYPreview.value }],
   }));
 
   // Ref para guardar series al cerrar con gesto
@@ -1768,6 +1806,17 @@ function GymScreen() {
       });
     }
   }, [structureModalVisible]);
+
+  // Effect para animar entrada del modal de exercise preview
+  useEffect(() => {
+    if (exercisePreviewVisible) {
+      translateYPreview.value = SCREEN_HEIGHT;
+      translateYPreview.value = withTiming(0, {
+        duration: 300,
+        easing: Easing.out(Easing.ease),
+      });
+    }
+  }, [exercisePreviewVisible]);
 
   const closeStructureWithAnimation = async () => {
     // BUGFIX: Capturar el día actual desde la ref para evitar closure stale
@@ -1883,6 +1932,35 @@ function GymScreen() {
         } else {
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
           translateYFocusSeries.value = withTiming(0, { duration: 150 });
+        }
+      },
+    })
+  ).current;
+
+  // PanResponder para el modal de Exercise Preview
+  const panResponderPreview = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: (_, gestureState) => Math.abs(gestureState.dy) > 5,
+      onPanResponderMove: (_, gestureState) => {
+        if (gestureState.dy > 0) {
+          translateYPreview.value = gestureState.dy;
+        }
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        if (gestureState.dy > 150) {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          translateYPreview.value = withTiming(
+            800,
+            { duration: 200, easing: Easing.out(Easing.ease) },
+            () => {
+              runOnJS(setExercisePreviewVisible)(false);
+              runOnJS(setPreviewExercise)(null);
+            }
+          );
+        } else {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          translateYPreview.value = withTiming(0, { duration: 150 });
         }
       },
     })
@@ -2487,7 +2565,8 @@ function GymScreen() {
         lastAccessDate: todayISO,
         currentDayIndex: newDayIndex,
       }));
-      setSelectedDayIndex(newDayIndex);
+      // Solo actualizar si realmente cambió para evitar re-render innecesario
+      setSelectedDayIndex((prev) => (prev !== newDayIndex ? newDayIndex : prev));
     } catch (error) {
       console.error('Error updating training day:', error);
     }
@@ -3083,7 +3162,9 @@ function GymScreen() {
         const timeA = estimateTime(posA);
         const timeB = estimateTime(posB);
 
-        console.log(`🧠 Smart Session DEBUG: posA=${posA}, posB=${posB}, meals=${JSON.stringify(mealTimes.map((m: { name: string; time: string }) => m.time))}, timeA=${timeA}, timeB=${timeB}`);
+        console.log(
+          `🧠 Smart Session DEBUG: posA=${posA}, posB=${posB}, meals=${JSON.stringify(mealTimes.map((m: { name: string; time: string }) => m.time))}, timeA=${timeA}, timeB=${timeB}`
+        );
 
         if (!timeA || !timeB) return;
 
@@ -3115,7 +3196,9 @@ function GymScreen() {
         }
 
         const nowStr = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
-        console.log(`🧠 Smart Session: now=${nowStr}(${nowMins}min), A≈${timeA}(${minsA}min), B≈${timeB}(${minsB}min), midpoint=${midpoint}min → sesión ${targetSession === 0 ? 'A' : 'B'}`);
+        console.log(
+          `🧠 Smart Session: now=${nowStr}(${nowMins}min), A≈${timeA}(${minsA}min), B≈${timeB}(${minsB}min), midpoint=${midpoint}min → sesión ${targetSession === 0 ? 'A' : 'B'}`
+        );
 
         // Solo cambiar si es diferente al actual
         if (targetSession !== selectedSessionIndexRef.current) {
@@ -3212,9 +3295,12 @@ function GymScreen() {
   }, [user]);
 
   // Recargar ejercicios cuando cambie el día, sesión o el usuario
+  const hasLoadedOnceRef = useRef(false);
   useEffect(() => {
-    // Cargar ejercicios siempre - con o sin usuario
-    loadExercises(selectedDayIndex, false, selectedSessionIndex);
+    // Primera carga muestra loading, las siguientes son silenciosas
+    const silent = hasLoadedOnceRef.current && exercises.length > 0;
+    loadExercises(selectedDayIndex, silent, selectedSessionIndex);
+    hasLoadedOnceRef.current = true;
   }, [selectedDayIndex, selectedSessionIndex, user]);
 
   // Ref para mantener el índice del ejercicio activo de forma persistente
@@ -3572,6 +3658,8 @@ function GymScreen() {
               series: seriesForState,
               training_days: item.training_days || [0],
               alternatives,
+              description: item.metadata?.description || '',
+              video_url: item.metadata?.video_url || '',
             };
           } catch (mapError) {
             console.error('💥 ERROR mapeando ejercicio:', item.name, mapError);
@@ -4092,7 +4180,8 @@ function GymScreen() {
 
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images', 'videos'],
-        allowsEditing: false,
+        allowsEditing: true,
+        aspect: [1, 1] as [number, number],
         quality: 0.5, // Reducido para optimizar tamaño de videos
         videoMaxDuration: 10, // Máximo 10 segundos
         videoQuality: 1, // Calidad media (0=baja, 1=media, 2=alta) - iOS only
@@ -4634,19 +4723,25 @@ function GymScreen() {
 
       setUploadingMessage('📷 SUBIENDO FOTO...');
 
-      // Comprimir a 720p y hacer cuadrada la imagen (1:1)
+      // Obtener dimensiones originales para crop cuadrado centrado
+      const originalInfo = await manipulateAsync(photo.uri, []);
+      const origW = originalInfo.width;
+      const origH = originalInfo.height;
+      const cropSide = Math.min(origW, origH);
+
+      // Crop cuadrado centrado + resize a 720x720
       const manipulatedImage = await manipulateAsync(
         photo.uri,
         [
-          { resize: { width: 720 } },
           {
             crop: {
-              originX: 0,
-              originY: 0,
-              width: 720,
-              height: 720,
+              originX: Math.round((origW - cropSide) / 2),
+              originY: Math.round((origH - cropSide) / 2),
+              width: cropSide,
+              height: cropSide,
             },
           },
+          { resize: { width: 720, height: 720 } },
         ],
         { compress: 0.7, format: SaveFormat.JPEG }
       );
@@ -10376,7 +10471,7 @@ function GymScreen() {
                 }}
                 style={{
                   width: SCREEN_WIDTH,
-                  height: SCREEN_WIDTH + 120,
+                  height: SCREEN_WIDTH,
                   overflow: 'hidden',
                   flexGrow: 0,
                 }}
@@ -10450,12 +10545,14 @@ function GymScreen() {
                         <LinearGradient
                           colors={['rgba(0,0,0,0.7)', 'transparent']}
                           className="absolute top-0 left-0 right-0 h-28"
+                          pointerEvents="none"
                         />
 
                         {/* OVERLAY GRADIENTE INFERIOR */}
                         <LinearGradient
                           colors={['transparent', 'rgba(0,0,0,0.95)', '#000']}
                           className="absolute bottom-0 left-0 right-0 h-32"
+                          pointerEvents="none"
                         />
 
                         {/* INDICADORES DE ALTERNATIVAS (DOTS) */}
@@ -10474,9 +10571,12 @@ function GymScreen() {
                           </View>
                         )}
 
-                        {/* BOTÓN NOTAS */}
+                        {/* BOTÓN NOTAS (arriba) */}
                         <TouchableOpacity
+                          activeOpacity={0.7}
+                          delayPressIn={0}
                           onPress={() => {
+                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                             setCurrentExerciseIndex(index);
                             setNotesModalVisible(true);
                           }}
@@ -10509,6 +10609,38 @@ function GymScreen() {
                           ) : null}
                         </TouchableOpacity>
 
+                        {/* BOTÓN VER EJERCICIO (abajo) */}
+                        <TouchableOpacity
+                          onPress={() => {
+                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                            setCurrentExerciseIndex(index);
+                            setCurrentVariationId(variation.id);
+                            setPreviewExercise({
+                              name: variation.name,
+                              description: item.description || '',
+                              video_url: item.video_url || '',
+                              image_url: variation.image_url || '',
+                              exerciseIndex: index,
+                              variationId: variation.id,
+                            });
+                            setExercisePreviewVisible(true);
+                            translateYPreview.value = 0;
+                          }}
+                          className="absolute bottom-24 right-4 z-50"
+                          style={{
+                            backgroundColor: 'rgba(0,0,0,0.6)',
+                            borderWidth: 1,
+                            borderColor: 'rgba(255,255,255,0.2)',
+                            borderRadius: 12,
+                            width: 48,
+                            height: 48,
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                          }}
+                        >
+                          <Eye color="#FFFFFF" size={20} />
+                        </TouchableOpacity>
+
                         {/* BOTÓN MUTE/AUDIO (solo para videos) */}
                         {isVideoUrl(variation.image_url) && (
                           <TouchableOpacity
@@ -10532,26 +10664,6 @@ function GymScreen() {
                             )}
                           </TouchableOpacity>
                         )}
-
-                        {/* BOTÓN CÁMARA */}
-                        <TouchableOpacity
-                          onPress={() => {
-                            setCurrentExerciseIndex(index);
-                            setCurrentVariationId(variation.id);
-                            openCamera();
-                          }}
-                          className="absolute bottom-24 right-4 items-center justify-center"
-                          style={{
-                            width: 48,
-                            height: 48,
-                            backgroundColor: 'rgba(0,0,0,0.6)',
-                            borderWidth: 1,
-                            borderColor: 'rgba(255,255,255,0.2)',
-                            borderRadius: 12,
-                          }}
-                        >
-                          <CameraIcon color="#FFFFFF" size={20} />
-                        </TouchableOpacity>
 
                         {/* TÍTULO EJERCICIO */}
                         <View className="absolute bottom-4 left-4 right-20">
@@ -10759,6 +10871,162 @@ function GymScreen() {
           </View>
         </View>
       )}
+      {/* EXERCISE PREVIEW MODAL */}
+      <Modal
+        visible={exercisePreviewVisible}
+        animationType="none"
+        transparent={true}
+        onRequestClose={() => {
+          setExercisePreviewVisible(false);
+          setPreviewExercise(null);
+        }}
+      >
+        <View className="flex-1 bg-transparent justify-end">
+          <Animated.View
+            style={[
+              {
+                height: '85%',
+                backgroundColor: '#0a0a0a',
+                borderTopLeftRadius: 24,
+                borderTopRightRadius: 24,
+                borderTopWidth: 2,
+                borderTopColor: 'rgba(220, 38, 38, 0.5)',
+                overflow: 'hidden',
+              },
+              animatedStylePreview,
+            ]}
+          >
+            {/* Línea de acento superior */}
+            <View
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                right: 0,
+                height: 3,
+                backgroundColor: '#DC2626',
+                shadowColor: '#DC2626',
+                shadowOffset: { width: 0, height: 0 },
+                shadowOpacity: 0.8,
+                shadowRadius: 10,
+                zIndex: 10,
+              }}
+            />
+
+            {/* HEADER DRAGGABLE */}
+            <View
+              {...panResponderPreview.panHandlers}
+              className="px-4 pt-4 pb-3 border-b border-zinc-900"
+            >
+              {/* Indicador de drag */}
+              <View className="items-center mb-3">
+                <View className="w-12 h-1.5 bg-zinc-600 rounded-full" />
+              </View>
+
+              {/* Header centrado */}
+              <View className="flex-row items-center justify-center">
+                <Eye size={20} color="#DC2626" />
+                <View className="ml-2">
+                  <Text className="text-white font-bold text-sm" numberOfLines={1}>
+                    {previewExercise?.name || 'Ejercicio'}
+                  </Text>
+                  <Text className="text-zinc-600 text-[10px] uppercase tracking-wider">
+                    Vista Previa
+                  </Text>
+                </View>
+              </View>
+            </View>
+
+            {/* CONTENT */}
+            <ScrollView className="flex-1" showsVerticalScrollIndicator={false}>
+              {previewExercise && (
+                <View className="px-4 pb-8">
+                  {/* Video o Imagen del ejercicio */}
+                  {previewExercise.video_url && isVideoUrl(previewExercise.video_url) ? (
+                    <View
+                      className="mt-4 rounded-2xl overflow-hidden relative"
+                      style={{ aspectRatio: 16 / 9, backgroundColor: '#000' }}
+                    >
+                      <ExercisePreviewVideo videoUrl={previewExercise.video_url} />
+                      <TouchableOpacity
+                        onPress={() => {
+                          setExercisePreviewVisible(false);
+                          setPreviewExercise(null);
+                          openCamera();
+                        }}
+                        className="absolute bottom-3 left-3 flex-row items-center px-3 py-1.5 rounded-full"
+                        style={{ backgroundColor: 'rgba(0,0,0,0.6)' }}
+                      >
+                        <CameraIcon size={14} color="#FFFFFF" />
+                        <Text className="text-white text-[11px] font-bold ml-1.5">Cambiar</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ) : previewExercise.image_url ? (
+                    <View
+                      className="mt-4 rounded-2xl overflow-hidden relative"
+                      style={{ aspectRatio: 1, backgroundColor: '#0a0a0a' }}
+                    >
+                      <Image
+                        source={{ uri: previewExercise.image_url }}
+                        style={{ width: '100%', height: '100%' }}
+                        contentFit="cover"
+                      />
+                      <TouchableOpacity
+                        onPress={() => {
+                          setExercisePreviewVisible(false);
+                          setPreviewExercise(null);
+                          openCamera();
+                        }}
+                        className="absolute bottom-3 left-3 flex-row items-center px-3 py-1.5 rounded-full"
+                        style={{ backgroundColor: 'rgba(0,0,0,0.6)' }}
+                      >
+                        <CameraIcon size={14} color="#FFFFFF" />
+                        <Text className="text-white text-[11px] font-bold ml-1.5">Cambiar</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ) : (
+                    <View
+                      className="mt-4 rounded-2xl items-center justify-center relative"
+                      style={{ aspectRatio: 16 / 9, backgroundColor: '#18181b' }}
+                    >
+                      <Eye size={40} color="#3f3f46" />
+                      <Text className="text-zinc-600 text-sm mt-2">Sin media disponible</Text>
+                      <TouchableOpacity
+                        onPress={() => {
+                          setExercisePreviewVisible(false);
+                          setPreviewExercise(null);
+                          openCamera();
+                        }}
+                        className="absolute bottom-3 left-3 flex-row items-center px-3 py-1.5 rounded-full"
+                        style={{ backgroundColor: 'rgba(255,255,255,0.1)' }}
+                      >
+                        <CameraIcon size={14} color="#A1A1AA" />
+                        <Text className="text-zinc-400 text-[11px] font-bold ml-1.5">Agregar</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+
+                  {/* Descripción */}
+                  {previewExercise.description ? (
+                    <View className="mt-6">
+                      <Text className="text-zinc-400 text-xs font-bold tracking-widest mb-3">
+                        DESCRIPCIÓN
+                      </Text>
+                      <Text className="text-white text-base leading-6">
+                        {previewExercise.description}
+                      </Text>
+                    </View>
+                  ) : (
+                    <View className="mt-6 items-center py-6">
+                      <Text className="text-zinc-600 text-sm">Sin descripción disponible</Text>
+                    </View>
+                  )}
+                </View>
+              )}
+            </ScrollView>
+          </Animated.View>
+        </View>
+      </Modal>
     </GestureHandlerRootView>
   );
 }

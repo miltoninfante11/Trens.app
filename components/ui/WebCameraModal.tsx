@@ -502,10 +502,12 @@ export function WebCameraModal({
             {/* Camera Preview */}
             <View className="flex-1 justify-center items-center bg-black px-4">
               <View
-                className="w-full overflow-hidden rounded-lg"
+                className="overflow-hidden rounded-lg"
                 style={{
                   aspectRatio: aspectRatio,
-                  maxHeight: aspectRatio < 1 ? '70%' : '60%',
+                  width: '100%',
+                  maxWidth: aspectRatio >= 1 ? undefined : '100%',
+                  maxHeight: '100%',
                   backgroundColor: '#18181b',
                 }}
               >

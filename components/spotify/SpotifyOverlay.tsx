@@ -1110,38 +1110,6 @@ export function SpotifyOverlay() {
           />
         )}
 
-        {/* 🔥 Indicador de Warm-Up Status */}
-        {spotifyConnected && (
-          <View
-            style={{
-              position: 'absolute',
-              top: -8,
-              right: -8,
-              width: 20,
-              height: 20,
-              borderRadius: 10,
-              backgroundColor: warmUpStatus.isReady
-                ? '#22c55e'
-                : warmUpStatus.isWarmedUp
-                  ? '#eab308'
-                  : '#ef4444',
-              justifyContent: 'center',
-              alignItems: 'center',
-              borderWidth: 2,
-              borderColor: '#000',
-              zIndex: 10,
-            }}
-          >
-            {warmUpStatus.useNativeSDK ? (
-              <Zap size={10} color="#000" />
-            ) : warmUpStatus.isReady ? (
-              <Wifi size={10} color="#000" />
-            ) : (
-              <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#000' }} />
-            )}
-          </View>
-        )}
-
         {/* FAB Button con Gestos */}
         <Animated.View style={fabStyle} {...panResponder.panHandlers}>
           <View
@@ -1264,28 +1232,6 @@ export function SpotifyOverlay() {
                 HANK
               </Text>
             </View>
-          </View>
-        )}
-
-        {/* Mini Track Name Badge */}
-        {currentTrack && spotifyConnected && playbackState?.isPlaying && (
-          <View
-            style={{
-              position: 'absolute',
-              bottom: -8,
-              right: 60,
-              backgroundColor: '#000',
-              paddingHorizontal: 8,
-              paddingVertical: 4,
-              borderRadius: 12,
-              maxWidth: 150,
-              borderWidth: 1,
-              borderColor: '#1DB954',
-            }}
-          >
-            <Text numberOfLines={1} style={{ color: '#fff', fontSize: 10, fontWeight: '600' }}>
-              {currentTrack.name}
-            </Text>
           </View>
         )}
       </View>
