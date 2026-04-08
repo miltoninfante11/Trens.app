@@ -22,6 +22,8 @@ interface Ingredient {
   name: string;
   quantity: string;
   portion?: string;
+  skipGrams?: boolean;
+  weightType?: 'cocido' | 'crudo';
   nutritionInfo?: {
     calories: number;
     protein: number;
@@ -339,6 +341,32 @@ export const MealCard: React.FC<MealCardProps> = ({
                 >
                   <Text className="text-white font-bold font-mono text-xs tracking-tight">
                     {ingredient.quantity}
+                  </Text>
+                </View>
+              )}
+
+              {/* Weight Type Badge (Cocido/Crudo) */}
+              {ingredient.weightType && (
+                <View
+                  className="px-2 py-1 rounded-md"
+                  style={{
+                    backgroundColor:
+                      ingredient.weightType === 'cocido'
+                        ? 'rgba(34,197,94,0.15)'
+                        : 'rgba(239,68,68,0.15)',
+                    borderWidth: 1,
+                    borderColor:
+                      ingredient.weightType === 'cocido'
+                        ? 'rgba(34,197,94,0.3)'
+                        : 'rgba(239,68,68,0.3)',
+                  }}
+                >
+                  <Text
+                    className={`font-bold text-[10px] uppercase tracking-wider ${
+                      ingredient.weightType === 'cocido' ? 'text-green-400' : 'text-red-400'
+                    }`}
+                  >
+                    {ingredient.weightType === 'cocido' ? 'C' : 'R'}
                   </Text>
                 </View>
               )}

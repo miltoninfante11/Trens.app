@@ -70,6 +70,8 @@ interface Ingredient {
   name: string;
   quantity: string;
   portion?: string;
+  skipGrams?: boolean;
+  weightType?: 'cocido' | 'crudo';
   nutritionInfo?: {
     calories: number;
     protein: number;
@@ -686,8 +688,10 @@ function PlanScreen() {
                 return {
                   id: ing.id || `ing-${idx}`,
                   name: ing.name,
-                  quantity: ing.quantity || '~100g',
+                  quantity: ing.skipGrams ? '' : ing.quantity || '~100g',
                   portion: ing.portion,
+                  skipGrams: ing.skipGrams || undefined,
+                  weightType: ing.weightType || undefined,
                   ...(nutrition ? { nutritionInfo: nutrition } : {}),
                 };
               }),
@@ -718,8 +722,10 @@ function PlanScreen() {
                   return {
                     id: ing.id || `opt-ing-${idx}`,
                     name: ing.name,
-                    quantity: ing.quantity || '~100g',
+                    quantity: ing.skipGrams ? '' : ing.quantity || '~100g',
                     portion: ing.portion,
+                    skipGrams: ing.skipGrams || undefined,
+                    weightType: ing.weightType || undefined,
                     ...(nutrition ? { nutritionInfo: nutrition } : {}),
                   };
                 }),
@@ -1859,40 +1865,52 @@ function PlanScreen() {
         // FLUJO COMIDA PRINCIPAL: Sincronizar, calcular y guardar
         // ═══════════════════════════════════════════════════════════════
 
-        // PASO 1: Sincronizar gramos ↔ porciones
+        // PASO 1: Sincronizar gramos ↔ porciones (solo para ingredientes sin skipGrams)
         let synced = ingredients;
         try {
-          const converted = await convertGramsPortions(
-            ingredients.map((ing) => ({
-              name: ing.name,
-              quantity: ing.quantity?.trim() || undefined,
-              portion: ing.portion?.trim() || undefined,
-            }))
-          );
-          synced = converted.map((c, i) => ({
-            ...ingredients[i],
-            name: c.name,
-            quantity: c.quantity || ingredients[i].quantity || '~100g',
-            portion: c.portion || ingredients[i].portion || '',
-          }));
+          // Separar ingredientes con y sin skipGrams
+          const toConvert = ingredients
+            .map((ing, i) => ({ ing, i }))
+            .filter(({ ing }) => !ing.skipGrams);
+
+          if (toConvert.length > 0) {
+            const converted = await convertGramsPortions(
+              toConvert.map(({ ing }) => ({
+                name: ing.name,
+                quantity: ing.quantity?.trim() || undefined,
+                portion: ing.portion?.trim() || undefined,
+              }))
+            );
+            synced = [...ingredients];
+            toConvert.forEach(({ i }, ci) => {
+              const c = converted[ci];
+              synced[i] = {
+                ...ingredients[i],
+                quantity: ingredients[i].quantity || c.quantity || '~100g',
+                portion: ingredients[i].portion || c.portion || '',
+              };
+            });
+          }
         } catch (convError) {
           console.warn('Error sincronizando gramos/porciones:', convError);
         }
 
         // PASO 2: Calcular nutritionInfo desde las cantidades sincronizadas
+        // Para skipGrams: se calcula macros basado en el nombre/porción sin asignar gramos
         let finalIngredients = synced;
         try {
           const ingredientsWithIds = synced.map((ing, i) => ({
             id: ing.id || `edit-${i}`,
             name: ing.name,
-            quantity: ing.quantity || '~100g',
+            quantity: ing.skipGrams ? '' : ing.quantity || '~100g',
             portion: ing.portion || '',
+            skipGrams: ing.skipGrams || false,
           }));
           const calculated = await calculateNutritionFromQuantities(ingredientsWithIds);
           finalIngredients = calculated.map((cal, i) => ({
             ...synced[i],
-            quantity: cal.quantity || synced[i].quantity,
-            portion: cal.portion || synced[i].portion || '',
+            quantity: synced[i].skipGrams ? '' : synced[i].quantity || '~100g',
+            portion: synced[i].skipGrams ? '' : synced[i].portion || '',
             nutritionInfo: cal.nutritionInfo || synced[i].nutritionInfo,
           }));
         } catch (calcError) {
@@ -1902,9 +1920,11 @@ function PlanScreen() {
         // PASO 3: Guardar ingredientes
         const ingredientsToSave = finalIngredients.map((ing) => ({
           name: ing.name,
-          quantity: ing.quantity || '~100g',
+          quantity: ing.skipGrams ? '' : ing.quantity || '~100g',
           portion: ing.portion || '',
           ...(ing.nutritionInfo ? { nutritionInfo: ing.nutritionInfo } : {}),
+          ...(ing.skipGrams ? { skipGrams: true } : {}),
+          ...(ing.weightType ? { weightType: ing.weightType } : {}),
         }));
 
         const { error } = await supabase
@@ -2023,7 +2043,13 @@ function PlanScreen() {
   };
 
   const handleAddMeal = async (
-    ingredients: { name: string; quantity: string; portion: string }[],
+    ingredients: {
+      name: string;
+      quantity: string;
+      portion: string;
+      skipGrams?: boolean;
+      weightType?: 'cocido' | 'crudo';
+    }[],
     time: string
   ) => {
     isInternalUpdate.current = true;
@@ -2053,6 +2079,8 @@ function PlanScreen() {
         name: string;
         quantity: string;
         portion: string;
+        skipGrams?: boolean;
+        weightType?: 'cocido' | 'crudo';
         nutritionInfo?: {
           calories: number;
           protein: number;
@@ -2067,16 +2095,19 @@ function PlanScreen() {
         const ingredientsWithIds = ingredients.map((ing, i) => ({
           id: `temp-${i}`,
           name: ing.name,
-          quantity: ing.quantity || '',
+          quantity: ing.skipGrams ? '' : ing.quantity || '',
           portion: ing.portion || '',
+          skipGrams: ing.skipGrams || false,
         }));
 
         const calculated = await calculateNutritionFromQuantities(ingredientsWithIds);
-        finalIngredients = calculated.map((ing) => ({
-          name: ing.name,
-          quantity: ing.quantity, // Preservar cantidad original del usuario
-          portion: ing.portion || '',
+        finalIngredients = calculated.map((ing, i) => ({
+          name: ingredients[i].name,
+          quantity: ingredients[i].skipGrams ? '' : ingredients[i].quantity || '',
+          portion: ingredients[i].skipGrams ? '' : ingredients[i].portion || '',
           nutritionInfo: ing.nutritionInfo,
+          skipGrams: ingredients[i].skipGrams || undefined,
+          weightType: ingredients[i].weightType || undefined,
         }));
       } catch (error) {
         console.warn('Error calculando nutrición, guardando sin nutritionInfo:', error);
@@ -2094,9 +2125,11 @@ function PlanScreen() {
         scheduled_time: formattedTime,
         ingredients: finalIngredients.map((ing) => ({
           name: ing.name,
-          quantity: ing.quantity || '~100 gr',
+          quantity: ing.skipGrams ? '' : ing.quantity || '~100 gr',
           portion: ing.portion || '',
           ...(ing.nutritionInfo ? { nutritionInfo: ing.nutritionInfo } : {}),
+          ...(ing.skipGrams ? { skipGrams: true } : {}),
+          ...(ing.weightType ? { weightType: ing.weightType } : {}),
         })),
         position: newPosition,
         is_completed: false,

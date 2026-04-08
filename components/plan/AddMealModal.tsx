@@ -22,6 +22,7 @@ import {
 import Animated, { useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from '../../lib/haptics';
+import { Alert } from '../../lib/alert';
 import {
   X,
   Plus,
@@ -44,6 +45,8 @@ interface Ingredient {
   name: string;
   quantity: string;
   portion: string;
+  skipGrams?: boolean;
+  weightType?: 'cocido' | 'crudo';
 }
 
 interface TargetMacros {
@@ -84,9 +87,9 @@ export const AddMealModal: React.FC<AddMealModalProps> = ({
   const [selectedHour, setSelectedHour] = useState(defaultHour12);
   const [selectedMinute, setSelectedMinute] = useState(defaultMinute);
   const [selectedPeriod, setSelectedPeriod] = useState<'AM' | 'PM'>(defaultPeriod);
-  const [ingredients, setIngredients] = useState<{ name: string; weightGrams: string }[]>([
-    { name: '', weightGrams: '' },
-  ]);
+  const [ingredients, setIngredients] = useState<
+    { name: string; weightGrams: string; skipGrams: boolean; weightType: 'cocido' | 'crudo' | '' }[]
+  >([{ name: '', weightGrams: '', skipGrams: false, weightType: '' }]);
   const [analysis, setAnalysis] = useState<IngredientAnalysis | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -151,7 +154,7 @@ export const AddMealModal: React.FC<AddMealModalProps> = ({
       setSelectedHour(adjH === 0 ? 12 : adjH > 12 ? adjH - 12 : adjH);
       setSelectedMinute(adjM);
       setSelectedPeriod(adjH >= 12 ? 'PM' : 'AM');
-      setIngredients([{ name: '', weightGrams: '' }]);
+      setIngredients([{ name: '', weightGrams: '', skipGrams: false, weightType: '' }]);
       setAnalysis(null);
     }
   }, [visible]);
@@ -189,7 +192,10 @@ export const AddMealModal: React.FC<AddMealModalProps> = ({
 
   const addIngredient = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    setIngredients([...ingredients, { name: '', weightGrams: '' }]);
+    setIngredients([
+      ...ingredients,
+      { name: '', weightGrams: '', skipGrams: false, weightType: '' },
+    ]);
   };
 
   const removeIngredient = (index: number) => {
@@ -208,6 +214,29 @@ export const AddMealModal: React.FC<AddMealModalProps> = ({
     } else {
       newIngs[index] = { ...newIngs[index], [field]: value };
     }
+    setIngredients(newIngs);
+  };
+
+  const toggleSkipGrams = (index: number) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    const newIngs = [...ingredients];
+    const newSkip = !newIngs[index].skipGrams;
+    newIngs[index] = {
+      ...newIngs[index],
+      skipGrams: newSkip,
+      weightGrams: newSkip ? '' : newIngs[index].weightGrams,
+      weightType: newSkip ? '' : newIngs[index].weightType,
+    };
+    setIngredients(newIngs);
+  };
+
+  const setWeightType = (index: number, type: 'cocido' | 'crudo') => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    const newIngs = [...ingredients];
+    newIngs[index] = {
+      ...newIngs[index],
+      weightType: newIngs[index].weightType === type ? '' : type,
+    };
     setIngredients(newIngs);
   };
 
@@ -243,6 +272,13 @@ export const AddMealModal: React.FC<AddMealModalProps> = ({
       return;
     }
 
+    const missingWeightType = validIngredients.some((ing) => !ing.skipGrams && !ing.weightType);
+    if (missingWeightType) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      Alert.alert('Peso requerido', 'Selecciona Cocido o Crudo para cada ingrediente.');
+      return;
+    }
+
     setIsSaving(true);
 
     try {
@@ -252,11 +288,13 @@ export const AddMealModal: React.FC<AddMealModalProps> = ({
         name: ing.name.trim(),
         quantity: ing.weightGrams ? `${ing.weightGrams}g` : '',
         portion: '',
+        skipGrams: ing.skipGrams || undefined,
+        weightType: ing.weightType ? (ing.weightType as 'cocido' | 'crudo') : undefined,
       }));
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       onSave(finalIngredients, getTime24h());
-      setIngredients([{ name: '', weightGrams: '' }]);
+      setIngredients([{ name: '', weightGrams: '', skipGrams: false, weightType: '' }]);
       setSelectedHour(12);
       setSelectedMinute(0);
       setSelectedPeriod('PM');
@@ -325,18 +363,6 @@ export const AddMealModal: React.FC<AddMealModalProps> = ({
                   <Sparkles size={16} color="#A855F7" />
                   <Text className="text-white font-bold text-lg">Agregar Comida</Text>
                 </View>
-                {targetMacros && (
-                  <View className="flex-row gap-2 mt-1">
-                    <Text className="text-savage-red text-xs font-mono">
-                      {targetMacros.protein}P
-                    </Text>
-                    <Text className="text-yellow-500 text-xs font-mono">{targetMacros.carbs}C</Text>
-                    <Text className="text-blue-400 text-xs font-mono">{targetMacros.fat}G</Text>
-                    <Text className="text-zinc-500 text-xs font-mono">
-                      {targetMacros.calories} kcal
-                    </Text>
-                  </View>
-                )}
               </View>
             </View>
 
@@ -534,23 +560,90 @@ export const AddMealModal: React.FC<AddMealModalProps> = ({
                     className="bg-transparent border-b border-zinc-700 text-white py-2 mb-3"
                   />
 
-                  {/* Campo opcional: Peso en gramos (solo numérico) */}
+                  {/* Campo opcional: Peso en gramos + tipo (cocido/crudo) */}
                   <View className="flex-row items-center gap-2">
-                    <Scale size={14} color="#3B82F6" />
+                    <Scale size={14} color={ing.skipGrams ? '#52525b' : '#3B82F6'} />
                     <TextInput
-                      value={ing.weightGrams}
+                      value={ing.skipGrams ? '' : ing.weightGrams}
                       onChangeText={(v) => updateIngredient(i, 'weightGrams', v)}
-                      placeholder="Peso en gr (opcional)"
-                      placeholderTextColor="#555"
+                      placeholder={ing.skipGrams ? 'Sin gr' : 'Gramos'}
+                      placeholderTextColor={ing.skipGrams ? '#71717a' : '#555'}
                       keyboardType="numeric"
-                      className="flex-1 bg-zinc-800/60 border border-blue-500/30 rounded-lg text-white text-sm px-3 py-2 font-mono"
+                      editable={!ing.skipGrams}
+                      className={`w-24 rounded-lg text-sm px-3 py-2 font-mono ${
+                        ing.skipGrams
+                          ? 'bg-zinc-800/30 border border-zinc-700/30 text-zinc-600'
+                          : 'bg-zinc-800/60 border border-blue-500/30 text-white'
+                      }`}
                     />
-                    {ing.weightGrams ? (
-                      <Text className="text-blue-400 text-xs font-mono font-bold">
-                        {ing.weightGrams}gr
+                    {/* Radio: Cocido */}
+                    <Pressable
+                      onPress={() => !ing.skipGrams && setWeightType(i, 'cocido')}
+                      className="flex-row items-center gap-1"
+                      style={{ opacity: ing.skipGrams ? 0.3 : 1 }}
+                    >
+                      <View
+                        className={`w-4 h-4 rounded-full border-2 items-center justify-center ${
+                          ing.weightType === 'cocido'
+                            ? 'border-green-500 bg-green-500'
+                            : 'border-zinc-600 bg-transparent'
+                        }`}
+                      >
+                        {ing.weightType === 'cocido' && (
+                          <View className="w-1.5 h-1.5 rounded-full bg-white" />
+                        )}
+                      </View>
+                      <Text
+                        className={`text-xs ${ing.weightType === 'cocido' ? 'text-green-400' : 'text-zinc-500'}`}
+                      >
+                        Cocido
                       </Text>
-                    ) : null}
+                    </Pressable>
+                    {/* Radio: Crudo */}
+                    <Pressable
+                      onPress={() => !ing.skipGrams && setWeightType(i, 'crudo')}
+                      className="flex-row items-center gap-1"
+                      style={{ opacity: ing.skipGrams ? 0.3 : 1 }}
+                    >
+                      <View
+                        className={`w-4 h-4 rounded-full border-2 items-center justify-center ${
+                          ing.weightType === 'crudo'
+                            ? 'border-red-500 bg-red-500'
+                            : 'border-zinc-600 bg-transparent'
+                        }`}
+                      >
+                        {ing.weightType === 'crudo' && (
+                          <View className="w-1.5 h-1.5 rounded-full bg-white" />
+                        )}
+                      </View>
+                      <Text
+                        className={`text-xs ${ing.weightType === 'crudo' ? 'text-red-400' : 'text-zinc-500'}`}
+                      >
+                        Crudo
+                      </Text>
+                    </Pressable>
                   </View>
+
+                  {/* Toggle: Sin gramos */}
+                  <Pressable
+                    onPress={() => toggleSkipGrams(i)}
+                    className="flex-row items-center gap-2 mt-2"
+                  >
+                    <View
+                      className={`w-5 h-5 rounded border items-center justify-center ${
+                        ing.skipGrams
+                          ? 'bg-orange-500 border-orange-500'
+                          : 'bg-transparent border-zinc-600'
+                      }`}
+                    >
+                      {ing.skipGrams && <Text className="text-white text-xs font-bold">✓</Text>}
+                    </View>
+                    <Text
+                      className={`text-xs ${ing.skipGrams ? 'text-orange-400' : 'text-zinc-500'}`}
+                    >
+                      Sin gramos (usar solo porciones)
+                    </Text>
+                  </Pressable>
                 </View>
               ))}
 

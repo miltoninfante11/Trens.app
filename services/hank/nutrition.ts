@@ -14,6 +14,7 @@ interface Ingredient {
   name: string;
   quantity: string;
   portion?: string;
+  skipGrams?: boolean;
 }
 
 interface NutritionInfo {
@@ -1187,7 +1188,7 @@ export async function calculateNutritionFromQuantities(
   for (let i = 0; i < ingredients.length; i++) {
     const ing = ingredients[i];
     const data = findNutritionData(ing.name);
-    const gramsNum = parseGramsValue(ing.quantity || '', data?.portionSize);
+    const gramsNum = ing.skipGrams ? 0 : parseGramsValue(ing.quantity || '', data?.portionSize);
 
     if (data && gramsNum > 0) {
       // Cálculo local: macros proporcionales a los gramos del usuario
@@ -1214,11 +1215,17 @@ export async function calculateNutritionFromQuantities(
   // Para ingredientes desconocidos, usar Gemini en modo "solo calcular macros"
   if (needsAI.length > 0 && GEMINI_API_KEY) {
     try {
-      const prompt = `Eres HANK, nutricionista deportivo. Calcula los macros EXACTOS para estos ingredientes CON LAS CANTIDADES INDICADAS.
+      // Separar ingredientes skipGrams de los normales para prompt diferenciado
+      const skipGramsItems = needsAI.filter(({ ing }) => ing.skipGrams);
+      const normalItems = needsAI.filter(({ ing }) => !ing.skipGrams);
+
+      // Procesar ingredientes normales (con cálculo de gramos)
+      if (normalItems.length > 0) {
+        const prompt = `Eres HANK, nutricionista deportivo. Calcula los macros EXACTOS para estos ingredientes CON LAS CANTIDADES INDICADAS.
 IMPORTANTE: NO cambies las cantidades. Solo calcula los macros para la cantidad que el usuario indicó.
 
 INGREDIENTES:
-${needsAI
+${normalItems
   .map(
     ({ ing }, idx) =>
       `${idx + 1}. ${ing.name}${ing.quantity ? ` - ${ing.quantity}` : ''}${ing.portion ? ` (${ing.portion})` : ''}`
@@ -1228,40 +1235,92 @@ ${needsAI
 Responde SOLO JSON:
 {"ingredients": [{"name": "...", "grams": 200, "portion": "~1 porción", "calories": 250, "protein": 35, "carbs": 0, "fat": 8}]}`;
 
-      const response = await fetch(`${GEMINI_API_URL}?key=${GEMINI_API_KEY}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ role: 'user', parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 0.1, maxOutputTokens: 1024 },
-        }),
-      });
+        const response = await fetch(`${GEMINI_API_URL}?key=${GEMINI_API_KEY}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ role: 'user', parts: [{ text: prompt }] }],
+            generationConfig: { temperature: 0.1, maxOutputTokens: 1024 },
+          }),
+        });
 
-      if (response.ok) {
-        const data = await response.json();
-        const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-        const jsonMatch = text.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          const parsed = JSON.parse(jsonMatch[0]);
-          const aiIngredients = parsed.ingredients || [];
+        if (response.ok) {
+          const data = await response.json();
+          const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+          const jsonMatch = text.match(/\{[\s\S]*\}/);
+          if (jsonMatch) {
+            const parsed = JSON.parse(jsonMatch[0]);
+            const aiIngredients = parsed.ingredients || [];
 
-          for (let j = 0; j < needsAI.length; j++) {
-            const { index, ing } = needsAI[j];
-            const aiResult = aiIngredients[j];
-            if (aiResult) {
-              const grams = aiResult.grams || parseGramsValue(ing.quantity || '') || 100;
-              results[index] = {
-                ...ing,
-                quantity: ing.quantity || `${grams}g`, // Preservar cantidad original
-                portion: ing.portion || aiResult.portion || '~1 porción',
-                nutritionInfo: {
-                  protein: aiResult.protein || 0,
-                  carbs: aiResult.carbs || 0,
-                  fat: aiResult.fat || 0,
-                  calories: aiResult.calories || 0,
-                  suggestedGrams: grams,
-                },
-              };
+            for (let j = 0; j < normalItems.length; j++) {
+              const { index, ing } = normalItems[j];
+              const aiResult = aiIngredients[j];
+              if (aiResult) {
+                const grams = aiResult.grams || parseGramsValue(ing.quantity || '') || 100;
+                results[index] = {
+                  ...ing,
+                  quantity: ing.quantity || `${grams}g`,
+                  portion: ing.portion || aiResult.portion || '~1 porción',
+                  nutritionInfo: {
+                    protein: aiResult.protein || 0,
+                    carbs: aiResult.carbs || 0,
+                    fat: aiResult.fat || 0,
+                    calories: aiResult.calories || 0,
+                    suggestedGrams: grams,
+                  },
+                };
+              }
+            }
+          }
+        }
+      }
+
+      // Procesar ingredientes skipGrams (solo macros, SIN asignar gramos)
+      if (skipGramsItems.length > 0) {
+        const prompt = `Eres HANK, nutricionista deportivo. Calcula los macros APROXIMADOS para estos ingredientes según la porción descrita en el nombre.
+IMPORTANTE: El usuario NO quiere gramos. Solo calcula macros (calorías, proteína, carbos, grasa) basándote en la descripción/porción del ingrediente.
+NO inventes ni asignes gramos.
+
+INGREDIENTES:
+${skipGramsItems.map(({ ing }, idx) => `${idx + 1}. ${ing.name}`).join('\n')}
+
+Responde SOLO JSON:
+{"ingredients": [{"name": "...", "calories": 250, "protein": 35, "carbs": 0, "fat": 8}]}`;
+
+        const response = await fetch(`${GEMINI_API_URL}?key=${GEMINI_API_KEY}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ role: 'user', parts: [{ text: prompt }] }],
+            generationConfig: { temperature: 0.1, maxOutputTokens: 1024 },
+          }),
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+          const jsonMatch = text.match(/\{[\s\S]*\}/);
+          if (jsonMatch) {
+            const parsed = JSON.parse(jsonMatch[0]);
+            const aiIngredients = parsed.ingredients || [];
+
+            for (let j = 0; j < skipGramsItems.length; j++) {
+              const { index, ing } = skipGramsItems[j];
+              const aiResult = aiIngredients[j];
+              if (aiResult) {
+                results[index] = {
+                  ...ing,
+                  quantity: '', // NO asignar gramos
+                  portion: '',
+                  nutritionInfo: {
+                    protein: aiResult.protein || 0,
+                    carbs: aiResult.carbs || 0,
+                    fat: aiResult.fat || 0,
+                    calories: aiResult.calories || 0,
+                    suggestedGrams: 0,
+                  },
+                };
+              }
             }
           }
         }
