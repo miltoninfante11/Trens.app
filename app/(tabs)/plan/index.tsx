@@ -3073,7 +3073,6 @@ function PlanScreen() {
                     <AnimatedTimelineItem offset={offset}>
                       <StackCard
                         stack={stack}
-                        onTimeChange={handleStackTimeChange}
                         onItemDelete={handleRemoveStackItem}
                         isCompressed={isDraggingWorkout}
                       />

@@ -231,20 +231,36 @@ export const StackCard: React.FC<StackCardProps> = ({
 
               {/* Right: Time + Chevron */}
               <View className="flex-row items-center gap-2">
-                <Pressable
-                  onPress={handleTimePress}
-                  className="flex-row items-center gap-1.5 px-3 py-2 rounded-xl active:scale-95"
-                  style={{
-                    backgroundColor: 'rgba(168, 85, 247, 0.15)',
-                    borderWidth: 1,
-                    borderColor: 'rgba(168, 85, 247, 0.35)',
-                  }}
-                >
-                  <Clock size={12} color="#A855F7" />
-                  <Text className="text-purple-300 text-xs font-mono font-bold">
-                    {formatTimeToAMPM(stack.time)}
-                  </Text>
-                </Pressable>
+                {onTimeChange ? (
+                  <Pressable
+                    onPress={handleTimePress}
+                    className="flex-row items-center gap-1.5 px-3 py-2 rounded-xl active:scale-95"
+                    style={{
+                      backgroundColor: 'rgba(168, 85, 247, 0.15)',
+                      borderWidth: 1,
+                      borderColor: 'rgba(168, 85, 247, 0.35)',
+                    }}
+                  >
+                    <Clock size={12} color="#A855F7" />
+                    <Text className="text-purple-300 text-xs font-mono font-bold">
+                      {formatTimeToAMPM(stack.time)}
+                    </Text>
+                  </Pressable>
+                ) : (
+                  <View
+                    className="flex-row items-center gap-1.5 px-3 py-2 rounded-xl"
+                    style={{
+                      backgroundColor: 'rgba(168, 85, 247, 0.1)',
+                      borderWidth: 1,
+                      borderColor: 'rgba(168, 85, 247, 0.2)',
+                    }}
+                  >
+                    <Clock size={12} color="#7C3AED" />
+                    <Text className="text-purple-400/70 text-xs font-mono font-bold">
+                      {formatTimeToAMPM(stack.time)}
+                    </Text>
+                  </View>
+                )}
                 <Animated.View style={chevronStyle}>
                   <ChevronDown size={16} color="#A855F7" />
                 </Animated.View>
