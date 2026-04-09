@@ -257,10 +257,25 @@ export const QuickMealsModal: React.FC<QuickMealsModalProps> = ({ visible, onClo
                                   {wType && (
                                     <View
                                       className="px-1.5 py-0.5 rounded"
-                                      style={{ backgroundColor: '#27272a' }}
+                                      style={{
+                                        backgroundColor:
+                                          wType === 'cocido'
+                                            ? 'rgba(34,197,94,0.15)'
+                                            : 'rgba(239,68,68,0.15)',
+                                        borderWidth: 1,
+                                        borderColor:
+                                          wType === 'cocido'
+                                            ? 'rgba(34,197,94,0.3)'
+                                            : 'rgba(239,68,68,0.3)',
+                                      }}
                                     >
-                                      <Text className="text-zinc-500 text-[9px] font-mono uppercase">
-                                        {wType}
+                                      <Text
+                                        className="text-[9px] font-mono font-bold uppercase"
+                                        style={{
+                                          color: wType === 'cocido' ? '#4ade80' : '#f87171',
+                                        }}
+                                      >
+                                        {wType === 'cocido' ? 'C' : 'R'}
                                       </Text>
                                     </View>
                                   )}
