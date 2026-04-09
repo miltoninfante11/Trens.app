@@ -14,7 +14,7 @@ import { useRouter, useFocusEffect } from 'expo-router';
 
 import { MealCard } from '../../../components/plan/MealCard';
 import { StackCard } from '../../../components/plan/StackCard';
-import { DraggableWorkoutBlock } from '../../../components/plan/DraggableWorkoutBlock';
+// DraggableWorkoutBlock removed - workout blocks use time-based ordering only
 import { WorkoutBlock } from '../../../components/plan/WorkoutBlock';
 import { CardioBlockCard, CardioBlock } from '../../../components/plan/CardioBlockCard';
 import { AddMealModal } from '../../../components/plan/AddMealModal';
@@ -44,24 +44,6 @@ import RaceScreen from '../race';
 import SpotScreen from '../spot';
 
 // ============================================================================
-// ANIMATED WRAPPER - Para animar items durante drag
-// ============================================================================
-interface AnimatedTimelineItemProps {
-  children: React.ReactNode;
-  offset: number;
-}
-
-const AnimatedTimelineItem: React.FC<AnimatedTimelineItemProps> = ({ children, offset }) => {
-  const animatedStyle = useAnimatedStyle(
-    () => ({
-      transform: [{ translateY: withSpring(offset, { damping: 20, stiffness: 300 }) }],
-    }),
-    [offset]
-  );
-
-  return <Animated.View style={animatedStyle}>{children}</Animated.View>;
-};
-
 // ============================================================================
 // TYPES
 // ============================================================================
@@ -146,6 +128,7 @@ interface WorkoutBlockData {
   isFasted?: boolean; // True si entrenamiento en ayunas
   timeDescription?: string; // "Después de Desayuno, antes de Almuerzo"
   sessionLabel?: string; // "SESIÓN A" | "SESIÓN B" for dual session
+  scheduledTime?: string | null; // User-assigned time for timeline ordering
 }
 
 interface TimelineItem {
@@ -392,6 +375,7 @@ function PlanScreen() {
   const [meals, setMeals] = useState<Meal[]>([]);
   const [stackItems, setStackItems] = useState<StackItem[]>([]);
   const [workoutPosIndex, setWorkoutPosIndex] = useState(2);
+  const [workoutScheduledTime, setWorkoutScheduledTime] = useState<string | null>(null);
   const [todayRoutine, setTodayRoutine] = useState<string>('SIN RUTINA');
   const [isExternalMode, setIsExternalMode] = useState(false); // Modo entrenamiento personalizado
   const [todayExercises, setTodayExercises] = useState<
@@ -407,6 +391,7 @@ function PlanScreen() {
   // Dual session B state
   const [hasDualSession, setHasDualSession] = useState(false);
   const [workoutPosIndexB, setWorkoutPosIndexB] = useState(4);
+  const [workoutScheduledTimeB, setWorkoutScheduledTimeB] = useState<string | null>(null);
   const [todayRoutineB, setTodayRoutineB] = useState<string>('SESIÓN B');
   const [todayExercisesB, setTodayExercisesB] = useState<
     {
@@ -431,7 +416,7 @@ function PlanScreen() {
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [timePickerMealId, setTimePickerMealId] = useState<string | null>(null);
   const [timePickerCurrentTime, setTimePickerCurrentTime] = useState('12:00');
-  const [timePickerMode, setTimePickerMode] = useState<'meal' | 'stack'>('meal');
+  const [timePickerMode, setTimePickerMode] = useState<'meal' | 'stack' | 'workout'>('meal');
   const [timePickerStackTime, setTimePickerStackTime] = useState<string | null>(null);
   const [showStackManager, setShowStackManager] = useState(false);
   const [stackManagerInitialView, setStackManagerInitialView] = useState<'list' | 'add'>('list');
@@ -462,9 +447,6 @@ function PlanScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [isAdjustingMacros, setIsAdjustingMacros] = useState(false);
-  const [isDraggingWorkout, setIsDraggingWorkout] = useState(false);
-  const [dragTargetIndex, setDragTargetIndex] = useState<number | null>(null);
-  const [draggingSessionIdx, setDraggingSessionIdx] = useState<number>(0);
 
   // Cardio blocks state
   const [cardioBlocks, setCardioBlocks] = useState<CardioBlock[]>([]);
@@ -818,7 +800,7 @@ function PlanScreen() {
       // Fetch workout block position (both sessions)
       const { data: posData, error: posError } = await supabase
         .from('workout_block_position')
-        .select('position, session_index')
+        .select('position, session_index, scheduled_time')
         .eq('user_id', user.id)
         .order('session_index', { ascending: true });
 
@@ -826,8 +808,14 @@ function PlanScreen() {
       if (posData && posData.length > 0) {
         const posA = posData.find((p: any) => (p.session_index || 0) === 0);
         const posB = posData.find((p: any) => p.session_index === 1);
-        if (posA) setWorkoutPosIndex(posA.position);
-        if (posB) setWorkoutPosIndexB(posB.position);
+        if (posA) {
+          setWorkoutPosIndex(posA.position);
+          setWorkoutScheduledTime(posA.scheduled_time || null);
+        }
+        if (posB) {
+          setWorkoutPosIndexB(posB.position);
+          setWorkoutScheduledTimeB(posB.scheduled_time || null);
+        }
       }
 
       // Fetch current training day from profiles
@@ -1136,6 +1124,16 @@ function PlanScreen() {
     setShowTimePicker(true);
   };
 
+  // Handler para cambiar hora de un bloque de entrenamiento
+  const timePickerWorkoutSession = useRef<number>(0);
+  const handleWorkoutTimeChange = (currentTime: string, sessionIdx: number) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setTimePickerMode('workout');
+    timePickerWorkoutSession.current = sessionIdx;
+    setTimePickerCurrentTime(currentTime || '08:00');
+    setShowTimePicker(true);
+  };
+
   // Guardar nueva hora desde el modal
   const handleSaveTime = async (newTime: string) => {
     isInternalUpdate.current = true;
@@ -1214,6 +1212,43 @@ function PlanScreen() {
 
       setTimePickerStackTime(null);
       console.warn('✅ STACK: Hora actualizada de', oldTime, 'a', newTime);
+    } else if (timePickerMode === 'workout') {
+      const sessionIdx = timePickerWorkoutSession.current;
+      // Update local state
+      if (sessionIdx === 0) {
+        setWorkoutScheduledTime(newTime);
+      } else {
+        setWorkoutScheduledTimeB(newTime);
+      }
+
+      // Save to DB
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (user) {
+        const { data: existing } = await supabase
+          .from('workout_block_position')
+          .select('id')
+          .eq('user_id', user.id)
+          .eq('session_index', sessionIdx)
+          .limit(1)
+          .single();
+
+        if (existing) {
+          await supabase
+            .from('workout_block_position')
+            .update({ scheduled_time: newTime, updated_at: new Date().toISOString() })
+            .eq('id', existing.id);
+        } else {
+          await supabase.from('workout_block_position').insert({
+            user_id: user.id,
+            position: sessionIdx === 0 ? workoutPosIndex : workoutPosIndexB,
+            session_index: sessionIdx,
+            scheduled_time: newTime,
+          });
+        }
+      }
+      console.warn('✅ WORKOUT: Hora asignada S' + sessionIdx + ':', newTime);
     }
   };
 
@@ -2324,42 +2359,6 @@ function PlanScreen() {
     }
   };
 
-  const handleMoveWorkout = async (direction: 'up' | 'down', sessionIdx: number = 0) => {
-    isInternalUpdate.current = true;
-    const posIdx = sessionIdx === 0 ? workoutPosIndex : workoutPosIndexB;
-    const newIndex = direction === 'up' ? Math.max(0, posIdx - 1) : posIdx + 1;
-    await saveWorkoutPosition(newIndex, sessionIdx);
-
-    setTimeout(() => {
-      const workoutLayout = itemLayouts.current[newIndex];
-      if (workoutLayout && workoutLayout.y > 0 && scrollViewRef.current) {
-        scrollViewRef.current.scrollTo({
-          y: Math.max(0, workoutLayout.y - 100),
-          animated: true,
-        });
-      }
-    }, 300);
-  };
-
-  // Handler for drag & drop
-  const handleDragEnd = async (newIndex: number, sessionIdx: number = 0) => {
-    isInternalUpdate.current = true;
-    setDragTargetIndex(null);
-    setIsDraggingWorkout(false);
-    setDraggingSessionIdx(0);
-    await saveWorkoutPosition(newIndex, sessionIdx);
-
-    setTimeout(() => {
-      const workoutLayout = itemLayouts.current[newIndex];
-      if (workoutLayout && workoutLayout.y > 0 && scrollViewRef.current) {
-        scrollViewRef.current.scrollTo({
-          y: Math.max(0, workoutLayout.y - 100),
-          animated: true,
-        });
-      }
-    }, 300);
-  };
-
   // Shared function to save position (supports session A and B)
   const saveWorkoutPosition = async (newIndex: number, sessionIdx: number = 0) => {
     if (sessionIdx === 0) {
@@ -2530,9 +2529,8 @@ function PlanScreen() {
       isFasted: workoutTimeEstimate.isFasted,
       timeDescription: workoutTimeEstimate.description,
       sessionLabel: hasDualSession ? 'SESIÓN A' : undefined,
+      scheduledTime: workoutScheduledTime,
     };
-
-    const safeIndex = Math.min(Math.max(0, workoutPosIndex), timeline.length);
 
     // Pre/post cardio for session A
     const preCardioA = todayCardio.filter(
@@ -2544,13 +2542,35 @@ function PlanScreen() {
         c.is_post_workout && ((c.workout_session_index ?? 0) === 0 || c.workout_session_index === 2)
     );
 
-    let finalTimeline = [
-      ...timeline.slice(0, safeIndex),
-      ...preCardioA.map((c) => ({ type: 'cardio' as const, data: c, time: c.scheduled_time })),
-      { type: 'workout' as const, data: workoutBlock },
-      ...postCardioA.map((c) => ({ type: 'cardio' as const, data: c, time: c.scheduled_time })),
-      ...timeline.slice(safeIndex),
-    ];
+    let finalTimeline: TimelineItem[];
+
+    if (workoutScheduledTime) {
+      // Time-based: insert workout block sorted by its scheduled time
+      finalTimeline = [
+        ...timeline,
+        ...preCardioA.map((c) => ({
+          type: 'cardio' as const,
+          data: c,
+          time: workoutScheduledTime,
+        })),
+        { type: 'workout' as const, data: workoutBlock, time: workoutScheduledTime },
+        ...postCardioA.map((c) => ({
+          type: 'cardio' as const,
+          data: c,
+          time: workoutScheduledTime,
+        })),
+      ].sort((a, b) => (a.time || '').localeCompare(b.time || ''));
+    } else {
+      // Position-based: insert at index
+      const safeIndex = Math.min(Math.max(0, workoutPosIndex), timeline.length);
+      finalTimeline = [
+        ...timeline.slice(0, safeIndex),
+        ...preCardioA.map((c) => ({ type: 'cardio' as const, data: c, time: c.scheduled_time })),
+        { type: 'workout' as const, data: workoutBlock },
+        ...postCardioA.map((c) => ({ type: 'cardio' as const, data: c, time: c.scheduled_time })),
+        ...timeline.slice(safeIndex),
+      ];
+    }
 
     // Insert workout block B if dual session is active
     if (hasDualSession) {
@@ -2575,9 +2595,8 @@ function PlanScreen() {
         isFasted: workoutTimeEstimateB.isFasted,
         timeDescription: workoutTimeEstimateB.description,
         sessionLabel: 'SESIÓN B',
+        scheduledTime: workoutScheduledTimeB,
       };
-
-      const safeIndexB = Math.min(Math.max(0, workoutPosIndexB), finalTimeline.length);
 
       // Pre/post cardio for session B
       const preCardioB = todayCardio.filter(
@@ -2587,13 +2606,32 @@ function PlanScreen() {
         (c) => c.is_post_workout && (c.workout_session_index === 1 || c.workout_session_index === 2)
       );
 
-      finalTimeline = [
-        ...finalTimeline.slice(0, safeIndexB),
-        ...preCardioB.map((c) => ({ type: 'cardio' as const, data: c, time: c.scheduled_time })),
-        { type: 'workout' as const, data: workoutBlockB },
-        ...postCardioB.map((c) => ({ type: 'cardio' as const, data: c, time: c.scheduled_time })),
-        ...finalTimeline.slice(safeIndexB),
-      ];
+      if (workoutScheduledTimeB) {
+        // Time-based: insert sorted by time
+        finalTimeline = [
+          ...finalTimeline,
+          ...preCardioB.map((c) => ({
+            type: 'cardio' as const,
+            data: c,
+            time: workoutScheduledTimeB,
+          })),
+          { type: 'workout' as const, data: workoutBlockB, time: workoutScheduledTimeB },
+          ...postCardioB.map((c) => ({
+            type: 'cardio' as const,
+            data: c,
+            time: workoutScheduledTimeB,
+          })),
+        ].sort((a, b) => (a.time || '').localeCompare(b.time || ''));
+      } else {
+        const safeIndexB = Math.min(Math.max(0, workoutPosIndexB), finalTimeline.length);
+        finalTimeline = [
+          ...finalTimeline.slice(0, safeIndexB),
+          ...preCardioB.map((c) => ({ type: 'cardio' as const, data: c, time: c.scheduled_time })),
+          { type: 'workout' as const, data: workoutBlockB },
+          ...postCardioB.map((c) => ({ type: 'cardio' as const, data: c, time: c.scheduled_time })),
+          ...finalTimeline.slice(safeIndexB),
+        ];
+      }
     }
 
     return finalTimeline;
@@ -2996,48 +3034,9 @@ function PlanScreen() {
             </View>
           ) : (
             timeline.map((item, timelineIndex) => {
-              // Altura del bloque de entrenamiento comprimido (para crear espacio)
-              const WORKOUT_COMPRESSED_HEIGHT = 85;
-
-              // Calcular offset de animación basado en la posición del drag
-              const getAnimatedOffset = () => {
-                if (!isDraggingWorkout || dragTargetIndex === null) return 0;
-                // El otro bloque workout también debe animarse (no skip)
-                if (item.type === 'workout') {
-                  const thisWorkout = item.data as WorkoutBlockData;
-                  const thisIsBeingDragged =
-                    draggingSessionIdx === 0
-                      ? thisWorkout.id !== 'workout-block-b'
-                      : thisWorkout.id === 'workout-block-b';
-                  if (thisIsBeingDragged) return 0; // El que se arrastra no se desplaza
-                }
-
-                // Usar la posición del bloque que se está arrastrando
-                const workoutCurrentPos =
-                  draggingSessionIdx === 0 ? workoutPosIndex : workoutPosIndexB;
-                const workoutTargetPos = dragTargetIndex;
-
-                // Si el bloque se mueve hacia abajo
-                if (workoutTargetPos > workoutCurrentPos) {
-                  // Los items entre current+1 y target deben subir para abrir espacio abajo
-                  if (timelineIndex > workoutCurrentPos && timelineIndex <= workoutTargetPos) {
-                    return -WORKOUT_COMPRESSED_HEIGHT;
-                  }
-                }
-                // Si el bloque se mueve hacia arriba
-                else if (workoutTargetPos < workoutCurrentPos) {
-                  // Los items entre target y current-1 deben bajar para abrir espacio arriba
-                  if (timelineIndex >= workoutTargetPos && timelineIndex < workoutCurrentPos) {
-                    return WORKOUT_COMPRESSED_HEIGHT;
-                  }
-                }
-                return 0;
-              };
-
               if (item.type === 'meal') {
                 const meal = item.data as Meal;
                 const mealIndex = meals.findIndex((m) => m.id === meal.id);
-                const offset = getAnimatedOffset();
                 // Usar nombre de DB si existe, sino lógica inteligente
                 const displayName = meal.name || getSmartMealName(mealIndex, meals.length);
                 return (
@@ -3045,38 +3044,28 @@ function PlanScreen() {
                     key={meal.id}
                     onLayout={(e) => handleItemLayout(timelineIndex, e.nativeEvent.layout.y)}
                   >
-                    <AnimatedTimelineItem offset={offset}>
-                      <MealCard
-                        meal={meal}
-                        mealName={displayName}
-                        onSwap={handleSwap}
-                        onTimeChange={handleTimeChange}
-                        onDelete={handleDeleteMeal}
-                        onDeleteOption={handleDeleteOption}
-                        onEdit={handleEditMeal}
-                        onAddOption={handleAddOption}
-                        isCompressed={isDraggingWorkout}
-                      />
-                    </AnimatedTimelineItem>
+                    <MealCard
+                      meal={meal}
+                      mealName={displayName}
+                      onSwap={handleSwap}
+                      onTimeChange={handleTimeChange}
+                      onDelete={handleDeleteMeal}
+                      onDeleteOption={handleDeleteOption}
+                      onEdit={handleEditMeal}
+                      onAddOption={handleAddOption}
+                    />
                   </View>
                 );
               }
 
               if (item.type === 'stack') {
                 const stack = item.data as Stack;
-                const offset = getAnimatedOffset();
                 return (
                   <View
                     key={stack.id}
                     onLayout={(e) => handleItemLayout(timelineIndex, e.nativeEvent.layout.y)}
                   >
-                    <AnimatedTimelineItem offset={offset}>
-                      <StackCard
-                        stack={stack}
-                        onItemDelete={handleRemoveStackItem}
-                        isCompressed={isDraggingWorkout}
-                      />
-                    </AnimatedTimelineItem>
+                    <StackCard stack={stack} onItemDelete={handleRemoveStackItem} />
                   </View>
                 );
               }
@@ -3085,64 +3074,20 @@ function PlanScreen() {
                 const workout = item.data as WorkoutBlockData;
                 const isSessionB = workout.id === 'workout-block-b';
                 const sessionIdx = isSessionB ? 1 : 0;
-                const posIdx = isSessionB ? workoutPosIndexB : workoutPosIndex;
-                const isBeingDragged = isDraggingWorkout && draggingSessionIdx === sessionIdx;
-                const offset = getAnimatedOffset();
-
-                // Si NO es el bloque que se arrastra, pero hay otro arrastrándose,
-                // renderizar comprimido con offset animado (como meals/stacks)
-                if (isDraggingWorkout && !isBeingDragged) {
-                  return (
-                    <View
-                      key={workout.id}
-                      onLayout={(e) => handleItemLayout(timelineIndex, e.nativeEvent.layout.y)}
-                    >
-                      <AnimatedTimelineItem offset={offset}>
-                        <WorkoutBlock
-                          data={workout}
-                          onMoveUp={() => handleMoveWorkout('up', sessionIdx)}
-                          onMoveDown={() => handleMoveWorkout('down', sessionIdx)}
-                          isFirst={posIdx === 0}
-                          isLast={posIdx >= timeline.length - 1}
-                          onPressRoutine={() => router.push('/(tabs)/gym')}
-                          isCompressed={true}
-                        />
-                      </AnimatedTimelineItem>
-                    </View>
-                  );
-                }
 
                 return (
                   <View
                     key={workout.id}
                     onLayout={(e) => handleItemLayout(timelineIndex, e.nativeEvent.layout.y)}
                   >
-                    <DraggableWorkoutBlock
+                    <WorkoutBlock
                       data={workout}
-                      currentIndex={posIdx}
-                      totalItems={timeline.length}
-                      onMoveUp={() => handleMoveWorkout('up', sessionIdx)}
-                      onMoveDown={() => handleMoveWorkout('down', sessionIdx)}
-                      onDragEnd={(newIndex) => handleDragEnd(newIndex, sessionIdx)}
-                      onDragStart={() => {
-                        isInternalUpdate.current = true;
-                        setDraggingSessionIdx(sessionIdx);
-                        setIsDraggingWorkout(true);
-                        setDragTargetIndex(posIdx);
-                      }}
-                      onDragCancel={() => {
-                        isInternalUpdate.current = true;
-                        setIsDraggingWorkout(false);
-                        setDragTargetIndex(null);
-                        setDraggingSessionIdx(0);
-                      }}
-                      onPositionChange={(targetIndex) => {
-                        isInternalUpdate.current = true;
-                        setDragTargetIndex(targetIndex);
-                      }}
+                      onMoveUp={() => {}}
+                      onMoveDown={() => {}}
+                      isFirst={true}
+                      isLast={true}
                       onPressRoutine={() => router.push('/(tabs)/gym')}
-                      itemHeight={isDraggingWorkout ? 85 : 160}
-                      scrollRef={scrollViewRef}
+                      onTimeChange={(time) => handleWorkoutTimeChange(time, sessionIdx)}
                     />
                   </View>
                 );
@@ -3151,7 +3096,6 @@ function PlanScreen() {
               if (item.type === 'cardio') {
                 const cardio = item.data as CardioBlock;
                 const cardioIndex = cardioBlocks.findIndex((c) => c.id === cardio.id);
-                const offset = getAnimatedOffset();
                 const cardioLabel =
                   cardioBlocks.length === 1 ? 'CARDIO' : `CARDIO ${cardioIndex + 1}`;
                 return (
@@ -3159,16 +3103,13 @@ function PlanScreen() {
                     key={cardio.id}
                     onLayout={(e) => handleItemLayout(timelineIndex, e.nativeEvent.layout.y)}
                   >
-                    <AnimatedTimelineItem offset={offset}>
-                      <CardioBlockCard
-                        cardio={cardio}
-                        cardioLabel={cardioLabel}
-                        onTimeChange={handleCardioTimeChange}
-                        onDelete={handleDeleteCardio}
-                        onEdit={handleEditCardio}
-                        isCompressed={isDraggingWorkout}
-                      />
-                    </AnimatedTimelineItem>
+                    <CardioBlockCard
+                      cardio={cardio}
+                      cardioLabel={cardioLabel}
+                      onTimeChange={handleCardioTimeChange}
+                      onDelete={handleDeleteCardio}
+                      onEdit={handleEditCardio}
+                    />
                   </View>
                 );
               }

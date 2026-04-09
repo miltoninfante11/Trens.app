@@ -40,6 +40,13 @@ import {
   Check,
   X,
   Settings2,
+  Dumbbell,
+  Utensils,
+  Pill,
+  StickyNote,
+  Music,
+  SkipForward,
+  RotateCcw,
 } from 'lucide-react-native';
 import { usePathname } from 'expo-router';
 import { useHank } from '../../context/HankContext';
@@ -51,6 +58,8 @@ import { calculateFabPositions } from '../../constants/floatingTools';
 import { HankTargetHighlight } from './HankTargetHighlight';
 import { HankOnboarding, type OnboardingData } from './HankOnboarding';
 import { setHankChatOpen } from '../../lib/hankChatState';
+import { hankToolsEvent, type HankToolType } from '../../lib/hankToolsEvent';
+import { spotifyFabState, spotifyFabActions, type SpotifyFabData } from '../../lib/spotifyFabState';
 import type {
   HankToolResult,
   HankToolCall,
@@ -61,6 +70,10 @@ import { MessageBubble, type ChatMessage } from './MessageBubble';
 import { ThinkingIndicator } from './ThinkingIndicator';
 import { ConfirmationButtons } from './ConfirmationButtons';
 import { AnimatedSendButton } from './AnimatedSendButton';
+import { QuickMealsModal } from './QuickMealsModal';
+import { QuickStackModal } from './QuickStackModal';
+import { Image } from 'expo-image';
+import { PlanNotesModal } from '../plan/PlanNotesModal';
 
 // ============================================================================
 // TYPES
@@ -98,8 +111,28 @@ const getDefaultWelcomeMessage = (): ChatMessage => ({
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
 // ============================================================================
-// FAB BUTTON (Floating Action Button) con Long Press y Flying Animation
+// FAB BUTTON (Floating Action Button) con Long Press, Flying Animation y Tools Fan
 // ============================================================================
+const SWIPE_THRESHOLD = 30;
+
+// Tool definitions for the fan
+const HANK_TOOLS: Array<{
+  id: HankToolType;
+  icon: React.ReactNode;
+  color: string;
+  label: string;
+}> = [
+  {
+    id: 'gym_structure',
+    icon: <Dumbbell size={18} color="#DC2626" />,
+    color: '#DC2626',
+    label: 'Entreno',
+  },
+  { id: 'meals', icon: <Utensils size={18} color="#22c55e" />, color: '#22c55e', label: 'Comidas' },
+  { id: 'stack', icon: <Pill size={18} color="#a855f7" />, color: '#a855f7', label: 'Stack' },
+  { id: 'notes', icon: <StickyNote size={18} color="#f59e0b" />, color: '#f59e0b', label: 'Notas' },
+];
+
 const HankFAB: React.FC<{
   onPress: () => void;
   onLongPressStart: () => void;
@@ -298,31 +331,359 @@ const HankFAB: React.FC<{
     transform: [{ scale: interpolate(pulseOpacity.value, [0, 0.8], [2, 1]) }],
   }));
 
-  // Gesture handling
+  // Gesture handling via PanResponder (like Spotify)
   const longPressActive = useRef(false);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const startPos = useRef({ x: 0, y: 0 });
+  const gestureHandled = useRef(false);
 
-  const handlePressIn = useCallback(() => {
-    longPressTimer.current = setTimeout(() => {
-      longPressActive.current = true;
-      onLongPressStart();
-    }, LONG_PRESS_DURATION);
-  }, [onLongPressStart]);
+  // Tools fan state
+  const [toolsOpen, setToolsOpen] = useState(false);
+  const toolsOpenRef = useRef(false);
+  const toolsFanProgress = useSharedValue(0);
 
-  const handlePressOut = useCallback(() => {
-    if (longPressTimer.current) {
-      clearTimeout(longPressTimer.current);
-      longPressTimer.current = null;
-    }
+  // Animated values for drag feedback
+  const fabDragX = useSharedValue(0);
+  const fabDragY = useSharedValue(0);
+  const fabDragScale = useSharedValue(1);
 
-    if (longPressActive.current) {
-      longPressActive.current = false;
-      onLongPressEnd();
+  // Refs for handlers (PanResponder needs stable refs)
+  const onPressRef = useRef(onPress);
+  const onLongPressStartRef = useRef(onLongPressStart);
+  const onLongPressEndRef = useRef(onLongPressEnd);
+  useEffect(() => {
+    onPressRef.current = onPress;
+    onLongPressStartRef.current = onLongPressStart;
+    onLongPressEndRef.current = onLongPressEnd;
+  });
+
+  // Toggle tools fan
+  const openTools = useCallback(() => {
+    setToolsOpen(true);
+    toolsOpenRef.current = true;
+    toolsFanProgress.value = withTiming(1, { duration: 250, easing: Easing.out(Easing.ease) });
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+  }, [toolsFanProgress]);
+
+  const closeTools = useCallback(() => {
+    toolsFanProgress.value = withTiming(0, { duration: 200, easing: Easing.in(Easing.ease) });
+    toolsOpenRef.current = false;
+    setTimeout(() => setToolsOpen(false), 220);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  }, [toolsFanProgress]);
+
+  const handleToolPress = useCallback(
+    (toolId: HankToolType) => {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+      closeTools();
+
+      setTimeout(() => {
+        hankToolsEvent.open(toolId);
+      }, 250);
+    },
+    [closeTools]
+  );
+
+  // Tool button animated styles
+  const toolButtonStyles = HANK_TOOLS.map((_, index) =>
+    // eslint-disable-next-line react-hooks/rules-of-hooks
+    useAnimatedStyle(() => {
+      const spacing = 68;
+      const targetY = -(spacing * (index + 2));
+      return {
+        opacity: toolsFanProgress.value,
+        transform: [
+          { translateY: interpolate(toolsFanProgress.value, [0, 1], [0, targetY]) },
+          { scale: interpolate(toolsFanProgress.value, [0, 0.5, 1], [0.3, 0.8, 1]) },
+        ],
+      };
+    })
+  );
+
+  // -------------------------------------------------------------------------
+  // SPOTIFY CLONE - Botón clonado en slot 0 del fan
+  // -------------------------------------------------------------------------
+  const [spotifyData, setSpotifyData] = useState<SpotifyFabData>(spotifyFabState.current);
+  const [spotifyGesture, setSpotifyGesture] = useState<'none' | 'next' | 'restart' | 'hank'>(
+    'none'
+  );
+
+  useEffect(() => {
+    return spotifyFabState.onChange((data) => setSpotifyData(data));
+  }, []);
+
+  // Animated style for spotify slot (index 0 → spacing * 1)
+  const spotifyButtonStyle = useAnimatedStyle(() => {
+    const targetY = -68;
+    return {
+      opacity: toolsFanProgress.value,
+      transform: [
+        { translateY: interpolate(toolsFanProgress.value, [0, 1], [0, targetY]) },
+        { scale: interpolate(toolsFanProgress.value, [0, 0.5, 1], [0.3, 0.8, 1]) },
+      ],
+    };
+  });
+
+  // Spotify glow animation
+  const spotifyGlow = useSharedValue(0);
+  useEffect(() => {
+    if (spotifyData.isPlaying) {
+      spotifyGlow.value = withRepeat(
+        withSequence(
+          withTiming(1, { duration: 1500, easing: Easing.inOut(Easing.ease) }),
+          withTiming(0, { duration: 1500, easing: Easing.inOut(Easing.ease) })
+        ),
+        -1,
+        false
+      );
     } else {
-      // Short press - open chat
-      onPress();
+      spotifyGlow.value = withTiming(0, { duration: 300 });
     }
-  }, [onPress, onLongPressEnd]);
+  }, [spotifyData.isPlaying, spotifyGlow]);
+
+  const spotifyGlowStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(spotifyGlow.value, [0, 1], [0, 0.6]),
+    transform: [{ scale: interpolate(spotifyGlow.value, [0, 1], [1, 1.4]) }],
+  }));
+
+  // Spotify FAB drag animation
+  const spotifyDragX = useSharedValue(0);
+  const spotifyDragY = useSharedValue(0);
+  const spotifyDragScale = useSharedValue(1);
+
+  const spotifyDragStyle = useAnimatedStyle(() => ({
+    transform: [
+      { translateX: spotifyDragX.value },
+      { translateY: spotifyDragY.value },
+      { scale: spotifyDragScale.value },
+    ],
+  }));
+
+  // PanResponder for Spotify button gestures
+  const spotifyStartPos = useRef({ x: 0, y: 0 });
+  const spotifyLongPress = useRef(false);
+  const spotifyGestureHandled = useRef(false);
+  const spotifyLongPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const SPOTIFY_SWIPE_THRESHOLD = 50;
+  const SPOTIFY_LONG_PRESS_DURATION = 500;
+
+  const spotifyPanResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+
+      onPanResponderGrant: (evt) => {
+        spotifyStartPos.current = { x: evt.nativeEvent.pageX, y: evt.nativeEvent.pageY };
+        spotifyLongPress.current = false;
+        spotifyGestureHandled.current = false;
+        setSpotifyGesture('none');
+
+        spotifyLongPressTimer.current = setTimeout(() => {
+          if (!spotifyGestureHandled.current) {
+            spotifyLongPress.current = true;
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+            spotifyFabActions.emit('play_pause');
+            spotifyGestureHandled.current = true;
+            spotifyDragScale.value = withSequence(
+              withTiming(0.8, { duration: 100 }),
+              withSpring(1)
+            );
+          }
+        }, SPOTIFY_LONG_PRESS_DURATION);
+
+        spotifyDragScale.value = withTiming(0.95, { duration: 100 });
+      },
+
+      onPanResponderMove: (evt) => {
+        const dx = evt.nativeEvent.pageX - spotifyStartPos.current.x;
+        const dy = evt.nativeEvent.pageY - spotifyStartPos.current.y;
+
+        if (Math.abs(dx) > 20 || Math.abs(dy) > 20) {
+          if (spotifyLongPressTimer.current) {
+            clearTimeout(spotifyLongPressTimer.current);
+            spotifyLongPressTimer.current = null;
+          }
+        }
+
+        spotifyDragX.value = Math.max(-60, Math.min(60, dx * 0.5));
+        spotifyDragY.value = Math.max(-60, Math.min(60, dy * 0.5));
+
+        if (dy < -SPOTIFY_SWIPE_THRESHOLD && Math.abs(dx) < SPOTIFY_SWIPE_THRESHOLD) {
+          setSpotifyGesture('next');
+        } else if (dx < -SPOTIFY_SWIPE_THRESHOLD && Math.abs(dy) < SPOTIFY_SWIPE_THRESHOLD) {
+          setSpotifyGesture('restart');
+        } else if (dy > SPOTIFY_SWIPE_THRESHOLD && Math.abs(dx) < SPOTIFY_SWIPE_THRESHOLD) {
+          setSpotifyGesture('hank');
+        } else {
+          setSpotifyGesture('none');
+        }
+      },
+
+      onPanResponderRelease: (evt) => {
+        if (spotifyLongPressTimer.current) {
+          clearTimeout(spotifyLongPressTimer.current);
+          spotifyLongPressTimer.current = null;
+        }
+
+        const dx = evt.nativeEvent.pageX - spotifyStartPos.current.x;
+        const dy = evt.nativeEvent.pageY - spotifyStartPos.current.y;
+
+        spotifyDragScale.value = withSpring(1);
+        spotifyDragX.value = withSpring(0);
+        spotifyDragY.value = withSpring(0);
+        setSpotifyGesture('none');
+
+        if (spotifyGestureHandled.current) return;
+
+        if (dy < -SPOTIFY_SWIPE_THRESHOLD && Math.abs(dx) < SPOTIFY_SWIPE_THRESHOLD) {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          spotifyFabActions.emit('next');
+          return;
+        }
+        if (dx < -SPOTIFY_SWIPE_THRESHOLD && Math.abs(dy) < SPOTIFY_SWIPE_THRESHOLD) {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          spotifyFabActions.emit('restart');
+          return;
+        }
+        if (dy > SPOTIFY_SWIPE_THRESHOLD && Math.abs(dx) < SPOTIFY_SWIPE_THRESHOLD) {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+          spotifyFabActions.emit('hank_insight');
+          return;
+        }
+
+        if (Math.abs(dx) < 10 && Math.abs(dy) < 10 && !spotifyLongPress.current) {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+          closeTools();
+          setTimeout(() => spotifyFabActions.emit('open_modal'), 250);
+        }
+      },
+
+      onPanResponderTerminate: () => {
+        if (spotifyLongPressTimer.current) {
+          clearTimeout(spotifyLongPressTimer.current);
+          spotifyLongPressTimer.current = null;
+        }
+        spotifyDragScale.value = withSpring(1);
+        spotifyDragX.value = withSpring(0);
+        spotifyDragY.value = withSpring(0);
+        setSpotifyGesture('none');
+      },
+    })
+  ).current;
+
+  // PanResponder for swipe gestures
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+
+      onPanResponderGrant: (evt) => {
+        startPos.current = { x: evt.nativeEvent.pageX, y: evt.nativeEvent.pageY };
+        longPressActive.current = false;
+        gestureHandled.current = false;
+
+        // Start long press timer
+        longPressTimer.current = setTimeout(() => {
+          if (!gestureHandled.current) {
+            longPressActive.current = true;
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+            onLongPressStartRef.current();
+            gestureHandled.current = true;
+            fabDragScale.value = withSequence(withTiming(0.8, { duration: 100 }), withSpring(1));
+          }
+        }, LONG_PRESS_DURATION);
+
+        fabDragScale.value = withTiming(0.92, { duration: 100 });
+      },
+
+      onPanResponderMove: (evt) => {
+        const dx = evt.nativeEvent.pageX - startPos.current.x;
+        const dy = evt.nativeEvent.pageY - startPos.current.y;
+
+        // Cancel long press if significant movement
+        if (Math.abs(dx) > 15 || Math.abs(dy) > 15) {
+          if (longPressTimer.current) {
+            clearTimeout(longPressTimer.current);
+            longPressTimer.current = null;
+          }
+        }
+
+        // Visual drag feedback (limited)
+        fabDragX.value = Math.max(-40, Math.min(40, dx * 0.4));
+        fabDragY.value = Math.max(-40, Math.min(40, dy * 0.4));
+      },
+
+      onPanResponderRelease: (evt) => {
+        // Cancel long press timer
+        if (longPressTimer.current) {
+          clearTimeout(longPressTimer.current);
+          longPressTimer.current = null;
+        }
+
+        const dy = evt.nativeEvent.pageY - startPos.current.y;
+        const dx = evt.nativeEvent.pageX - startPos.current.x;
+
+        // Reset visual position
+        fabDragScale.value = withSpring(1);
+        fabDragX.value = withSpring(0);
+        fabDragY.value = withSpring(0);
+
+        // If already handled (long press), end voice
+        if (gestureHandled.current) {
+          if (longPressActive.current) {
+            longPressActive.current = false;
+            onLongPressEndRef.current();
+          }
+          return;
+        }
+
+        // Swipe UP → open/toggle tools
+        if (dy < -SWIPE_THRESHOLD && Math.abs(dx) < SWIPE_THRESHOLD) {
+          gestureHandled.current = true;
+          openTools();
+          return;
+        }
+
+        // Swipe DOWN → close tools
+        if (dy > SWIPE_THRESHOLD && Math.abs(dx) < SWIPE_THRESHOLD) {
+          gestureHandled.current = true;
+          if (toolsOpenRef.current) closeTools();
+          return;
+        }
+
+        // Tap → open chat (or close tools if open)
+        if (Math.abs(dx) < 10 && Math.abs(dy) < 10 && !longPressActive.current) {
+          if (toolsOpenRef.current) {
+            closeTools();
+          } else {
+            onPressRef.current();
+          }
+        }
+      },
+
+      onPanResponderTerminate: () => {
+        if (longPressTimer.current) {
+          clearTimeout(longPressTimer.current);
+          longPressTimer.current = null;
+        }
+        if (longPressActive.current) {
+          longPressActive.current = false;
+          onLongPressEndRef.current();
+        }
+        fabDragScale.value = withSpring(1);
+        fabDragX.value = withSpring(0);
+        fabDragY.value = withSpring(0);
+      },
+    })
+  ).current;
+
+  const fabDragStyle = useAnimatedStyle(() => ({
+    transform: [
+      { translateX: fabDragX.value },
+      { translateY: fabDragY.value },
+      { scale: fabDragScale.value },
+    ],
+  }));
 
   // Determine if we're in a flying/working state
   const isFlying =
@@ -331,118 +692,339 @@ const HankFAB: React.FC<{
   const isSuccess = animationPhase === 'success';
 
   return (
-    <Animated.View
-      style={[
-        { position: 'absolute', bottom: bottomOffset, right: rightOffset, zIndex: 1000 },
-        flyingStyle,
-      ]}
+    <View
+      style={{
+        position: 'absolute',
+        bottom: bottomOffset,
+        right: rightOffset,
+        zIndex: 1000,
+        width: 76,
+        height: toolsOpen ? 560 : 60,
+        alignItems: 'center',
+        justifyContent: 'flex-end',
+      }}
+      pointerEvents="box-none"
     >
-      {/* Pulse ring effect when listening - ED HARDY FIRE RINGS */}
-      {isListening && !isFlying && (
-        <>
-          <Animated.View
-            style={[
-              {
-                position: 'absolute',
-                width: 60,
-                height: 60,
-                borderRadius: 30,
-                borderWidth: 3,
-                borderColor: '#F97316',
-                left: 0,
-                top: 0,
-              },
-              pulseRingStyle,
-            ]}
-          />
-          <Animated.View
-            style={[
-              {
-                position: 'absolute',
-                width: 80,
-                height: 80,
-                borderRadius: 40,
-                borderWidth: 2,
-                borderColor: '#DC262680',
-                left: -10,
-                top: -10,
-              },
-              pulseRingStyle,
-            ]}
-          />
-        </>
-      )}
+      {/* TOOLS FAN - 5 buttons appearing above Hank on swipe up */}
 
-      <AnimatedPressable
-        onPressIn={isFlying ? undefined : handlePressIn}
-        onPressOut={isFlying ? undefined : handlePressOut}
-        style={[
-          {
-            width: 60,
-            height: 60,
-            borderRadius: 30,
-            backgroundColor: isWorking
-              ? '#DC2626' // Rojo savage cuando trabaja
-              : isSuccess
-                ? '#22C55E'
-                : isListening
-                  ? '#DC2626'
-                  : '#0a0505',
-            alignItems: 'center',
-            justifyContent: 'center',
-            // ED HARDY: Intense fire glow
-            shadowColor: isWorking
-              ? '#DC2626'
-              : isSuccess
-                ? '#22C55E'
-                : isListening
-                  ? '#FF3B3B'
-                  : '#F97316',
-            shadowOffset: { width: 0, height: 0 },
-            shadowOpacity: isWorking || isSuccess ? 1 : isListening ? 0.9 : 0.6,
-            shadowRadius: isWorking || isSuccess ? 25 : isListening ? 20 : 15,
-            elevation: 15,
-          },
-          glowStyle,
-        ]}
-      >
-        {/* Animated Border - FIRE GRADIENT EFFECT */}
+      {/* SPOTIFY CLONE - Slot 0 (más cercano a Hank) */}
+      {toolsOpen && (
         <Animated.View
           style={[
             {
               position: 'absolute',
-              width: 64,
-              height: 64,
-              borderRadius: 32,
-              borderWidth: isWorking ? 3 : isListening ? 3 : 2,
-              borderColor: isWorking ? '#F97316' : isListening ? '#FBBF24' : '#F97316',
-              borderStyle: 'solid',
-              borderTopColor: isWorking
-                ? '#FBBF24'
-                : isProcessing
-                  ? '#F97316'
-                  : isListening
-                    ? '#FBBF24'
-                    : '#F97316',
-              borderRightColor:
-                isWorking || isProcessing ? 'transparent' : isListening ? '#F97316' : '#DC2626',
-              borderBottomColor:
-                isWorking || isProcessing ? 'transparent' : isListening ? '#DC2626' : '#DC2626',
-              borderLeftColor:
-                isWorking || isProcessing ? 'transparent' : isListening ? '#F97316' : '#F97316',
+              bottom: 6,
+              left: 6,
+              zIndex: 1001,
             },
-            borderStyle,
+            spotifyButtonStyle,
           ]}
-        />
+        >
+          {/* Glow */}
+          {spotifyData.isPlaying && (
+            <Animated.View
+              style={[
+                {
+                  position: 'absolute',
+                  width: 52,
+                  height: 52,
+                  borderRadius: 26,
+                  backgroundColor: '#1DB954',
+                },
+                spotifyGlowStyle,
+              ]}
+            />
+          )}
+          <Animated.View style={spotifyDragStyle} {...spotifyPanResponder.panHandlers}>
+            <View
+              style={{
+                width: 52,
+                height: 52,
+                borderRadius: 26,
+                backgroundColor: spotifyData.isConnected ? '#1DB954' : '#0a0a0a',
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderWidth: spotifyData.isConnected ? 0 : 1.5,
+                borderColor: '#1DB95440',
+                shadowColor: '#1DB954',
+                shadowOffset: { width: 0, height: 0 },
+                shadowOpacity: spotifyData.isConnected ? 0.4 : 0.2,
+                shadowRadius: 8,
+                elevation: 8,
+              }}
+            >
+              {spotifyData.albumArtUrl && spotifyData.isConnected ? (
+                <View style={{ width: 38, height: 38, borderRadius: 19, overflow: 'hidden' }}>
+                  <Image
+                    key={spotifyData.albumArtUrl}
+                    source={{ uri: spotifyData.albumArtUrl }}
+                    style={{ width: 38, height: 38 }}
+                    contentFit="cover"
+                  />
+                </View>
+              ) : (
+                <Music size={18} color={spotifyData.isConnected ? '#000' : '#1DB954'} />
+              )}
+            </View>
+          </Animated.View>
+          <Text
+            style={{
+              color: '#71717a',
+              fontSize: 8,
+              fontWeight: '700',
+              textAlign: 'center',
+              marginTop: 2,
+              letterSpacing: 0.5,
+            }}
+          >
+            SPOTIFY
+          </Text>
 
-        {/* Icon - ED HARDY COLORS - FAB siempre muestra Bot (HANK Logo) */}
-        {isListening ? (
-          <Mic size={28} color="#FFFFFF" />
-        ) : (
-          <Bot size={28} color={isWorking || isSuccess || isProcessing ? '#FFFFFF' : '#F97316'} />
+          {/* Indicadores de gesto */}
+          {spotifyGesture === 'next' && (
+            <View
+              style={{
+                position: 'absolute',
+                top: -30,
+                left: -20,
+                right: -20,
+                alignItems: 'center',
+              }}
+            >
+              <View
+                style={{
+                  backgroundColor: '#1DB954',
+                  paddingHorizontal: 8,
+                  paddingVertical: 4,
+                  borderRadius: 12,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                }}
+              >
+                <SkipForward size={12} color="#000" />
+                <Text style={{ color: '#000', fontSize: 10, fontWeight: 'bold', marginLeft: 3 }}>
+                  Next
+                </Text>
+              </View>
+            </View>
+          )}
+          {spotifyGesture === 'restart' && (
+            <View
+              style={{
+                position: 'absolute',
+                left: -75,
+                top: 10,
+                alignItems: 'center',
+              }}
+            >
+              <View
+                style={{
+                  backgroundColor: '#1DB954',
+                  paddingHorizontal: 8,
+                  paddingVertical: 4,
+                  borderRadius: 12,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                }}
+              >
+                <RotateCcw size={12} color="#000" />
+                <Text style={{ color: '#000', fontSize: 10, fontWeight: 'bold', marginLeft: 3 }}>
+                  Restart
+                </Text>
+              </View>
+            </View>
+          )}
+          {spotifyGesture === 'hank' && (
+            <View
+              style={{
+                position: 'absolute',
+                bottom: -25,
+                left: -10,
+                right: -10,
+                alignItems: 'center',
+              }}
+            >
+              <View
+                style={{
+                  backgroundColor: '#DC2626',
+                  paddingHorizontal: 8,
+                  paddingVertical: 4,
+                  borderRadius: 12,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                }}
+              >
+                <Bot size={12} color="#FFF" />
+                <Text style={{ color: '#FFF', fontSize: 10, fontWeight: 'bold', marginLeft: 3 }}>
+                  HANK
+                </Text>
+              </View>
+            </View>
+          )}
+        </Animated.View>
+      )}
+
+      {toolsOpen &&
+        HANK_TOOLS.map((tool, index) => (
+          <Animated.View
+            key={tool.id}
+            style={[
+              {
+                position: 'absolute',
+                bottom: 6,
+                left: 6,
+                zIndex: 1001,
+              },
+              toolButtonStyles[index],
+            ]}
+          >
+            <Pressable
+              onPress={() => handleToolPress(tool.id)}
+              style={{
+                width: 52,
+                height: 52,
+                borderRadius: 26,
+                backgroundColor: '#0a0a0a',
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderWidth: 1.5,
+                borderColor: `${tool.color}40`,
+                shadowColor: tool.color,
+                shadowOffset: { width: 0, height: 0 },
+                shadowOpacity: 0.4,
+                shadowRadius: 8,
+                elevation: 8,
+              }}
+            >
+              {tool.icon}
+            </Pressable>
+            <Text
+              style={{
+                color: '#71717a',
+                fontSize: 8,
+                fontWeight: '700',
+                textAlign: 'center',
+                marginTop: 2,
+                letterSpacing: 0.5,
+              }}
+            >
+              {tool.label.toUpperCase()}
+            </Text>
+          </Animated.View>
+        ))}
+
+      {/* FAB + Pulse rings wrapped with flyingStyle */}
+      <Animated.View style={flyingStyle}>
+        {/* Pulse ring effect when listening - ED HARDY FIRE RINGS */}
+        {isListening && !isFlying && (
+          <>
+            <Animated.View
+              style={[
+                {
+                  position: 'absolute',
+                  width: 60,
+                  height: 60,
+                  borderRadius: 30,
+                  borderWidth: 3,
+                  borderColor: '#F97316',
+                  left: 0,
+                  top: 0,
+                },
+                pulseRingStyle,
+              ]}
+            />
+            <Animated.View
+              style={[
+                {
+                  position: 'absolute',
+                  width: 80,
+                  height: 80,
+                  borderRadius: 40,
+                  borderWidth: 2,
+                  borderColor: '#DC262680',
+                  left: -10,
+                  top: -10,
+                },
+                pulseRingStyle,
+              ]}
+            />
+          </>
         )}
-      </AnimatedPressable>
-    </Animated.View>
+
+        {/* FAB with PanResponder for drag gestures */}
+        <Animated.View style={fabDragStyle} {...(isFlying ? {} : panResponder.panHandlers)}>
+          <Animated.View
+            style={[
+              {
+                width: 60,
+                height: 60,
+                borderRadius: 30,
+                backgroundColor: isWorking
+                  ? '#DC2626'
+                  : isSuccess
+                    ? '#22C55E'
+                    : isListening
+                      ? '#DC2626'
+                      : '#0a0505',
+                alignItems: 'center',
+                justifyContent: 'center',
+                shadowColor: isWorking
+                  ? '#DC2626'
+                  : isSuccess
+                    ? '#22C55E'
+                    : isListening
+                      ? '#FF3B3B'
+                      : '#F97316',
+                shadowOffset: { width: 0, height: 0 },
+                shadowOpacity: isWorking || isSuccess ? 1 : isListening ? 0.9 : 0.6,
+                shadowRadius: isWorking || isSuccess ? 25 : isListening ? 20 : 15,
+                elevation: 15,
+              },
+              glowStyle,
+            ]}
+          >
+            {/* Animated Border - FIRE GRADIENT EFFECT */}
+            <Animated.View
+              style={[
+                {
+                  position: 'absolute',
+                  width: 64,
+                  height: 64,
+                  borderRadius: 32,
+                  borderWidth: isWorking ? 3 : isListening ? 3 : 2,
+                  borderColor: isWorking ? '#F97316' : isListening ? '#FBBF24' : '#F97316',
+                  borderStyle: 'solid',
+                  borderTopColor: isWorking
+                    ? '#FBBF24'
+                    : isProcessing
+                      ? '#F97316'
+                      : isListening
+                        ? '#FBBF24'
+                        : '#F97316',
+                  borderRightColor:
+                    isWorking || isProcessing ? 'transparent' : isListening ? '#F97316' : '#DC2626',
+                  borderBottomColor:
+                    isWorking || isProcessing ? 'transparent' : isListening ? '#DC2626' : '#DC2626',
+                  borderLeftColor:
+                    isWorking || isProcessing ? 'transparent' : isListening ? '#F97316' : '#F97316',
+                },
+                borderStyle,
+              ]}
+            />
+
+            {/* Icon */}
+            {isListening ? (
+              <Mic size={28} color="#FFFFFF" />
+            ) : (
+              <Bot
+                size={28}
+                color={isWorking || isSuccess || isProcessing ? '#FFFFFF' : '#F97316'}
+              />
+            )}
+          </Animated.View>
+        </Animated.View>
+      </Animated.View>
+    </View>
   );
 };
 
@@ -1003,6 +1585,9 @@ export const HankOverlay: React.FC = () => {
   const [isLongPressProcessing, setIsLongPressProcessing] = useState(false);
   const [isTakeover, setIsTakeover] = useState(false);
   const [takeoverStatus, setTakeoverStatus] = useState('');
+  const [showQuickMeals, setShowQuickMeals] = useState(false);
+  const [showQuickStack, setShowQuickStack] = useState(false);
+  const [showQuickNotes, setShowQuickNotes] = useState(false);
   const [pendingExecution, setPendingExecution] = useState<{
     text: string;
     toolCalls: HankToolCall[];
@@ -1011,6 +1596,16 @@ export const HankOverlay: React.FC = () => {
   const [userId, setUserId] = useState<string | null>(null);
   const messagesInitialized = useRef(false);
   const takeoverResultRef = useRef<HankToolResult[] | null>(null);
+
+  // Suscripción a eventos de herramientas (gym_structure se maneja en gym/index.tsx)
+  useEffect(() => {
+    const unsubs = [
+      hankToolsEvent.subscribe('meals', () => setShowQuickMeals(true)),
+      hankToolsEvent.subscribe('stack', () => setShowQuickStack(true)),
+      hankToolsEvent.subscribe('notes', () => setShowQuickNotes(true)),
+    ];
+    return () => unsubs.forEach((u) => u());
+  }, []);
 
   // Estado del Onboarding
   const [showOnboarding, setShowOnboarding] = useState(false);
@@ -1109,14 +1704,9 @@ export const HankOverlay: React.FC = () => {
     };
   }, [isOpen]);
 
-  // Ocultar en Feed y PRO
+  // Ocultar en PRO
   const isHiddenInFeed =
-    pathname?.includes('feed') ||
-    pathname === '/feed/index' ||
-    pathname === '/feed' ||
-    pathname?.includes('pro') ||
-    pathname === '/pro/index' ||
-    pathname === '/pro';
+    pathname?.includes('pro') || pathname === '/pro/index' || pathname === '/pro';
 
   // Animated value para cierre por gesto
   const translateY = useSharedValue(0);
@@ -2085,6 +2675,15 @@ export const HankOverlay: React.FC = () => {
 
       {/* Target Highlight Overlay */}
       <HankTargetHighlight />
+
+      {/* Quick Meals Modal - opened from Hank Tools fan */}
+      <QuickMealsModal visible={showQuickMeals} onClose={() => setShowQuickMeals(false)} />
+
+      {/* Quick Stack Modal - opened from Hank Tools fan */}
+      <QuickStackModal visible={showQuickStack} onClose={() => setShowQuickStack(false)} />
+
+      {/* Plan Notes Modal - opened from Hank Tools fan */}
+      <PlanNotesModal visible={showQuickNotes} onClose={() => setShowQuickNotes(false)} />
 
       {/* Chat Panel Modal */}
       <Modal visible={isOpen} transparent={true} animationType="slide" onRequestClose={handleClose}>

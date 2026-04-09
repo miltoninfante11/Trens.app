@@ -49,6 +49,7 @@ import { useHank } from '../../context/HankContext';
 import { useSaveGuard } from '../../context/SaveGuardContext';
 import { calculateFabPositions } from '../../constants/floatingTools';
 import { spotifyModalEvent } from '../../lib/spotifyModalEvent';
+import { spotifyFabState, spotifyFabActions, type SpotifyAction } from '../../lib/spotifyFabState';
 
 // Dimensiones de pantalla
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -380,6 +381,38 @@ export function SpotifyOverlay() {
   const [playbackState, setPlaybackState] = useState<SpotifyPlaybackState | null>(null);
   // Estado separado para albumArt para evitar re-renders de imagen
   const [albumArtUrl, setAlbumArtUrl] = useState<string | null>(null);
+
+  // Publicar estado al módulo compartido para que HankOverlay renderice el clon
+  useEffect(() => {
+    spotifyFabState.update({
+      albumArtUrl,
+      isPlaying: playbackState?.isPlaying ?? false,
+      isConnected: spotifyConnected,
+    });
+  }, [albumArtUrl, playbackState?.isPlaying, spotifyConnected]);
+
+  // Suscribirse a acciones emitidas desde HankOverlay
+  useEffect(() => {
+    return spotifyFabActions.onAction((action: SpotifyAction) => {
+      switch (action) {
+        case 'open_modal':
+          handleFabPressRef.current();
+          break;
+        case 'next':
+          handleNextRef.current();
+          break;
+        case 'restart':
+          handleRestartRef.current();
+          break;
+        case 'play_pause':
+          handlePlayPauseRef.current();
+          break;
+        case 'hank_insight':
+          handleHankInsightRef.current();
+          break;
+      }
+    });
+  }, []);
 
   // 🔥 Estado de warm-up para indicador visual
   const [warmUpStatus, setWarmUpStatus] = useState<{
@@ -905,13 +938,13 @@ export function SpotifyOverlay() {
     handleHankInsightRef.current = handleHankInsight;
   });
 
-  // Animación para feedback visual del FAB
+  // Animación para feedback visual del FAB (solo para acciones externas)
   const fabScale = useSharedValue(1);
   const fabTranslateX = useSharedValue(0);
   const fabTranslateY = useSharedValue(0);
 
   // -------------------------------------------------------------------------
-  // PAN RESPONDER PARA GESTOS
+  // PAN RESPONDER PARA GESTOS (ya no se renderiza FAB, pero se mantiene para refs)
   // -------------------------------------------------------------------------
   const panResponder = useRef(
     PanResponder.create({
@@ -1048,194 +1081,12 @@ export function SpotifyOverlay() {
   }));
 
   // -------------------------------------------------------------------------
-  // LÓGICA DE VISIBILIDAD:
-  // - Feed → NUNCA visible
-  // - Spotify conectado → Visible en todos los módulos excepto Feed
-  // - Spotify NO conectado → Solo visible en GYM (para promover conexión)
+  // RENDER - Solo modal y toast, el FAB se renderiza en HankOverlay
   // -------------------------------------------------------------------------
-  if (isHidden) {
-    // Even when hidden (e.g. Feed), render SpotifyModal if opened via event
-    if (modalVisible) {
-      return (
-        <SpotifyModal
-          visible={modalVisible}
-          onClose={() => setModalVisible(false)}
-          isPro={isPro}
-          onSpotifyConnect={handleSpotifyConnect}
-          onSpotifyDisconnect={handleSpotifyDisconnect}
-          spotifyConnected={spotifyConnected}
-          spotifyLoading={spotifyLoading}
-          currentTrack={currentTrack}
-          playbackState={playbackState}
-          onPlayPause={handlePlayPause}
-          onNext={handleNext}
-          onPrevious={handlePrevious}
-          onTrackChange={handleTrackChange}
-        />
-      );
-    }
-    return null;
-  }
-
-  // -------------------------------------------------------------------------
-  // RENDER
-  // -------------------------------------------------------------------------
-  // Usar sistema centralizado de posicionamiento
   const fabPositions = calculateFabPositions(insets.bottom);
 
   return (
     <>
-      {/* FAB FLOTANTE */}
-      <View
-        style={{
-          position: 'absolute',
-          bottom: fabPositions.spotify,
-          right: fabPositions.right,
-          zIndex: 9998,
-        }}
-      >
-        {/* Glow Effect */}
-        {playbackState?.isPlaying && (
-          <Animated.View
-            style={[
-              {
-                position: 'absolute',
-                width: 56,
-                height: 56,
-                borderRadius: 28,
-                backgroundColor: '#1DB954',
-              },
-              glowStyle,
-            ]}
-          />
-        )}
-
-        {/* FAB Button con Gestos */}
-        <Animated.View style={fabStyle} {...panResponder.panHandlers}>
-          <View
-            style={{
-              width: 56,
-              height: 56,
-              borderRadius: 28,
-              backgroundColor: spotifyConnected ? '#1DB954' : '#27272a',
-              justifyContent: 'center',
-              alignItems: 'center',
-              shadowColor: '#1DB954',
-              shadowOffset: { width: 0, height: 4 },
-              shadowOpacity: spotifyConnected ? 0.4 : 0,
-              shadowRadius: 8,
-              elevation: 8,
-            }}
-          >
-            {/* Mini Album Art o Icono */}
-            {albumArtUrl && spotifyConnected ? (
-              <View style={{ width: 40, height: 40, borderRadius: 20, overflow: 'hidden' }}>
-                <Image
-                  key={albumArtUrl}
-                  source={{ uri: albumArtUrl }}
-                  style={{ width: 40, height: 40 }}
-                  contentFit="cover"
-                />
-              </View>
-            ) : (
-              <Music size={24} color={spotifyConnected ? '#000' : '#1DB954'} />
-            )}
-          </View>
-        </Animated.View>
-
-        {/* Indicador de Gesto - Next (arriba) */}
-        {gestureIndicator === 'next' && (
-          <View
-            style={{
-              position: 'absolute',
-              top: -40,
-              left: 0,
-              right: 0,
-              alignItems: 'center',
-            }}
-          >
-            <View
-              style={{
-                backgroundColor: '#1DB954',
-                paddingHorizontal: 12,
-                paddingVertical: 6,
-                borderRadius: 16,
-                flexDirection: 'row',
-                alignItems: 'center',
-              }}
-            >
-              <SkipForward size={14} color="#000" />
-              <Text style={{ color: '#000', fontSize: 12, fontWeight: 'bold', marginLeft: 4 }}>
-                Siguiente
-              </Text>
-            </View>
-          </View>
-        )}
-
-        {/* Indicador de Gesto - Restart (izquierda) */}
-        {gestureIndicator === 'restart' && (
-          <View
-            style={{
-              position: 'absolute',
-              left: -80,
-              top: 0,
-              bottom: 0,
-              justifyContent: 'center',
-            }}
-          >
-            <View
-              style={{
-                backgroundColor: '#1DB954',
-                paddingHorizontal: 12,
-                paddingVertical: 6,
-                borderRadius: 16,
-                flexDirection: 'row',
-                alignItems: 'center',
-              }}
-            >
-              <RotateCcw size={14} color="#000" />
-              <Text style={{ color: '#000', fontSize: 12, fontWeight: 'bold', marginLeft: 4 }}>
-                Reiniciar
-              </Text>
-            </View>
-          </View>
-        )}
-
-        {/* Indicador de Gesto - HANK (abajo) 🤖 */}
-        {gestureIndicator === 'hank' && (
-          <View
-            style={{
-              position: 'absolute',
-              bottom: -45,
-              left: 0,
-              right: 0,
-              alignItems: 'center',
-            }}
-          >
-            <View
-              style={{
-                backgroundColor: '#DC2626',
-                paddingHorizontal: 12,
-                paddingVertical: 6,
-                borderRadius: 16,
-                flexDirection: 'row',
-                alignItems: 'center',
-                shadowColor: '#DC2626',
-                shadowOffset: { width: 0, height: 0 },
-                shadowOpacity: 0.8,
-                shadowRadius: 10,
-                elevation: 10,
-              }}
-            >
-              <Bot size={14} color="#FFF" />
-              <Text style={{ color: '#FFF', fontSize: 12, fontWeight: 'bold', marginLeft: 4 }}>
-                HANK
-              </Text>
-            </View>
-          </View>
-        )}
-      </View>
-
       {/* MODAL DE SPOTIFY - Solo renderizar cuando es visible */}
       {modalVisible && (
         <SpotifyModal
@@ -1264,7 +1115,7 @@ export function SpotifyOverlay() {
         albumArt={albumArtUrl}
         artistImage={hankInsight.artistImage}
         onDismiss={() => setHankInsight((prev) => ({ ...prev, visible: false }))}
-        bottomOffset={fabPositions.spotify}
+        bottomOffset={fabPositions.hank}
       />
     </>
   );

@@ -967,120 +967,6 @@ const FeedVideoItem = memo(
               );
             })()}
         </View>
-
-        {/* Acciones laterales - ED HARDY FIRE GLOW */}
-        <View className="absolute right-3 bottom-20 items-center gap-5" style={{ zIndex: 10 }}>
-          {/* Like - Fire Heart */}
-          <TouchableOpacity
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-              onLike(item.id);
-            }}
-            className="items-center"
-          >
-            <View
-              className={`w-12 h-12 rounded-full items-center justify-center`}
-              style={
-                item.is_liked
-                  ? {
-                      backgroundColor: '#DC2626',
-                      shadowColor: '#DC2626',
-                      shadowOffset: { width: 0, height: 0 },
-                      shadowOpacity: 1,
-                      shadowRadius: 15,
-                      elevation: 10,
-                    }
-                  : {
-                      backgroundColor: 'rgba(0,0,0,0.5)',
-                      borderWidth: 1,
-                      borderColor: 'rgba(249,115,22,0.3)',
-                    }
-              }
-            >
-              <Heart
-                size={24}
-                color={item.is_liked ? '#FFFFFF' : '#F97316'}
-                fill={item.is_liked ? '#FFFFFF' : 'transparent'}
-              />
-            </View>
-            <Text className="text-fire-orange text-xs mt-1 font-mono">{item.likes_count}</Text>
-          </TouchableOpacity>
-
-          {/* Comentar */}
-          <TouchableOpacity
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              onComment(item.id);
-            }}
-            className="items-center"
-          >
-            <View
-              className="w-12 h-12 rounded-full items-center justify-center"
-              style={{
-                backgroundColor: 'rgba(0,0,0,0.5)',
-                borderWidth: 1,
-                borderColor: 'rgba(249,115,22,0.3)',
-              }}
-            >
-              <MessageCircle size={24} color="#F97316" />
-            </View>
-            <Text className="text-zinc-400 text-xs mt-1 font-mono">{item.comments_count}</Text>
-          </TouchableOpacity>
-
-          {/* Guardar */}
-          <TouchableOpacity
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              onSave(item.id);
-            }}
-            className="items-center"
-          >
-            <View
-              className={`w-12 h-12 rounded-full items-center justify-center`}
-              style={
-                item.is_saved
-                  ? {
-                      backgroundColor: '#F97316',
-                      shadowColor: '#F97316',
-                      shadowOffset: { width: 0, height: 0 },
-                      shadowOpacity: 0.8,
-                      shadowRadius: 10,
-                    }
-                  : {
-                      backgroundColor: 'rgba(0,0,0,0.5)',
-                      borderWidth: 1,
-                      borderColor: 'rgba(249,115,22,0.3)',
-                    }
-              }
-            >
-              <Bookmark
-                size={24}
-                color={item.is_saved ? '#000000' : '#F97316'}
-                fill={item.is_saved ? '#000000' : 'transparent'}
-              />
-            </View>
-          </TouchableOpacity>
-
-          {/* Compartir */}
-          <TouchableOpacity
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              onShare(item);
-            }}
-            className="items-center"
-          >
-            <View
-              className="w-12 h-12 rounded-full items-center justify-center"
-              style={{
-                backgroundColor: 'rgba(0,0,0,0.5)',
-                borderWidth: 1,
-                borderColor: 'rgba(249,115,22,0.3)',
-              }}
-            >
-              <Share2 size={24} color="#F97316" />
-            </View>
-          </TouchableOpacity>
-        </View>
       </View>
     );
   }
@@ -1972,57 +1858,45 @@ function FeedScreenContent() {
       >
         <LinearGradient colors={['rgba(0,0,0,0.8)', 'transparent']} className="absolute inset-0" />
         <View className="flex-row items-center justify-between">
-          {/* Training Day Chip — toggle thumbnails strip or open day selector */}
-          {training && training.trainingDays.length > 0 ? (
-            <Pressable
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                if (training.exercises.length === 0) {
-                  // día vacío → toggle day selector
-                  setShowDaySelector((prev) => !prev);
-                  setShowThumbnails(false);
-                } else {
-                  setShowThumbnails((prev) => !prev);
-                  setShowDaySelector(false);
-                }
-              }}
-              onLongPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-                setShowDaySelector((prev) => !prev);
-                setShowThumbnails(false);
-              }}
-              delayLongPress={400}
-              className="flex-row items-center rounded-full px-3 py-1.5"
-              style={{
-                backgroundColor:
-                  showThumbnails || showDaySelector
-                    ? 'rgba(147, 51, 234, 0.2)'
-                    : training.isCurrentDay
-                      ? 'rgba(147, 51, 234, 0.15)'
-                      : 'rgba(255, 255, 255, 0.06)',
-                borderWidth: 1,
-                borderColor:
-                  showThumbnails || showDaySelector
-                    ? '#a855f7'
-                    : training.isCurrentDay
-                      ? '#9333ea'
-                      : 'rgba(255, 255, 255, 0.12)',
-                maxWidth: 180,
-              }}
-            >
-              <Dumbbell size={12} color={training.isCurrentDay ? '#a855f7' : '#71717a'} />
-              <Text
-                numberOfLines={1}
-                className={`ml-1.5 text-xs font-bold ${
-                  training.isCurrentDay ? 'text-purple-400' : 'text-zinc-500'
-                }`}
+          {/* Spotify Now-Playing chip */}
+          {(() => {
+            const activeVideo = videos[activeIndex];
+            const assignedUri = activeVideo?.spotify?.trackUri;
+            const isSameAsAssigned =
+              (nowPlayingTrack && assignedUri && nowPlayingTrack.trackUri === assignedUri) ||
+              (spotifyPlayingFromFeed && currentPlayingTrackUri === assignedUri);
+            const isPlaying = !!nowPlayingTrack && !isSameAsAssigned;
+
+            return (
+              <TouchableOpacity
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  spotifyModalEvent.open();
+                }}
+                className="flex-row items-center rounded-full px-3 py-1.5"
+                style={{
+                  backgroundColor: isPlaying
+                    ? 'rgba(30, 215, 96, 0.12)'
+                    : 'rgba(255, 255, 255, 0.06)',
+                  borderWidth: 1,
+                  borderColor: isPlaying ? '#1DB954' : 'rgba(255, 255, 255, 0.12)',
+                  maxWidth: 180,
+                }}
               >
-                {training.day?.name || 'REST'}
-              </Text>
-            </Pressable>
-          ) : (
-            <Text className="text-white text-xl font-bold tracking-wider">TRENS</Text>
-          )}
+                <Music size={12} color={isPlaying ? '#1DB954' : '#71717a'} />
+                <Text
+                  numberOfLines={1}
+                  className={`ml-1.5 text-xs font-bold ${
+                    isPlaying ? 'text-green-400' : 'text-zinc-500'
+                  }`}
+                >
+                  {isPlaying
+                    ? `${nowPlayingTrack.trackName} — ${nowPlayingTrack.artist}`
+                    : 'Spotify'}
+                </Text>
+              </TouchableOpacity>
+            );
+          })()}
           <View className="flex-row items-center gap-2">
             {/* Toggle Autoscroll */}
             <TouchableOpacity
@@ -2071,44 +1945,6 @@ function FeedScreenContent() {
             </TouchableOpacity>
           </View>
         </View>
-
-        {/* Spotify Now-Playing chip */}
-        {(() => {
-          const activeVideo = videos[activeIndex];
-          const assignedUri = activeVideo?.spotify?.trackUri;
-          const isSameAsAssigned =
-            (nowPlayingTrack && assignedUri && nowPlayingTrack.trackUri === assignedUri) ||
-            (spotifyPlayingFromFeed && currentPlayingTrackUri === assignedUri);
-          const isPlaying = !!nowPlayingTrack && !isSameAsAssigned;
-
-          return (
-            <TouchableOpacity
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                spotifyModalEvent.open();
-              }}
-              className="self-end mt-1.5 flex-row items-center rounded-full px-3 py-1.5"
-              style={{
-                backgroundColor: isPlaying
-                  ? 'rgba(30, 215, 96, 0.12)'
-                  : 'rgba(255, 255, 255, 0.06)',
-                borderWidth: 1,
-                borderColor: isPlaying ? '#1DB954' : 'rgba(255, 255, 255, 0.12)',
-                maxWidth: '60%',
-              }}
-            >
-              <Music size={12} color={isPlaying ? '#1DB954' : '#71717a'} />
-              <Text
-                numberOfLines={1}
-                className={`ml-1.5 text-xs font-bold ${
-                  isPlaying ? 'text-green-400' : 'text-zinc-500'
-                }`}
-              >
-                {isPlaying ? `${nowPlayingTrack.trackName} — ${nowPlayingTrack.artist}` : 'Spotify'}
-              </Text>
-            </TouchableOpacity>
-          );
-        })()}
       </View>
 
       {/* Inline Exercise Cards — positioned between header and bottom overlay */}

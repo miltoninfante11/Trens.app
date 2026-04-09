@@ -560,6 +560,7 @@ export default function TabsLayout() {
             options={{
               title: tabConfig.tab4.name,
               tabBarIcon: ({ color }) => <TabIcon Icon={Tab4Icon} color={color} size={26} />,
+              lazy: false,
             }}
           />
 

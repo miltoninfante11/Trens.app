@@ -5,7 +5,7 @@
 // ============================================================================
 
 import React, { useState, useCallback } from 'react';
-import { View, Text, Pressable, Platform } from 'react-native';
+import { View, Text, Pressable } from 'react-native';
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
@@ -17,12 +17,12 @@ import {
   Zap,
   Flame,
   ChevronRight,
-  GripHorizontal,
   Pill,
   Syringe,
   FlaskConical,
   Droplets,
   Dumbbell,
+  Clock,
 } from 'lucide-react-native';
 import { useHankTarget } from '../../hooks/useHankTarget';
 import { HankInlineHighlight } from '../hank/HankInlineHighlight';
@@ -59,6 +59,7 @@ interface WorkoutBlockData {
   isFasted?: boolean;
   timeDescription?: string;
   sessionLabel?: string; // "SESIÓN A" | "SESIÓN B" for dual session
+  scheduledTime?: string | null; // User-assigned time for timeline ordering
 }
 
 interface WorkoutBlockProps {
@@ -68,20 +69,21 @@ interface WorkoutBlockProps {
   isFirst: boolean;
   isLast: boolean;
   onPressRoutine?: () => void;
+  onTimeChange?: (currentTime: string) => void;
   isCompressed?: boolean;
-  // Props para drag desde el handle (Web)
-  dragHandleProps?: {
-    onPointerDown?: (e: React.PointerEvent) => void;
-    onPointerEnter?: () => void;
-    onPointerLeave?: () => void;
-    style?: React.CSSProperties;
-    isDragging?: boolean;
-  };
+  dragHandleProps?: any;
 }
 
 // ============================================================================
 // HELPERS
 // ============================================================================
+const formatTimeToAMPM = (time: string): string => {
+  const [h, m] = time.split(':').map(Number);
+  const suffix = h >= 12 ? 'PM' : 'AM';
+  const hour12 = h % 12 || 12;
+  return `${hour12}:${String(m).padStart(2, '0')} ${suffix}`;
+};
+
 const getTypeIcon = (type: string, color: string) => {
   const iconProps = { size: 14, color };
   switch (type) {
@@ -108,8 +110,8 @@ export const WorkoutBlock: React.FC<WorkoutBlockProps> = ({
   isFirst,
   isLast,
   onPressRoutine,
+  onTimeChange,
   isCompressed = false,
-  dragHandleProps,
 }) => {
   // ============================================================================
   // HOOKS
@@ -197,13 +199,26 @@ export const WorkoutBlock: React.FC<WorkoutBlockProps> = ({
               </Text>
             </View>
           </View>
-          <View
-            className="px-3 py-2 rounded-xl"
-            style={{ backgroundColor: 'rgba(220, 38, 38, 0.15)' }}
-          >
-            <Text className="text-savage-red text-xs font-mono font-bold">
-              {data.exercises?.length || 0} ejercicios
-            </Text>
+          <View className="flex-row items-center gap-2">
+            {data.scheduledTime && (
+              <View
+                className="flex-row items-center gap-1 px-2.5 py-2 rounded-xl"
+                style={{ backgroundColor: 'rgba(220, 38, 38, 0.12)' }}
+              >
+                <Clock size={11} color="#DC2626" />
+                <Text className="text-savage-red text-[10px] font-mono font-bold">
+                  {formatTimeToAMPM(data.scheduledTime)}
+                </Text>
+              </View>
+            )}
+            <View
+              className="px-3 py-2 rounded-xl"
+              style={{ backgroundColor: 'rgba(220, 38, 38, 0.15)' }}
+            >
+              <Text className="text-savage-red text-xs font-mono font-bold">
+                {data.exercises?.length || 0} ejercicios
+              </Text>
+            </View>
           </View>
         </View>
       </View>
@@ -224,16 +239,6 @@ export const WorkoutBlock: React.FC<WorkoutBlockProps> = ({
     postProgress.value = withTiming(newState ? 1 : 0, { duration: 200 });
   };
 
-  const handleMoveUp = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    onMoveUp();
-  };
-
-  const handleMoveDown = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    onMoveDown();
-  };
-
   const hasExercises = data.exercises && data.exercises.length > 0;
   const isRestDay = data.routineName === 'DESCANSO' && !hasExercises;
 
@@ -245,40 +250,6 @@ export const WorkoutBlock: React.FC<WorkoutBlockProps> = ({
       <View ref={targetRef} onLayout={onLayout} className="mb-6">
         <HankInlineHighlight isActive={isHighlighted} phase={animationPhase} borderRadius={0} />
         <View className="bg-[#1a1a1a] border-y-2 border-zinc-700/50 shadow-lg">
-          {/* Control Handle */}
-          <View className="flex-row justify-between items-center bg-zinc-800/30 px-4 py-2 border-b border-white/5">
-            <View className="flex-row gap-3">
-              <Pressable
-                onPress={handleMoveUp}
-                disabled={isFirst}
-                className={`p-1 ${isFirst ? 'opacity-20' : ''}`}
-              >
-                <ChevronRight
-                  size={18}
-                  color={isFirst ? '#666' : '#FFF'}
-                  style={{ transform: [{ rotate: '-90deg' }] }}
-                />
-              </Pressable>
-              <Pressable
-                onPress={handleMoveDown}
-                disabled={isLast}
-                className={`p-1 ${isLast ? 'opacity-20' : ''}`}
-              >
-                <ChevronRight
-                  size={18}
-                  color={isLast ? '#666' : '#FFF'}
-                  style={{ transform: [{ rotate: '90deg' }] }}
-                />
-              </Pressable>
-            </View>
-            <View className="flex-row items-center gap-1">
-              <GripHorizontal size={14} color="#71717A" />
-              <Text className="text-zinc-500 text-xs font-bold tracking-widest uppercase">
-                BLOQUE ENTRENO
-              </Text>
-            </View>
-          </View>
-
           {/* Rest Day Content */}
           <View className="p-4 flex-row items-center justify-between">
             <View className="flex-row items-center gap-2">
@@ -318,6 +289,63 @@ export const WorkoutBlock: React.FC<WorkoutBlockProps> = ({
       }}
     >
       <View className="p-4">
+        {/* ============================================ */}
+        {/* HEADER - Label + Time (esquina superior derecha) */}
+        {/* ============================================ */}
+        <View className="flex-row items-center justify-between mb-2">
+          <View className="flex-row items-center gap-2 flex-1 min-w-0">
+            <View
+              className="w-7 h-7 rounded-lg items-center justify-center shrink-0"
+              style={{ backgroundColor: 'rgba(220, 38, 38, 0.15)' }}
+            >
+              <Dumbbell size={14} color="#DC2626" />
+            </View>
+            <Text
+              className="text-savage-red text-[10px] font-bold tracking-[2px] uppercase"
+              numberOfLines={1}
+            >
+              {data.sessionLabel ? `${data.sessionLabel} •` : ''} ENTRENO
+            </Text>
+          </View>
+          {/* Time badge - esquina superior derecha */}
+          {onTimeChange ? (
+            <Pressable
+              onPress={() => onTimeChange(data.scheduledTime || '08:00')}
+              className="flex-row items-center gap-1.5 px-3 py-2 rounded-xl active:scale-95 shrink-0 ml-2"
+              style={{
+                backgroundColor: data.scheduledTime
+                  ? 'rgba(220, 38, 38, 0.15)'
+                  : 'rgba(63, 63, 70, 0.4)',
+                borderWidth: 1,
+                borderColor: data.scheduledTime
+                  ? 'rgba(220, 38, 38, 0.35)'
+                  : 'rgba(63, 63, 70, 0.5)',
+              }}
+            >
+              <Clock size={12} color={data.scheduledTime ? '#DC2626' : '#71717A'} />
+              <Text
+                className={`text-xs font-mono font-bold ${data.scheduledTime ? 'text-savage-red' : 'text-zinc-500'}`}
+              >
+                {data.scheduledTime ? formatTimeToAMPM(data.scheduledTime) : 'HORA'}
+              </Text>
+            </Pressable>
+          ) : data.scheduledTime ? (
+            <View
+              className="flex-row items-center gap-1.5 px-3 py-2 rounded-xl shrink-0 ml-2"
+              style={{
+                backgroundColor: 'rgba(220, 38, 38, 0.1)',
+                borderWidth: 1,
+                borderColor: 'rgba(220, 38, 38, 0.2)',
+              }}
+            >
+              <Clock size={12} color="#DC2626" />
+              <Text className="text-savage-red text-xs font-mono font-bold">
+                {formatTimeToAMPM(data.scheduledTime)}
+              </Text>
+            </View>
+          ) : null}
+        </View>
+
         {/* ============================================ */}
         {/* PRE-WORKOUT - Pressable para expandir detalle */}
         {/* ============================================ */}
@@ -539,13 +567,7 @@ export const WorkoutBlock: React.FC<WorkoutBlockProps> = ({
           </View>
         )}
 
-        {/* Drag hint */}
-        <View className="flex-row items-center justify-center gap-2 mt-3 -mb-1">
-          <GripHorizontal size={12} color="#52525B" />
-          <Text className="text-zinc-600 text-[9px] font-bold tracking-widest uppercase">
-            MANTÉN PARA MOVER
-          </Text>
-        </View>
+        {/* Drag hint removed - workout blocks use time-based ordering */}
       </View>
     </View>
   );
@@ -566,22 +588,7 @@ export const WorkoutBlock: React.FC<WorkoutBlockProps> = ({
         }}
       />
 
-      {Platform.OS === 'web' && dragHandleProps ? (
-        <div
-          onPointerDown={dragHandleProps.onPointerDown}
-          onPointerEnter={dragHandleProps.onPointerEnter}
-          onPointerLeave={dragHandleProps.onPointerLeave}
-          style={{
-            ...dragHandleProps.style,
-            cursor: dragHandleProps.isDragging ? 'grabbing' : 'grab',
-            touchAction: 'none',
-          }}
-        >
-          {cardContent}
-        </div>
-      ) : (
-        <View>{cardContent}</View>
-      )}
+      <View>{cardContent}</View>
     </View>
   );
 };

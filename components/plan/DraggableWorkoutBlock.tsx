@@ -50,6 +50,7 @@ interface WorkoutBlockData {
   isFasted?: boolean;
   timeDescription?: string;
   sessionLabel?: string;
+  scheduledTime?: string | null;
 }
 
 interface DraggableWorkoutBlockProps {
@@ -63,6 +64,7 @@ interface DraggableWorkoutBlockProps {
   onDragCancel?: () => void;
   onPositionChange?: (targetIndex: number) => void;
   onPressRoutine?: () => void;
+  onTimeChange?: (currentTime: string) => void;
   itemHeight?: number;
   scrollRef?: RefObject<ScrollView | null>;
 }
@@ -82,6 +84,7 @@ const WebDraggableWorkoutBlock: React.FC<DraggableWorkoutBlockProps> = ({
   onDragCancel,
   onPositionChange,
   onPressRoutine,
+  onTimeChange,
 }) => {
   // Estado mínimo
   const [isDragging, setIsDragging] = useState(false);
@@ -303,10 +306,6 @@ const WebDraggableWorkoutBlock: React.FC<DraggableWorkoutBlockProps> = ({
   // POINTER DOWN en el handle
   const handlePointerDownOnHandle = useCallback(
     (e: React.PointerEvent) => {
-      // Prevenir comportamiento por defecto
-      e.stopPropagation();
-      e.preventDefault();
-
       // Si ya hay un pointer activo, ignorar
       if (activePointerId.current !== null) return;
 
@@ -323,19 +322,22 @@ const WebDraggableWorkoutBlock: React.FC<DraggableWorkoutBlockProps> = ({
       dragStartIndex.current = currentIndex;
       lastReportedIndex.current = currentIndex;
 
-      // Capturar pointer inmediatamente en el container
-      if (containerRef.current) {
-        try {
-          containerRef.current.setPointerCapture(e.pointerId);
-        } catch {
-          // Ignorar errores de captura
-        }
-      }
+      // NO capturar pointer aquí — dejar que el scroll funcione
+      // Solo capturar cuando se confirme el long-press
 
       // Timer de long-press
       longPressTimer.current = setTimeout(() => {
         // Verificar que seguimos con el mismo pointer
         if (activePointerId.current !== e.pointerId) return;
+
+        // AHORA sí capturar el pointer para bloquear scroll
+        if (containerRef.current) {
+          try {
+            containerRef.current.setPointerCapture(e.pointerId);
+          } catch {
+            // Ignorar errores de captura
+          }
+        }
 
         // Activar drag ANTES de onDragStart para que el estado local esté listo
         isDraggingRef.current = true;
@@ -426,21 +428,12 @@ const WebDraggableWorkoutBlock: React.FC<DraggableWorkoutBlockProps> = ({
         return;
       }
 
-      // Si aún no arrastramos, cancelar si se movió mucho
+      // Si aún no arrastramos, cancelar si se movió mucho (scrolling)
       if (longPressTimer.current) {
         const moved = Math.abs(e.clientY - pressStartY.current);
-        if (moved > 15) {
+        if (moved > 10) {
           clearTimeout(longPressTimer.current);
           longPressTimer.current = null;
-
-          // Liberar pointer
-          if (containerRef.current) {
-            try {
-              containerRef.current.releasePointerCapture(e.pointerId);
-            } catch {
-              // Ignorar
-            }
-          }
           activePointerId.current = null;
         }
       }
@@ -484,7 +477,7 @@ const WebDraggableWorkoutBlock: React.FC<DraggableWorkoutBlockProps> = ({
   // Estilos del handle
   const handleStyle: React.CSSProperties = {
     cursor: isDragging ? 'grabbing' : isHoveringHandle ? 'grab' : 'default',
-    touchAction: 'none',
+    touchAction: isDragging ? 'none' : 'pan-y',
   };
 
   // Estilos del container
@@ -516,6 +509,7 @@ const WebDraggableWorkoutBlock: React.FC<DraggableWorkoutBlockProps> = ({
         isFirst={currentIndex === 0}
         isLast={currentIndex >= totalItems - 1}
         onPressRoutine={onPressRoutine}
+        onTimeChange={onTimeChange}
         isCompressed={isDragging}
         dragHandleProps={{
           onPointerDown: handlePointerDownOnHandle,
@@ -548,6 +542,7 @@ const NativeDraggableWorkoutBlock: React.FC<DraggableWorkoutBlockProps> = ({
   onDragCancel,
   onPositionChange,
   onPressRoutine,
+  onTimeChange,
   itemHeight = 150,
   scrollRef,
 }) => {
@@ -832,6 +827,7 @@ const NativeDraggableWorkoutBlock: React.FC<DraggableWorkoutBlockProps> = ({
           isFirst={currentIndex === 0}
           isLast={currentIndex >= totalItems - 1}
           onPressRoutine={onPressRoutine}
+          onTimeChange={onTimeChange}
           isCompressed={isDraggingState}
         />
       </Animated.View>

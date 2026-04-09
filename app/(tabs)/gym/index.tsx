@@ -98,6 +98,7 @@ import {
 } from '../../../types/exerciseGroups';
 import { useUserRoleContext } from '../../../context/UserRoleContext';
 import { useSaveGuard } from '../../_layout';
+import { hankToolsEvent } from '../../../lib/hankToolsEvent';
 import cloudflareR2 from '../../../services/cloudflare/r2';
 import { useSport } from '../../../context/SportContext';
 import { calculateFabPositions } from '../../../constants/floatingTools';
@@ -602,6 +603,15 @@ function GymScreen() {
   const { setActiveAsset, setScreenContext, refreshTrigger } = useHank();
   const [viewMode, setViewMode] = useState<ViewMode>('LOADING');
   const [structureModalOpen, setStructureModalOpen] = useState(false); // Modal de estructura
+
+  // Escuchar evento de herramienta Hank para abrir estructura
+  useEffect(() => {
+    const unsub = hankToolsEvent.subscribe('gym_structure', () => {
+      setStructureModalOpen(true);
+    });
+    return unsub;
+  }, []);
+
   const [isExternalMode, setIsExternalMode] = useState(false); // Modo externo (no usa GYM)
   const [externalSchedule, setExternalSchedule] = useState<Record<string, string>>({}); // Horario externo
   const [exercises, setExercisesState] = useState<Exercise[]>([]); // Ejercicios del día actual
