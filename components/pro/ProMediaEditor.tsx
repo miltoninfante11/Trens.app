@@ -15,11 +15,12 @@ import {
   GestureResponderEvent,
   TextInput,
   Dimensions,
-  Animated as RNAnimated,
   LayoutChangeEvent,
   Platform,
 } from 'react-native';
-import { X, Play, Download, Dumbbell, ChevronUp, ChevronDown } from 'lucide-react-native';
+import { X, Play, Download, Share2, Dumbbell } from 'lucide-react-native';
+import * as Sharing from 'expo-sharing';
+import * as MediaLibrary from 'expo-media-library';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { Image as ExpoImage } from 'expo-image';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -30,17 +31,14 @@ import Animated, {
   withTiming,
   runOnJS,
 } from 'react-native-reanimated';
+import ViewShot, { captureRef } from 'react-native-view-shot';
 import * as Haptics from '../../lib/haptics';
+import { ProBrandOverlay } from './ProBrandOverlay';
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
-const BOTTOM_PANEL_HEIGHT = 280;
 // Preview card: always 9:16, width-driven
 const CARD_W = SCREEN_W * 0.92;
 const CARD_H = CARD_W * (16 / 9);
-// Smaller card when panel is open (fits above bottom panel + top bar)
-const TOP_BAR_H = 80;
-const AVAILABLE_H_WITH_PANEL = SCREEN_H - BOTTOM_PANEL_HEIGHT - TOP_BAR_H - 20;
-const CARD_SCALE_WITH_PANEL = Math.min(1, AVAILABLE_H_WITH_PANEL / CARD_H);
 const CROP_FRAME_W = CARD_W;
 const CROP_FRAME_H = CARD_H;
 const MIN_SCALE = 1;
@@ -57,6 +55,7 @@ export interface MediaData {
   duration?: number;
   width?: number;
   height?: number;
+  mimeType?: string;
 }
 
 export interface SpotifyMetadata {
@@ -92,6 +91,7 @@ export interface ProMediaEditorProps {
     cropScale?: number;
     cropTranslateX?: number;
     cropTranslateY?: number;
+    brandedUri?: string;
   }) => void;
   saving: boolean;
   keepSpotifyPlaying?: boolean;
@@ -128,6 +128,9 @@ export function ProMediaEditor({
   saving,
 }: ProMediaEditorProps) {
   const isVideo = mediaData?.type === 'video';
+  const viewShotRef = useRef<any>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [savedToGallery, setSavedToGallery] = useState(false);
   // --- Video ---
   const [isPlaying, setIsPlaying] = useState(true);
   const [currentVideoTime, setCurrentVideoTime] = useState(0);
@@ -149,10 +152,6 @@ export function ProMediaEditor({
   const [weightKg, setWeightKg] = useState('');
   const [reps, setReps] = useState('');
   const [showWorkoutFields, setShowWorkoutFields] = useState(false);
-
-  // --- Preview mode (swipe) ---
-  const [previewMode, setPreviewMode] = useState(false);
-  const panelAnim = useRef(new RNAnimated.Value(0)).current;
 
   // --- Dismiss gesture (swipe whole modal down) ---
   const dismissY = useSharedValue(0);
@@ -252,7 +251,6 @@ export function ProMediaEditor({
       setVideoTrimEnd(100);
       setCurrentVideoTime(0);
       setIsPlaying(isVideo);
-      setPreviewMode(false);
       cropScale.value = 1;
       cropTranslateX.value = 0;
       cropTranslateY.value = 0;
@@ -265,12 +263,26 @@ export function ProMediaEditor({
       setReps('');
       setShowWorkoutFields(false);
       setIsPublic(true);
-      panelAnim.setValue(0);
+      setSavedToGallery(false);
       dismissY.value = 0;
     } else if (!visible) {
       hasInitializedRef.current = false;
     }
-  }, [visible, isVideo, panelAnim]);
+  }, [visible, isVideo]);
+
+  // --- Autoplay video when modal opens ---
+  useEffect(() => {
+    if (visible && isVideo && videoPlayerRef.current) {
+      // Small delay to ensure the player is mounted and ready
+      const t = setTimeout(() => {
+        try {
+          videoPlayerRef.current?.play();
+          setIsPlaying(true);
+        } catch {}
+      }, 150);
+      return () => clearTimeout(t);
+    }
+  }, [visible, isVideo]);
 
   // --- onLayout handlers (web-safe) ---
   const handleTimelineLayout = useCallback((e: LayoutChangeEvent) => {
@@ -283,21 +295,6 @@ export function ProMediaEditor({
       });
     }
   }, []);
-
-  // --- Animate panel ---
-  const animatePanel = useCallback(
-    (toPreview: boolean) => {
-      setPreviewMode(toPreview);
-      RNAnimated.spring(panelAnim, {
-        toValue: toPreview ? 1 : 0,
-        useNativeDriver: true,
-        tension: 80,
-        friction: 12,
-      }).start();
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    },
-    [panelAnim]
-  );
 
   // --- Playback ---
   const restartPlayback = useCallback(() => {
@@ -511,201 +508,525 @@ export function ProMediaEditor({
     ],
   }));
 
-  // --- Save ---
-  const handleSave = useCallback(() => {
-    onSave({
-      mediaType: mediaData?.type || 'video',
-      videoTrimStart,
-      videoTrimEnd,
-      spotifyTrack: null,
-      isPublic,
-      weightKg: weightKg.trim() ? parseFloat(weightKg) : null,
-      reps: reps.trim() ? parseInt(reps, 10) : null,
-      caption: null,
-      filter: 'RAW',
-      showOverlay: true,
-      cropOffsetY: 0,
-      cropScale: cropScale.value,
-      cropTranslateX: cropTranslateX.value,
-      cropTranslateY: cropTranslateY.value,
-    });
-  }, [mediaData, videoTrimStart, videoTrimEnd, isPublic, weightKg, reps, onSave]);
+  // --- Capture branded photo (Canvas compositing — works on web & native) ---
+  // Always outputs 9:16 crop at maximum quality, respecting user's pinch/pan.
+  const capturePhoto = useCallback(async (): Promise<string> => {
+    if (isVideo) return mediaData?.uri || '';
+
+    const sourceUri = mediaData?.uri || '';
+
+    // On web: use Canvas API to composite image + overlays in 9:16
+    if (Platform.OS === 'web') {
+      try {
+        return await new Promise<string>((resolve, reject) => {
+          const img = new window.Image();
+          img.crossOrigin = 'anonymous';
+          img.onload = () => {
+            const W = img.naturalWidth;
+            const H = img.naturalHeight;
+            const TARGET_RATIO = 9 / 16;
+
+            // === Compute "cover" fit: how the image maps to the 9:16 frame ===
+            const frameW = CROP_FRAME_W; // screen px
+            const frameH = CROP_FRAME_H; // screen px
+            const coverScale = Math.max(frameW / W, frameH / H);
+
+            // Read user's crop transforms (reanimated shared values)
+            const userScale = cropScale.value;
+            const userTX = cropTranslateX.value;
+            const userTY = cropTranslateY.value;
+
+            // Total scale: source px → screen px
+            const totalScale = coverScale * userScale;
+
+            // Visible region size in source pixels
+            const visW = frameW / totalScale;
+            const visH = frameH / totalScale;
+
+            // Center of visible region in source pixels (accounting for user pan)
+            const centerX = W / 2 - userTX / totalScale;
+            const centerY = H / 2 - userTY / totalScale;
+
+            // Source rectangle
+            let sx = centerX - visW / 2;
+            let sy = centerY - visH / 2;
+            let sw = visW;
+            let sh = visH;
+
+            // Clamp to source bounds
+            if (sx < 0) sx = 0;
+            if (sy < 0) sy = 0;
+            if (sx + sw > W) sx = W - sw;
+            if (sy + sh > H) sy = H - sh;
+            // Final safety clamp
+            sx = Math.max(0, sx);
+            sy = Math.max(0, sy);
+            sw = Math.min(sw, W - sx);
+            sh = Math.min(sh, H - sy);
+
+            // Output canvas: 9:16 at max resolution from source
+            // Use the visible source region's width as output width
+            const outW = Math.round(sw);
+            const outH = Math.round(outW / TARGET_RATIO);
+
+            const canvas = document.createElement('canvas');
+            canvas.width = outW;
+            canvas.height = outH;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) {
+              reject('No canvas context');
+              return;
+            }
+
+            // High quality rendering
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = 'high';
+
+            // 1) Draw cropped source region to fill 9:16 canvas
+            ctx.drawImage(img, sx, sy, sw, sh, 0, 0, outW, outH);
+
+            // Scale factor for overlay text (designed for 390px width)
+            const S = outW / 390;
+
+            // 2) "TRENS" — bottom center, italic bold
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'alphabetic';
+            ctx.shadowColor = 'rgba(0,0,0,0.7)';
+            ctx.shadowOffsetX = 0;
+            ctx.shadowOffsetY = 3 * S;
+            ctx.shadowBlur = 12 * S;
+            ctx.fillStyle = 'rgba(255,255,255,0.9)';
+            ctx.font = `italic 900 ${36 * S}px system-ui, -apple-system, sans-serif`;
+            ctx.letterSpacing = `${6 * S}px`;
+            ctx.fillText('TRENS', outW / 2, outH - 44 * S);
+            ctx.letterSpacing = '0px';
+
+            // 3) "trens.app" — below TRENS
+            ctx.shadowColor = 'transparent';
+            ctx.shadowBlur = 0;
+            ctx.fillStyle = 'rgba(255,255,255,0.5)';
+            ctx.font = `600 ${12 * S}px system-ui, -apple-system, sans-serif`;
+            ctx.letterSpacing = `${3 * S}px`;
+            ctx.fillText('trens.app', outW / 2, outH - 24 * S);
+            ctx.letterSpacing = '0px';
+
+            ctx.textAlign = 'start';
+            ctx.textBaseline = 'alphabetic';
+            resolve(canvas.toDataURL('image/png', 1.0));
+          };
+          img.onerror = () => reject('Image load failed');
+          img.src = sourceUri;
+        });
+      } catch (e) {
+        console.warn('Canvas capture failed, using original:', e);
+        return sourceUri;
+      }
+    }
+
+    // On native: ViewShot captures the 9:16 frame including crop transforms
+    if (viewShotRef.current) {
+      try {
+        const uri = await captureRef(viewShotRef.current, {
+          format: 'png',
+          quality: 1,
+          result: 'tmpfile',
+        });
+        return uri;
+      } catch (e) {
+        console.warn('ViewShot capture failed, using original:', e);
+      }
+    }
+    return sourceUri;
+  }, [isVideo, mediaData, cropScale, cropTranslateX, cropTranslateY]);
+
+  // --- Capture video cropped to 9:16 (web only — Canvas + MediaRecorder) ---
+  const captureVideoCropped = useCallback(async (): Promise<{ uri: string; mimeType: string }> => {
+    const sourceUri = mediaData?.uri || '';
+    if (Platform.OS !== 'web' || !isVideo)
+      return { uri: sourceUri, mimeType: mediaData?.mimeType || 'video/mp4' };
+
+    try {
+      return await new Promise((resolve, reject) => {
+        const video = document.createElement('video');
+        video.crossOrigin = 'anonymous';
+        video.muted = true;
+        video.playsInline = true;
+        video.preload = 'auto';
+
+        video.onloadedmetadata = () => {
+          const vW = video.videoWidth;
+          const vH = video.videoHeight;
+          const TARGET_RATIO = 9 / 16;
+
+          // Compute cover-fit crop (same math as photos)
+          const frameW = CROP_FRAME_W;
+          const frameH = CROP_FRAME_H;
+          const coverScale = Math.max(frameW / vW, frameH / vH);
+
+          const userScale = cropScale.value;
+          const userTX = cropTranslateX.value;
+          const userTY = cropTranslateY.value;
+          const totalScale = coverScale * userScale;
+
+          const visW = frameW / totalScale;
+          const visH = frameH / totalScale;
+          const centerX = vW / 2 - userTX / totalScale;
+          const centerY = vH / 2 - userTY / totalScale;
+
+          let sx = centerX - visW / 2;
+          let sy = centerY - visH / 2;
+          let sw = visW;
+          let sh = visH;
+          if (sx < 0) sx = 0;
+          if (sy < 0) sy = 0;
+          if (sx + sw > vW) sx = vW - sw;
+          if (sy + sh > vH) sy = vH - sh;
+          sx = Math.max(0, sx);
+          sy = Math.max(0, sy);
+          sw = Math.min(sw, vW - sx);
+          sh = Math.min(sh, vH - sy);
+
+          // Output canvas: cap to 1080x1920 for performance
+          const maxOutW = Math.min(Math.round(sw), 1080);
+          const outW = maxOutW;
+          const outH = Math.round(outW / TARGET_RATIO);
+
+          const canvas = document.createElement('canvas');
+          canvas.width = outW;
+          canvas.height = outH;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            reject('No canvas context');
+            return;
+          }
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = 'high';
+
+          // Choose best supported codec
+          const codecs = [
+            'video/mp4;codecs=avc1.640028',
+            'video/mp4;codecs=avc1',
+            'video/mp4',
+            'video/webm;codecs=vp9',
+            'video/webm;codecs=vp8',
+            'video/webm',
+          ];
+          let chosenMime = 'video/webm';
+          for (const c of codecs) {
+            if (MediaRecorder.isTypeSupported(c)) {
+              chosenMime = c;
+              break;
+            }
+          }
+
+          const stream = canvas.captureStream(30);
+          const recorder = new MediaRecorder(stream, {
+            mimeType: chosenMime,
+            videoBitsPerSecond: 8_000_000, // 8 Mbps for high quality
+          });
+          const chunks: Blob[] = [];
+          recorder.ondataavailable = (e) => {
+            if (e.data.size > 0) chunks.push(e.data);
+          };
+          recorder.onstop = () => {
+            const baseMime = chosenMime.split(';')[0];
+            const blob = new Blob(chunks, { type: baseMime });
+            const url = URL.createObjectURL(blob);
+            resolve({ uri: url, mimeType: baseMime });
+          };
+          recorder.onerror = () => reject('MediaRecorder error');
+
+          // Apply trim
+          const durMs = videoDurationMs;
+          const startSec = (videoTrimStart / 100) * (durMs / 1000);
+          const endSec = (videoTrimEnd / 100) * (durMs / 1000);
+          video.currentTime = startSec;
+
+          const drawFrame = () => {
+            ctx.drawImage(video, sx, sy, sw, sh, 0, 0, outW, outH);
+
+            // TRENS watermark
+            const S = outW / 390;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'alphabetic';
+            ctx.shadowColor = 'rgba(0,0,0,0.7)';
+            ctx.shadowOffsetX = 0;
+            ctx.shadowOffsetY = 3 * S;
+            ctx.shadowBlur = 12 * S;
+            ctx.fillStyle = 'rgba(255,255,255,0.9)';
+            ctx.font = `italic 900 ${36 * S}px system-ui, -apple-system, sans-serif`;
+            ctx.letterSpacing = `${6 * S}px`;
+            ctx.fillText('TRENS', outW / 2, outH - 44 * S);
+            ctx.letterSpacing = '0px';
+            ctx.shadowColor = 'transparent';
+            ctx.shadowBlur = 0;
+            ctx.fillStyle = 'rgba(255,255,255,0.5)';
+            ctx.font = `600 ${12 * S}px system-ui, -apple-system, sans-serif`;
+            ctx.letterSpacing = `${3 * S}px`;
+            ctx.fillText('trens.app', outW / 2, outH - 24 * S);
+            ctx.letterSpacing = '0px';
+            ctx.textAlign = 'start';
+            ctx.textBaseline = 'alphabetic';
+          };
+
+          video.onseeked = () => {
+            recorder.start();
+            video.play();
+            const renderLoop = () => {
+              if (video.paused || video.ended || video.currentTime >= endSec) {
+                recorder.stop();
+                video.pause();
+                return;
+              }
+              drawFrame();
+              requestAnimationFrame(renderLoop);
+            };
+            requestAnimationFrame(renderLoop);
+          };
+        };
+        video.onerror = () => reject('Video load failed');
+        video.src = sourceUri;
+      });
+    } catch (e) {
+      console.warn('Video crop failed, using original:', e);
+      return { uri: sourceUri, mimeType: mediaData?.mimeType || 'video/mp4' };
+    }
+  }, [
+    isVideo,
+    mediaData,
+    cropScale,
+    cropTranslateX,
+    cropTranslateY,
+    videoDurationMs,
+    videoTrimStart,
+    videoTrimEnd,
+  ]);
+
+  // --- Share ---
+  const handleShare = useCallback(async () => {
+    setIsSaving(true);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    try {
+      let uri: string;
+      let mime: string;
+
+      if (isVideo && Platform.OS === 'web') {
+        // Video on web: crop to 9:16 via canvas re-encode
+        const result = await captureVideoCropped();
+        uri = result.uri;
+        mime = result.mimeType;
+      } else {
+        uri = await capturePhoto();
+        mime = mediaData?.mimeType || (isVideo ? 'video/mp4' : 'image/png');
+      }
+
+      const extMap: Record<string, string> = {
+        'video/mp4': 'mp4',
+        'video/quicktime': 'mov',
+        'video/webm': 'webm',
+        'video/x-msvideo': 'avi',
+        'video/3gpp': '3gp',
+        'image/png': 'png',
+        'image/jpeg': 'jpg',
+        'image/webp': 'webp',
+        'image/heic': 'heic',
+      };
+      const ext = extMap[mime] || (isVideo ? 'mp4' : 'png');
+      const fileName = `trens_${isVideo ? 'video' : 'photo'}_${Date.now()}.${ext}`;
+
+      if (Platform.OS === 'web') {
+        const res = await fetch(uri);
+        const blob = await res.blob();
+        const file = new File([blob], fileName, { type: mime });
+
+        // Check if sharing files is supported (some browsers can't share video)
+        if (navigator.share && navigator.canShare?.({ files: [file] })) {
+          await navigator.share({ files: [file], title: 'TRENS' });
+        } else {
+          // Fallback: trigger download
+          const downloadUrl = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = downloadUrl;
+          a.download = fileName;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          setTimeout(() => URL.revokeObjectURL(downloadUrl), 5000);
+        }
+      } else {
+        // Native: use expo-sharing
+        const available = await Sharing.isAvailableAsync();
+        if (available) {
+          await Sharing.shareAsync(uri, {
+            mimeType: mime,
+            dialogTitle: 'Compartir desde TRENS',
+          });
+        }
+      }
+    } catch (e) {
+      console.warn('Error sharing:', e);
+    } finally {
+      setIsSaving(false);
+    }
+  }, [capturePhoto, captureVideoCropped, isVideo, mediaData]);
+
+  // --- Save to gallery ---
+  const handleSaveToGallery = useCallback(async () => {
+    setIsSaving(true);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    try {
+      let uri: string;
+      let mime: string;
+
+      if (isVideo && Platform.OS === 'web') {
+        // Video on web: crop to 9:16 via canvas re-encode
+        const result = await captureVideoCropped();
+        uri = result.uri;
+        mime = result.mimeType;
+      } else {
+        uri = await capturePhoto();
+        mime = mediaData?.mimeType || (isVideo ? 'video/mp4' : 'image/png');
+      }
+
+      if (Platform.OS === 'web') {
+        const extMap: Record<string, string> = {
+          'video/mp4': 'mp4',
+          'video/quicktime': 'mov',
+          'video/webm': 'webm',
+          'video/x-msvideo': 'avi',
+          'video/x-matroska': 'mkv',
+          'video/3gpp': '3gp',
+          'image/png': 'png',
+          'image/jpeg': 'jpg',
+          'image/webp': 'webp',
+          'image/heic': 'heic',
+          'image/heif': 'heif',
+        };
+        const ext = extMap[mime] || (isVideo ? 'mp4' : 'png');
+        const fileName = `trens_${isVideo ? 'video' : 'photo'}_${Date.now()}.${ext}`;
+
+        // For blob/object URIs: fetch and re-create for reliable download
+        const res = await fetch(uri);
+        const blob = await res.blob();
+        const downloadUrl = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = downloadUrl;
+        a.download = fileName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(downloadUrl), 5000);
+      } else {
+        const { status } = await MediaLibrary.requestPermissionsAsync();
+        if (status === 'granted') {
+          await MediaLibrary.saveToLibraryAsync(uri);
+        }
+      }
+      setSavedToGallery(true);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (e) {
+      console.warn('Error saving to gallery:', e);
+    } finally {
+      setIsSaving(false);
+    }
+  }, [capturePhoto, captureVideoCropped, isVideo, mediaData]);
 
   // --- Render ---
   if (!mediaData) return null;
 
   const hasWorkoutData = !!(weightKg.trim() || reps.trim());
 
-  // Panel slide animation
-  const panelTranslateY = panelAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0, BOTTOM_PANEL_HEIGHT + 40],
-  });
-
-  // Preview card scale: shrink when panel is visible, full when preview mode
-  const cardScale = panelAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [CARD_SCALE_WITH_PANEL, 1],
-  });
-
   // =======================================================================
-  // RENDER
+  // RENDER — Overlay modal (Hank-style: transparent, slide, drag-to-close)
   // =======================================================================
   return (
     <Modal
       visible={visible}
-      animationType="fade"
-      presentationStyle="fullScreen"
+      transparent
+      animationType="slide"
       statusBarTranslucent
+      onRequestClose={onClose}
     >
       <GestureHandlerRootView style={{ flex: 1 }}>
-      <Animated.View
-        style={[{ flex: 1, backgroundColor: '#000' }, dismissAnimatedStyle]}
-        {...dismissPanResponder.panHandlers}
-      >
-        {/* ================================================================ */}
-        {/* MEDIA PREVIEW — 9:16 aspect ratio                                */}
-        {/* ================================================================ */}
-        <View
-          className="flex-1 items-center justify-center"
-          style={{ backgroundColor: '#000' }}
-        >
-          <RNAnimated.View
-            style={{
-              width: CARD_W,
-              height: CARD_H,
-              borderRadius: 12,
+        <Animated.View
+          style={[
+            {
+              flex: 1,
+              backgroundColor: '#0a0a0a',
+              borderTopLeftRadius: isVideo ? 0 : 24,
+              borderTopRightRadius: isVideo ? 0 : 24,
+              borderTopWidth: isVideo ? 0 : 2,
+              borderTopColor: 'rgba(220, 38, 38, 0.5)',
               overflow: 'hidden',
-              backgroundColor: '#0A0A0A',
-              transform: [{ scale: cardScale }],
-            }}
-          >
-            <GestureDetector gesture={cropGesture}>
-              <Animated.View style={[{ flex: 1 }, cropAnimatedStyle]}>
-                {isVideo ? (
-                  <VideoView
-                    player={videoPlayer}
-                    style={{ flex: 1 }}
-                    contentFit="cover"
-                    nativeControls={false}
-                  />
-                ) : (
-                  <ExpoImage
-                    source={{ uri: mediaData.uri }}
-                    style={{ flex: 1 }}
-                    contentFit="cover"
-                  />
-                )}
-              </Animated.View>
-            </GestureDetector>
+              marginTop: isVideo ? 0 : 44,
+            },
+            dismissAnimatedStyle,
+          ]}
+          {...dismissPanResponder.panHandlers}
+        >
+          {/* Red accent line (photo only) + Drag handle */}
+          {!isVideo && (
+            <View
+              style={{
+                width: '100%',
+                height: 3,
+                backgroundColor: '#DC2626',
+                shadowColor: '#DC2626',
+                shadowOffset: { width: 0, height: 0 },
+                shadowOpacity: 0.8,
+                shadowRadius: 8,
+              }}
+            />
+          )}
+          <View className="items-center" style={{ paddingTop: isVideo ? 12 : 8, paddingBottom: 4 }}>
+            <View className="w-12 h-1.5 bg-zinc-600 rounded-full" />
+          </View>
 
-            {/* TRENS Watermark — SIEMPRE visible */}
-            <View className="absolute bottom-6 left-0 right-0 items-center" pointerEvents="none">
-              <Text
-                style={{
-                  color: 'rgba(255,255,255,0.75)',
-                  fontSize: 13,
-                  fontWeight: '900',
-                  letterSpacing: 8,
-                }}
+          {/* ================================================================ */}
+          {/* MEDIA PREVIEW — fills available space                            */}
+          {/* ================================================================ */}
+          <View className="flex-1 items-center justify-center px-3">
+            <View
+              style={{
+                width: CARD_W,
+                height: CARD_H,
+                maxHeight: SCREEN_H - 220,
+                borderRadius: 16,
+                overflow: 'hidden',
+                backgroundColor: '#0A0A0A',
+              }}
+            >
+              <ViewShot
+                ref={viewShotRef}
+                options={{ format: 'png', quality: 1 }}
+                style={{ flex: 1 }}
               >
-                TRENS
-              </Text>
-              {isTactical && exerciseName && (
-                <Text
-                  style={{
-                    color: 'rgba(255,255,255,0.45)',
-                    fontSize: 10,
-                    fontWeight: '700',
-                    marginTop: 2,
-                    textTransform: 'uppercase',
-                    letterSpacing: 2,
-                  }}
-                >
-                  {exerciseName}
-                </Text>
-              )}
-              {hasWorkoutData && (
-                <View className="flex-row items-center mt-0.5">
-                  {weightKg.trim() ? (
-                    <Text
-                      style={{
-                        color: '#DC2626',
-                        fontSize: 12,
-                        fontWeight: '800',
-                        fontFamily: 'monospace',
-                      }}
-                    >
-                      {weightKg}kg
-                    </Text>
-                  ) : null}
-                  {weightKg.trim() && reps.trim() ? (
-                    <Text
-                      style={{ color: 'rgba(255,255,255,0.3)', marginHorizontal: 4, fontSize: 10 }}
-                    >
-                      ×
-                    </Text>
-                  ) : null}
-                  {reps.trim() ? (
-                    <Text
-                      style={{
-                        color: 'rgba(255,255,255,0.7)',
-                        fontSize: 12,
-                        fontWeight: '800',
-                        fontFamily: 'monospace',
-                      }}
-                    >
-                      {reps}
-                    </Text>
-                  ) : null}
-                </View>
-              )}
-            </View>
+                <GestureDetector gesture={cropGesture}>
+                  <Animated.View style={[{ flex: 1 }, cropAnimatedStyle]}>
+                    {isVideo ? (
+                      <VideoView
+                        player={videoPlayer}
+                        style={{ flex: 1 }}
+                        contentFit="cover"
+                        nativeControls={false}
+                      />
+                    ) : (
+                      <ExpoImage
+                        source={{ uri: mediaData.uri }}
+                        style={{ flex: 1 }}
+                        contentFit="cover"
+                      />
+                    )}
+                  </Animated.View>
+                </GestureDetector>
 
-            {/* Guide lines — siempre visibles */}
-            <View className="absolute inset-0" pointerEvents="none">
-              {/* Grid lines */}
-              <View
-                className="absolute left-0 right-0"
-                style={{ top: '33.3%', height: 1, backgroundColor: 'rgba(255,255,255,0.2)' }}
-              />
-              <View
-                className="absolute left-0 right-0"
-                style={{ top: '66.6%', height: 1, backgroundColor: 'rgba(255,255,255,0.2)' }}
-              />
-              <View
-                className="absolute top-0 bottom-0"
-                style={{ left: '33.3%', width: 1, backgroundColor: 'rgba(255,255,255,0.2)' }}
-              />
-              <View
-                className="absolute top-0 bottom-0"
-                style={{ left: '66.6%', width: 1, backgroundColor: 'rgba(255,255,255,0.2)' }}
-              />
-              {/* Corner brackets */}
-              {[
-                { top: 0, left: 0 },
-                { top: 0, right: 0 },
-                { bottom: 0, left: 0 },
-                { bottom: 0, right: 0 },
-              ].map((pos, i) => (
-                <View
-                  key={i}
-                  style={{
-                    position: 'absolute',
-                    ...pos,
-                    width: 24,
-                    height: 24,
-                    borderColor: '#DC2626',
-                    borderTopWidth: pos.top === 0 ? 3 : 0,
-                    borderBottomWidth: pos.bottom === 0 ? 3 : 0,
-                    borderLeftWidth: pos.left === 0 ? 3 : 0,
-                    borderRightWidth: pos.right === 0 ? 3 : 0,
-                  }}
-                />
-              ))}
-              {/* Scale indicator */}
+                {/* Brand Overlay — TRENS branding only (no pills) */}
+                <ProBrandOverlay hideGuides />
+              </ViewShot>
+
+              {/* Scale indicator — outside ViewShot (not baked in) */}
               {displayScale > 1 && (
-                <View className="absolute top-3 left-0 right-0 items-center">
+                <View className="absolute top-3 left-0 right-0 items-center" pointerEvents="none">
                   <View
                     className="px-3 py-1.5 rounded-full"
                     style={{ backgroundColor: 'rgba(0,0,0,0.7)' }}
@@ -723,511 +1044,507 @@ export function ProMediaEditor({
                   </View>
                 </View>
               )}
-            </View>
 
-            {/* Play/Pause overlay (video) or tap-to-preview (photo) */}
-            {isVideo && (
+              {/* Play/Pause overlay (video only) */}
+              {isVideo && (
+                <TouchableOpacity
+                  onPress={togglePlayback}
+                  className="absolute inset-0 items-center justify-center"
+                  activeOpacity={1}
+                >
+                  {!isPlaying && (
+                    <View
+                      className="w-16 h-16 rounded-full items-center justify-center"
+                      style={{ backgroundColor: 'rgba(0,0,0,0.45)' }}
+                    >
+                      <Play color="#FFF" size={28} fill="#FFF" />
+                    </View>
+                  )}
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
+
+          {/* ================================================================ */}
+          {/* TOP BAR — workout toggle (floating)                              */}
+          {/* ================================================================ */}
+          {isTactical && (
+            <View className="absolute top-16 right-3" style={{ zIndex: 20 }}>
               <TouchableOpacity
-                onPress={togglePlayback}
-                className="absolute inset-0 items-center justify-center"
-                activeOpacity={1}
+                onPress={() => {
+                  setShowWorkoutFields(!showWorkoutFields);
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                }}
+                className="flex-row items-center px-3 py-2 rounded-full"
+                style={{
+                  backgroundColor:
+                    showWorkoutFields || hasWorkoutData
+                      ? 'rgba(220,38,38,0.85)'
+                      : 'rgba(0,0,0,0.6)',
+                }}
               >
-                {!isPlaying && (
-                  <View
-                    className="w-16 h-16 rounded-full items-center justify-center"
-                    style={{ backgroundColor: 'rgba(0,0,0,0.45)' }}
+                <Dumbbell color="#FFF" size={14} />
+                <Text className="text-white text-[10px] font-bold ml-1.5">DATOS</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {/* ================================================================ */}
+          {/* WORKOUT FIELDS PANEL (floating)                                  */}
+          {/* ================================================================ */}
+          {showWorkoutFields && isTactical && (
+            <View className="absolute left-4 right-4" style={{ top: SCREEN_H * 0.14 }}>
+              <View
+                className="rounded-2xl p-4"
+                style={{
+                  backgroundColor: 'rgba(0,0,0,0.9)',
+                  borderWidth: 1,
+                  borderColor: 'rgba(220,38,38,0.3)',
+                }}
+              >
+                <View className="flex-row items-center justify-between mb-3">
+                  <View className="flex-row items-center">
+                    <Dumbbell color="#DC2626" size={14} />
+                    <Text className="text-white text-xs font-bold ml-2 tracking-wider">
+                      DATOS DEL EJERCICIO
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    onPress={() => {
+                      setShowWorkoutFields(false);
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    }}
                   >
-                    <Play color="#FFF" size={28} fill="#FFF" />
+                    <X color="#71717A" size={16} />
+                  </TouchableOpacity>
+                </View>
+
+                {exerciseName && (
+                  <View
+                    className="mb-3 px-3 py-2 rounded-xl"
+                    style={{ backgroundColor: 'rgba(220,38,38,0.1)' }}
+                  >
+                    <Text
+                      style={{
+                        color: '#A1A1AA',
+                        fontSize: 9,
+                        fontWeight: '700',
+                        textTransform: 'uppercase',
+                        letterSpacing: 1,
+                      }}
+                    >
+                      EJERCICIO
+                    </Text>
+                    <Text className="text-white font-bold text-sm uppercase">{exerciseName}</Text>
                   </View>
                 )}
-              </TouchableOpacity>
-            )}
-            {!isVideo && (
-              <TouchableOpacity
-                onPress={() => animatePanel(!previewMode)}
-                className="absolute inset-0"
-                activeOpacity={1}
-              />
-            )}
-          </RNAnimated.View>
-        </View>
 
-        {/* ================================================================ */}
-        {/* TOP BAR                                                          */}
-        {/* ================================================================ */}
-        <View
-          className="absolute top-0 left-0 right-0 pt-14 px-3 pb-2"
-          style={{ backgroundColor: 'transparent' }}
-        >
-          <View className="flex-row items-center justify-between">
-            <TouchableOpacity
-              onPress={onClose}
-              className="w-10 h-10 rounded-full items-center justify-center"
-              style={{ backgroundColor: 'rgba(0,0,0,0.6)' }}
-            >
-              <X color="#FFF" size={20} />
-            </TouchableOpacity>
-
-            <View className="flex-row items-center gap-2">
-              {isTactical && (
-                <TouchableOpacity
-                  onPress={() => {
-                    setShowWorkoutFields(!showWorkoutFields);
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  }}
-                  className="flex-row items-center px-3 py-2 rounded-full"
-                  style={{
-                    backgroundColor:
-                      showWorkoutFields || hasWorkoutData
-                        ? 'rgba(220,38,38,0.85)'
-                        : 'rgba(0,0,0,0.6)',
-                  }}
-                >
-                  <Dumbbell color="#FFF" size={14} />
-                  <Text className="text-white text-[10px] font-bold ml-1.5">DATOS</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          </View>
-        </View>
-
-        {/* ================================================================ */}
-        {/* WORKOUT FIELDS PANEL                                             */}
-        {/* ================================================================ */}
-        {showWorkoutFields && isTactical && (
-          <View className="absolute left-4 right-4" style={{ top: SCREEN_H * 0.14 }}>
-            <View
-              className="rounded-2xl p-4"
-              style={{
-                backgroundColor: 'rgba(0,0,0,0.9)',
-                borderWidth: 1,
-                borderColor: 'rgba(220,38,38,0.3)',
-              }}
-            >
-              <View className="flex-row items-center justify-between mb-3">
-                <View className="flex-row items-center">
-                  <Dumbbell color="#DC2626" size={14} />
-                  <Text className="text-white text-xs font-bold ml-2 tracking-wider">
-                    DATOS DEL EJERCICIO
-                  </Text>
-                </View>
-                <TouchableOpacity
-                  onPress={() => {
-                    setShowWorkoutFields(false);
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  }}
-                >
-                  <X color="#71717A" size={16} />
-                </TouchableOpacity>
-              </View>
-
-              {exerciseName && (
-                <View
-                  className="mb-3 px-3 py-2 rounded-xl"
-                  style={{ backgroundColor: 'rgba(220,38,38,0.1)' }}
-                >
-                  <Text
-                    style={{
-                      color: '#A1A1AA',
-                      fontSize: 9,
-                      fontWeight: '700',
-                      textTransform: 'uppercase',
-                      letterSpacing: 1,
-                    }}
-                  >
-                    EJERCICIO
-                  </Text>
-                  <Text className="text-white font-bold text-sm uppercase">{exerciseName}</Text>
-                </View>
-              )}
-
-              <View className="flex-row gap-3">
-                <View className="flex-1">
-                  <Text
-                    style={{
-                      color: '#71717A',
-                      fontSize: 9,
-                      fontWeight: '700',
-                      marginBottom: 4,
-                      letterSpacing: 1,
-                    }}
-                  >
-                    PESO (KG)
-                  </Text>
-                  <View
-                    style={{
-                      backgroundColor: 'rgba(255,255,255,0.05)',
-                      borderRadius: 12,
-                      paddingHorizontal: 12,
-                      paddingVertical: 10,
-                      borderWidth: 1,
-                      borderColor: 'rgba(255,255,255,0.08)',
-                    }}
-                  >
-                    <TextInput
-                      value={weightKg}
-                      onChangeText={setWeightKg}
-                      placeholder="0"
-                      placeholderTextColor="#3f3f46"
-                      keyboardType="decimal-pad"
+                <View className="flex-row gap-3">
+                  <View className="flex-1">
+                    <Text
                       style={{
-                        color: '#FFF',
-                        fontSize: 20,
+                        color: '#71717A',
+                        fontSize: 9,
                         fontWeight: '700',
-                        fontFamily: 'monospace',
-                        textAlign: 'center',
-                        padding: 0,
-                        height: 28,
+                        marginBottom: 4,
+                        letterSpacing: 1,
                       }}
-                    />
-                  </View>
-                </View>
-                <View className="flex-1">
-                  <Text
-                    style={{
-                      color: '#71717A',
-                      fontSize: 9,
-                      fontWeight: '700',
-                      marginBottom: 4,
-                      letterSpacing: 1,
-                    }}
-                  >
-                    REPS
-                  </Text>
-                  <View
-                    style={{
-                      backgroundColor: 'rgba(255,255,255,0.05)',
-                      borderRadius: 12,
-                      paddingHorizontal: 12,
-                      paddingVertical: 10,
-                      borderWidth: 1,
-                      borderColor: 'rgba(255,255,255,0.08)',
-                    }}
-                  >
-                    <TextInput
-                      value={reps}
-                      onChangeText={setReps}
-                      placeholder="0"
-                      placeholderTextColor="#3f3f46"
-                      keyboardType="number-pad"
-                      style={{
-                        color: '#FFF',
-                        fontSize: 20,
-                        fontWeight: '700',
-                        fontFamily: 'monospace',
-                        textAlign: 'center',
-                        padding: 0,
-                        height: 28,
-                      }}
-                    />
-                  </View>
-                </View>
-              </View>
-
-              {hasWorkoutData && (
-                <TouchableOpacity
-                  onPress={() => {
-                    setWeightKg('');
-                    setReps('');
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  }}
-                  className="mt-3 py-2 rounded-xl items-center"
-                  style={{ backgroundColor: 'rgba(255,255,255,0.05)' }}
-                >
-                  <Text style={{ color: '#71717A', fontSize: 11, fontWeight: '700' }}>LIMPIAR</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          </View>
-        )}
-
-        {/* ================================================================ */}
-        {/* PREVIEW SWIPE HINT                                               */}
-        {/* ================================================================ */}
-        {previewMode && (
-          <View className="absolute bottom-6 left-0 right-0 items-center">
-            <TouchableOpacity
-              onPress={() => animatePanel(false)}
-              className="flex-row items-center px-5 py-2.5 rounded-full"
-              style={{ backgroundColor: 'rgba(0,0,0,0.6)' }}
-              activeOpacity={0.7}
-            >
-              <ChevronUp color="#A1A1AA" size={14} />
-              <Text style={{ color: '#A1A1AA', fontSize: 11, fontWeight: '600', marginLeft: 4 }}>
-                Toca o desliza arriba para editar
-              </Text>
-            </TouchableOpacity>
-          </View>
-        )}
-
-        {/* ================================================================ */}
-        {/* BOTTOM PANEL (animated)                                          */}
-        {/* ================================================================ */}
-        <RNAnimated.View
-          style={{
-            backgroundColor: '#0A0A0A',
-            borderTopWidth: 1,
-            borderTopColor: 'rgba(255,255,255,0.06)',
-            transform: [{ translateY: panelTranslateY }],
-          }}
-        >
-          {/* Swipe/tap hint bar */}
-          <View className="items-center pt-2 pb-1">
-            <TouchableOpacity
-              onPress={() => animatePanel(!previewMode)}
-              className="flex-row items-center px-6 py-1.5"
-              activeOpacity={0.7}
-            >
-              <View
-                style={{
-                  width: 36,
-                  height: 4,
-                  borderRadius: 2,
-                  backgroundColor: 'rgba(255,255,255,0.2)',
-                }}
-              />
-            </TouchableOpacity>
-            {!previewMode && (
-              <TouchableOpacity
-                onPress={() => animatePanel(true)}
-                className="flex-row items-center mt-0.5"
-                activeOpacity={0.7}
-              >
-                <ChevronDown color="#52525B" size={10} />
-                <Text style={{ color: '#52525B', fontSize: 9, fontWeight: '600', marginLeft: 2 }}>
-                  VISTA PREVIA
-                </Text>
-              </TouchableOpacity>
-            )}
-          </View>
-
-          {/* TOOL CONTENT */}
-          <View style={{ minHeight: 90, paddingHorizontal: 16 }}>
-            {/* ---- TRIM TOOL ---- */}
-            {isVideo && (
-              <View>
-                <View className="flex-row items-center justify-between mb-2">
-                  <Text
-                    style={{ color: '#A1A1AA', fontSize: 11, fontWeight: '700', letterSpacing: 1 }}
-                  >
-                    DURACIÓN
-                  </Text>
-                  <View className="flex-row items-center">
-                    <Text style={{ color: '#71717A', fontSize: 11, fontFamily: 'monospace' }}>
-                      {formatSec(videoTrimStartMs / 1000)}
-                    </Text>
-                    <Text style={{ color: '#3F3F46', marginHorizontal: 6 }}>→</Text>
-                    <Text style={{ color: '#71717A', fontSize: 11, fontFamily: 'monospace' }}>
-                      {formatSec(videoTrimEndMs / 1000)}
+                    >
+                      PESO (KG)
                     </Text>
                     <View
-                      className="ml-2 px-2 rounded-md"
-                      style={{ backgroundColor: 'rgba(220,38,38,0.2)', paddingVertical: 2 }}
+                      style={{
+                        backgroundColor: 'rgba(255,255,255,0.05)',
+                        borderRadius: 12,
+                        paddingHorizontal: 12,
+                        paddingVertical: 10,
+                        borderWidth: 1,
+                        borderColor: 'rgba(255,255,255,0.08)',
+                      }}
                     >
+                      <TextInput
+                        value={weightKg}
+                        onChangeText={setWeightKg}
+                        placeholder="0"
+                        placeholderTextColor="#3f3f46"
+                        keyboardType="decimal-pad"
+                        style={{
+                          color: '#FFF',
+                          fontSize: 20,
+                          fontWeight: '700',
+                          fontFamily: 'monospace',
+                          textAlign: 'center',
+                          padding: 0,
+                          height: 28,
+                        }}
+                      />
+                    </View>
+                  </View>
+                  <View className="flex-1">
+                    <Text
+                      style={{
+                        color: '#71717A',
+                        fontSize: 9,
+                        fontWeight: '700',
+                        marginBottom: 4,
+                        letterSpacing: 1,
+                      }}
+                    >
+                      REPS
+                    </Text>
+                    <View
+                      style={{
+                        backgroundColor: 'rgba(255,255,255,0.05)',
+                        borderRadius: 12,
+                        paddingHorizontal: 12,
+                        paddingVertical: 10,
+                        borderWidth: 1,
+                        borderColor: 'rgba(255,255,255,0.08)',
+                      }}
+                    >
+                      <TextInput
+                        value={reps}
+                        onChangeText={setReps}
+                        placeholder="0"
+                        placeholderTextColor="#3f3f46"
+                        keyboardType="number-pad"
+                        style={{
+                          color: '#FFF',
+                          fontSize: 20,
+                          fontWeight: '700',
+                          fontFamily: 'monospace',
+                          textAlign: 'center',
+                          padding: 0,
+                          height: 28,
+                        }}
+                      />
+                    </View>
+                  </View>
+                </View>
+
+                {hasWorkoutData && (
+                  <TouchableOpacity
+                    onPress={() => {
+                      setWeightKg('');
+                      setReps('');
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    }}
+                    className="mt-3 py-2 rounded-xl items-center"
+                    style={{ backgroundColor: 'rgba(255,255,255,0.05)' }}
+                  >
+                    <Text style={{ color: '#71717A', fontSize: 11, fontWeight: '700' }}>
+                      LIMPIAR
+                    </Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            </View>
+          )}
+
+          {/* ================================================================ */}
+          {/* VIDEO TRIM (only for video)                                      */}
+          {/* ================================================================ */}
+          {isVideo && (
+            <View style={{ paddingHorizontal: 16, paddingTop: 8 }}>
+              <View className="flex-row items-center justify-between mb-2">
+                <Text
+                  style={{
+                    color: '#A1A1AA',
+                    fontSize: 11,
+                    fontWeight: '700',
+                    letterSpacing: 1,
+                  }}
+                >
+                  DURACIÓN
+                </Text>
+                <View className="flex-row items-center">
+                  <Text style={{ color: '#71717A', fontSize: 11, fontFamily: 'monospace' }}>
+                    {formatSec(videoTrimStartMs / 1000)}
+                  </Text>
+                  <Text style={{ color: '#3F3F46', marginHorizontal: 6 }}>→</Text>
+                  <Text style={{ color: '#71717A', fontSize: 11, fontFamily: 'monospace' }}>
+                    {formatSec(videoTrimEndMs / 1000)}
+                  </Text>
+                  <View
+                    className="ml-2 px-2 rounded-md"
+                    style={{ backgroundColor: 'rgba(220,38,38,0.2)', paddingVertical: 2 }}
+                  >
+                    <Text
+                      style={{
+                        color: '#DC2626',
+                        fontSize: 11,
+                        fontFamily: 'monospace',
+                        fontWeight: '700',
+                      }}
+                    >
+                      {formatDuration(trimmedDurationSec)}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+
+              {/* Timeline */}
+              <View
+                ref={videoTimelineRef}
+                onLayout={handleTimelineLayout}
+                style={{ height: 52, position: 'relative' }}
+              >
+                {/* Track bg */}
+                <View
+                  style={{
+                    position: 'absolute',
+                    left: 0,
+                    right: 0,
+                    top: 14,
+                    height: 24,
+                    borderRadius: 8,
+                    backgroundColor: 'rgba(255,255,255,0.04)',
+                    overflow: 'hidden',
+                  }}
+                >
+                  <View className="absolute inset-0 flex-row items-center px-0.5">
+                    {Array.from({ length: 60 }).map((_, i) => {
+                      const pct = (i / 60) * 100;
+                      const inRange = pct >= videoTrimStart && pct <= videoTrimEnd;
+                      const h = 4 + Math.abs(Math.sin(i * 0.7)) * 8 + (i % 3) * 2;
+                      return (
+                        <View key={i} className="flex-1 mx-px items-center justify-center">
+                          <View
+                            style={{
+                              width: 2,
+                              height: h,
+                              backgroundColor: inRange ? '#DC2626' : 'rgba(255,255,255,0.08)',
+                              borderRadius: 1,
+                            }}
+                          />
+                        </View>
+                      );
+                    })}
+                  </View>
+                </View>
+
+                {/* Active range */}
+                <View
+                  style={{
+                    position: 'absolute',
+                    left: `${videoTrimStart}%`,
+                    right: `${100 - videoTrimEnd}%`,
+                    top: 12,
+                    height: 28,
+                    borderWidth: 2,
+                    borderColor: '#DC2626',
+                    borderRadius: 6,
+                    backgroundColor: 'rgba(220,38,38,0.06)',
+                  }}
+                />
+
+                {/* Playhead */}
+                <View
+                  style={{
+                    position: 'absolute',
+                    left: `${(currentVideoTime / videoDurationMs) * 100}%`,
+                    top: 10,
+                    width: 2,
+                    height: 32,
+                    backgroundColor: '#FFFFFF',
+                    borderRadius: 1,
+                    zIndex: 5,
+                  }}
+                />
+
+                {/* Start handle */}
+                <View
+                  {...trimStartPan.panHandlers}
+                  style={{
+                    position: 'absolute',
+                    left: `${videoTrimStart}%`,
+                    marginLeft: -16,
+                    top: 6,
+                    width: 32,
+                    height: 40,
+                    zIndex: 20,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    cursor: 'ew-resize' as any,
+                  }}
+                >
+                  <View
+                    style={{
+                      width: 20,
+                      height: 36,
+                      backgroundColor: '#DC2626',
+                      borderRadius: 4,
+                      borderWidth: 1,
+                      borderColor: '#FF4444',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    <View
+                      style={{
+                        width: 2,
+                        height: 12,
+                        backgroundColor: 'rgba(255,255,255,0.8)',
+                        borderRadius: 1,
+                      }}
+                    />
+                  </View>
+                </View>
+
+                {/* End handle */}
+                <View
+                  {...trimEndPan.panHandlers}
+                  style={{
+                    position: 'absolute',
+                    left: `${videoTrimEnd}%`,
+                    marginLeft: -16,
+                    top: 6,
+                    width: 32,
+                    height: 40,
+                    zIndex: 20,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    cursor: 'ew-resize' as any,
+                  }}
+                >
+                  <View
+                    style={{
+                      width: 20,
+                      height: 36,
+                      backgroundColor: '#DC2626',
+                      borderRadius: 4,
+                      borderWidth: 1,
+                      borderColor: '#FF4444',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    <View
+                      style={{
+                        width: 2,
+                        height: 12,
+                        backgroundColor: 'rgba(255,255,255,0.8)',
+                        borderRadius: 1,
+                      }}
+                    />
+                  </View>
+                </View>
+              </View>
+            </View>
+          )}
+
+          {/* ================================================================ */}
+          {/* EXPORT BUTTONS — bottom                                          */}
+          {/* ================================================================ */}
+          <View className="px-4 pb-10 pt-4">
+            {/* Video on web (PWA): single GUARDAR button */}
+            {isVideo && Platform.OS === 'web' ? (
+              <TouchableOpacity
+                onPress={handleSaveToGallery}
+                disabled={isSaving}
+                style={{
+                  backgroundColor: savedToGallery ? 'rgba(34, 197, 94, 0.2)' : '#DC2626',
+                  borderRadius: 16,
+                  paddingVertical: 16,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  shadowColor: savedToGallery ? '#22C55E' : '#DC2626',
+                  shadowOffset: { width: 0, height: 4 },
+                  shadowOpacity: 0.3,
+                  shadowRadius: 8,
+                }}
+              >
+                {isSaving ? (
+                  <ActivityIndicator color="#FFF" />
+                ) : (
+                  <>
+                    <Download color={savedToGallery ? '#22C55E' : '#FFF'} size={20} />
+                    <Text
+                      style={{
+                        color: savedToGallery ? '#22C55E' : '#FFF',
+                        fontWeight: '700',
+                        fontSize: 15,
+                        marginLeft: 8,
+                      }}
+                    >
+                      {savedToGallery ? '✓ GUARDADO' : 'GUARDAR EN DISPOSITIVO'}
+                    </Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            ) : (
+              /* Photo or Native: COMPARTIR + GUARDAR */
+              <View style={{ flexDirection: 'row', gap: 12 }}>
+                {/* COMPARTIR — larger */}
+                <TouchableOpacity
+                  onPress={handleShare}
+                  disabled={isSaving}
+                  style={{
+                    flex: 2,
+                    backgroundColor: '#DC2626',
+                    borderRadius: 16,
+                    paddingVertical: 16,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    shadowColor: '#DC2626',
+                    shadowOffset: { width: 0, height: 4 },
+                    shadowOpacity: 0.3,
+                    shadowRadius: 8,
+                  }}
+                >
+                  {isSaving ? (
+                    <ActivityIndicator color="#FFF" />
+                  ) : (
+                    <>
+                      <Share2 color="#FFF" size={20} />
                       <Text
                         style={{
-                          color: '#DC2626',
-                          fontSize: 11,
-                          fontFamily: 'monospace',
+                          color: '#FFF',
                           fontWeight: '700',
+                          fontSize: 15,
+                          marginLeft: 8,
                         }}
                       >
-                        {formatDuration(trimmedDurationSec)}
+                        COMPARTIR
                       </Text>
-                    </View>
-                  </View>
-                </View>
+                    </>
+                  )}
+                </TouchableOpacity>
 
-                {/* Timeline */}
-                <View
-                  ref={videoTimelineRef}
-                  onLayout={handleTimelineLayout}
-                  style={{ height: 52, position: 'relative' }}
+                {/* GUARDAR — smaller */}
+                <TouchableOpacity
+                  onPress={handleSaveToGallery}
+                  disabled={isSaving}
+                  style={{
+                    flex: 1,
+                    backgroundColor: savedToGallery
+                      ? 'rgba(34, 197, 94, 0.2)'
+                      : 'rgba(255,255,255,0.1)',
+                    borderRadius: 16,
+                    paddingVertical: 16,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
                 >
-                  {/* Track bg */}
-                  <View
+                  <Download color={savedToGallery ? '#22C55E' : '#FFF'} size={20} />
+                  <Text
                     style={{
-                      position: 'absolute',
-                      left: 0,
-                      right: 0,
-                      top: 14,
-                      height: 24,
-                      borderRadius: 8,
-                      backgroundColor: 'rgba(255,255,255,0.04)',
-                      overflow: 'hidden',
+                      color: savedToGallery ? '#22C55E' : '#FFF',
+                      fontWeight: '700',
+                      fontSize: 13,
+                      marginLeft: 6,
                     }}
                   >
-                    <View className="absolute inset-0 flex-row items-center px-0.5">
-                      {Array.from({ length: 60 }).map((_, i) => {
-                        const pct = (i / 60) * 100;
-                        const inRange = pct >= videoTrimStart && pct <= videoTrimEnd;
-                        const h = 4 + Math.abs(Math.sin(i * 0.7)) * 8 + (i % 3) * 2;
-                        return (
-                          <View key={i} className="flex-1 mx-px items-center justify-center">
-                            <View
-                              style={{
-                                width: 2,
-                                height: h,
-                                backgroundColor: inRange ? '#DC2626' : 'rgba(255,255,255,0.08)',
-                                borderRadius: 1,
-                              }}
-                            />
-                          </View>
-                        );
-                      })}
-                    </View>
-                  </View>
-
-                  {/* Active range */}
-                  <View
-                    style={{
-                      position: 'absolute',
-                      left: `${videoTrimStart}%`,
-                      right: `${100 - videoTrimEnd}%`,
-                      top: 12,
-                      height: 28,
-                      borderWidth: 2,
-                      borderColor: '#DC2626',
-                      borderRadius: 6,
-                      backgroundColor: 'rgba(220,38,38,0.06)',
-                    }}
-                  />
-
-                  {/* Playhead */}
-                  <View
-                    style={{
-                      position: 'absolute',
-                      left: `${(currentVideoTime / videoDurationMs) * 100}%`,
-                      top: 10,
-                      width: 2,
-                      height: 32,
-                      backgroundColor: '#FFFFFF',
-                      borderRadius: 1,
-                      zIndex: 5,
-                    }}
-                  />
-
-                  {/* Start handle */}
-                  <View
-                    {...trimStartPan.panHandlers}
-                    style={{
-                      position: 'absolute',
-                      left: `${videoTrimStart}%`,
-                      marginLeft: -16,
-                      top: 6,
-                      width: 32,
-                      height: 40,
-                      zIndex: 20,
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      cursor: 'ew-resize' as any,
-                    }}
-                  >
-                    <View
-                      style={{
-                        width: 20,
-                        height: 36,
-                        backgroundColor: '#DC2626',
-                        borderRadius: 4,
-                        borderWidth: 1,
-                        borderColor: '#FF4444',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                      }}
-                    >
-                      <View
-                        style={{
-                          width: 2,
-                          height: 12,
-                          backgroundColor: 'rgba(255,255,255,0.8)',
-                          borderRadius: 1,
-                        }}
-                      />
-                    </View>
-                  </View>
-
-                  {/* End handle */}
-                  <View
-                    {...trimEndPan.panHandlers}
-                    style={{
-                      position: 'absolute',
-                      left: `${videoTrimEnd}%`,
-                      marginLeft: -16,
-                      top: 6,
-                      width: 32,
-                      height: 40,
-                      zIndex: 20,
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      cursor: 'ew-resize' as any,
-                    }}
-                  >
-                    <View
-                      style={{
-                        width: 20,
-                        height: 36,
-                        backgroundColor: '#DC2626',
-                        borderRadius: 4,
-                        borderWidth: 1,
-                        borderColor: '#FF4444',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                      }}
-                    >
-                      <View
-                        style={{
-                          width: 2,
-                          height: 12,
-                          backgroundColor: 'rgba(255,255,255,0.8)',
-                          borderRadius: 1,
-                        }}
-                      />
-                    </View>
-                  </View>
-                </View>
+                    {savedToGallery ? '✓' : 'GUARDAR'}
+                  </Text>
+                </TouchableOpacity>
               </View>
             )}
           </View>
-
-          {/* EXPORT BUTTON */}
-          <View className="px-4 pb-8 pt-3">
-            <TouchableOpacity
-              onPress={handleSave}
-              disabled={saving}
-              style={{
-                backgroundColor: '#DC2626',
-                borderRadius: 16,
-                paddingVertical: 14,
-                flexDirection: 'row',
-                alignItems: 'center',
-                justifyContent: 'center',
-                shadowColor: '#DC2626',
-                shadowOffset: { width: 0, height: 4 },
-                shadowOpacity: 0.3,
-                shadowRadius: 8,
-              }}
-            >
-              {saving ? (
-                <ActivityIndicator color="#FFF" />
-              ) : (
-                <>
-                  <Download color="#FFF" size={18} />
-                  <Text
-                    style={{
-                      color: '#FFF',
-                      fontWeight: '700',
-                      fontSize: 14,
-                      marginLeft: 8,
-                    }}
-                  >
-                    COMPARTIR
-                  </Text>
-                </>
-              )}
-            </TouchableOpacity>
-          </View>
-        </RNAnimated.View>
-      </Animated.View>
+        </Animated.View>
       </GestureHandlerRootView>
     </Modal>
   );

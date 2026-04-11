@@ -7,15 +7,7 @@
 
 import { View, Text, TouchableOpacity, ActivityIndicator, Platform } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
-import {
-  RotateCcw,
-  Zap,
-  ZapOff,
-  Music,
-  Lock,
-  Camera,
-  Image as ImageIcon,
-} from 'lucide-react-native';
+import { RotateCcw, Zap, ZapOff, Lock, Camera, Image as ImageIcon } from 'lucide-react-native';
 import { PWAGuard } from '../../../components/auth/PWAGuard';
 import * as Haptics from '../../../lib/haptics';
 import React, { useState, useRef, useEffect, useCallback } from 'react';
@@ -53,11 +45,12 @@ import { useHank } from '../../../context/HankContext';
 import { useSaveGuard } from '../../_layout';
 import { ProUpgradeModal } from '../../../components/pro/ProUpgradeModal';
 import { ProMediaEditor, MediaData, SpotifyMetadata } from '../../../components/pro/ProMediaEditor';
-import { ShareSuccessModal } from '../../../components/pro/ShareSuccessModal';
 
 import spotify from '../../../services/spotify/spotify';
 import cloudflareStream from '../../../services/cloudflare/stream';
 import cloudflareR2 from '../../../services/cloudflare/r2';
+import { ProBrandOverlay } from '../../../components/pro/ProBrandOverlay';
+import { supabase } from '../../../lib/supabase';
 
 // ============================================================================
 // MAIN COMPONENT
@@ -70,6 +63,22 @@ function ProScreenContent() {
     useProRecording();
   const { triggerRefresh, setScreenContext } = useHank();
   const { canSave } = useSaveGuard();
+
+  // ÉLITE status
+  const [isElite, setIsElite] = useState(false);
+
+  useEffect(() => {
+    if (user) {
+      supabase
+        .from('user_profiles')
+        .select('is_elite')
+        .eq('user_id', user.id)
+        .maybeSingle()
+        .then(({ data }) => {
+          if (data?.is_elite) setIsElite(true);
+        });
+    }
+  }, [user]);
 
   // Sincronizar contexto con HANK
   useFocusEffect(
@@ -121,14 +130,6 @@ function ProScreenContent() {
 
   // Spotify State
   const [spotifyMetadata, setSpotifyMetadata] = useState<SpotifyMetadata | null>(null);
-
-  // Share Success Modal
-  const [showShareModal, setShowShareModal] = useState(false);
-  const [savedMediaInfo, setSavedMediaInfo] = useState<{
-    mediaType: 'video' | 'photo';
-    isPublic: boolean;
-    localUri?: string;
-  } | null>(null);
 
   // Timer ref
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -252,8 +253,9 @@ function ProScreenContent() {
       const constraints: MediaStreamConstraints = {
         video: {
           facingMode: webFacing,
-          width: { ideal: 1080 },
-          height: { ideal: 1920 },
+          width: { ideal: 3840 },
+          height: { ideal: 2160 },
+          frameRate: { ideal: 60 },
         },
         audio: true,
       };
@@ -357,16 +359,20 @@ function ProScreenContent() {
 
     try {
       const mimeTypes = [
+        'video/mp4;codecs=avc1.42E01E,mp4a.40.2',
+        'video/mp4;codecs=avc1',
+        'video/mp4',
+        'video/webm;codecs=vp9,opus',
         'video/webm;codecs=vp9',
         'video/webm;codecs=vp8',
         'video/webm',
-        'video/mp4',
       ];
       const selectedMimeType =
         mimeTypes.find((t) => MediaRecorder.isTypeSupported(t)) || 'video/webm';
 
       const recorder = new MediaRecorder(webStreamRef.current, {
         mimeType: selectedMimeType,
+        videoBitsPerSecond: 16_000_000,
       });
 
       recorder.ondataavailable = (e) => {
@@ -382,6 +388,7 @@ function ProScreenContent() {
           uri,
           type: 'video',
           duration: finalDuration,
+          mimeType: selectedMimeType,
         });
         setEditorVisible(true);
         setIsRecording(false);
@@ -467,8 +474,8 @@ function ProScreenContent() {
           setEditorVisible(true);
         }
       },
-      'image/jpeg',
-      0.9
+      'image/png',
+      1.0
     );
   };
 
@@ -538,6 +545,7 @@ function ProScreenContent() {
     try {
       const video = await cameraRef.current.recordAsync({
         maxDuration: 60,
+        codec: 'avc1' as any,
       });
 
       if (timerRef.current) {
@@ -582,8 +590,8 @@ function ProScreenContent() {
 
     try {
       const photo = await cameraRef.current.takePictureAsync({
-        quality: 0.9,
-        skipProcessing: false,
+        quality: 1,
+        skipProcessing: true,
       });
 
       setCapturedMedia({
@@ -605,33 +613,67 @@ function ProScreenContent() {
   const pickFromGallery = async (preferredType?: 'video' | 'photo') => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
-    // En web, podemos filtrar por tipo si se especifica
-    let mediaTypes: ('images' | 'videos')[] = ['images', 'videos'];
-    if (preferredType === 'video') {
-      mediaTypes = ['videos'];
-    } else if (preferredType === 'photo') {
-      mediaTypes = ['images'];
-    }
+    try {
+      // Pedir permisos en nativo
+      if (Platform.OS !== 'web') {
+        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (status !== 'granted') {
+          console.warn('Gallery permission denied');
+          return;
+        }
+      }
 
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes,
-      allowsEditing: false,
-      quality: 0.9,
-      videoMaxDuration: 60,
-    });
+      // Filtrar por tipo si se especifica
+      let mediaTypes: ('images' | 'videos')[] = ['images', 'videos'];
+      if (preferredType === 'video') {
+        mediaTypes = ['videos'];
+      } else if (preferredType === 'photo') {
+        mediaTypes = ['images'];
+      }
 
-    if (!result.canceled && result.assets[0]) {
-      const asset = result.assets[0];
-      const isVideo = asset.type === 'video';
-
-      setCapturedMedia({
-        uri: asset.uri,
-        type: isVideo ? 'video' : 'photo',
-        duration: isVideo ? Math.ceil((asset.duration || 0) / 1000) : undefined,
-        width: asset.width,
-        height: asset.height,
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes,
+        allowsEditing: false,
+        quality: 1,
+        videoQuality: ImagePicker.UIImagePickerControllerQualityType.High,
+        ...(Platform.OS === 'ios'
+          ? { presentationStyle: ImagePicker.UIImagePickerPresentationStyle.FULL_SCREEN }
+          : {}),
       });
-      setEditorVisible(true);
+
+      if (!result.canceled && result.assets[0]) {
+        const asset = result.assets[0];
+
+        // Detect video robustly: check type, mimeType, and file extension
+        const isVideoByType = asset.type === 'video';
+        const isVideoByMime = asset.mimeType?.startsWith('video/') ?? false;
+        const isVideoByExt = /\.(mp4|mov|avi|webm|mkv|3gp|m4v)$/i.test(asset.uri);
+        const isVideo = isVideoByType || isVideoByMime || isVideoByExt;
+
+        // Duration: expo-image-picker returns ms on most platforms
+        let durationSec: number | undefined;
+        if (isVideo && asset.duration) {
+          // expo-image-picker returns duration in ms
+          durationSec = Math.ceil(asset.duration / 1000);
+          // Sanity: if way too small, it might already be seconds
+          if (durationSec === 0 && asset.duration > 0) durationSec = Math.ceil(asset.duration);
+        }
+
+        // Determine mimeType reliably
+        const mimeType = asset.mimeType || (isVideo ? 'video/mp4' : 'image/jpeg');
+
+        setCapturedMedia({
+          uri: asset.uri,
+          type: isVideo ? 'video' : 'photo',
+          duration: durationSec,
+          width: asset.width,
+          height: asset.height,
+          mimeType,
+        });
+        setEditorVisible(true);
+      }
+    } catch (error) {
+      console.error('Error picking from gallery:', error);
     }
   };
 
@@ -682,135 +724,11 @@ function ProScreenContent() {
   };
 
   // -------------------------------------------------------------------------
-  // SAVE HANDLER
+  // SAVE HANDLER (cleanup only — share/save now handled inside editor)
   // -------------------------------------------------------------------------
 
-  const handleEditorSave = async (data: {
-    mediaType: 'video' | 'photo';
-    videoTrimStart: number;
-    videoTrimEnd: number;
-    spotifyTrack: SpotifyMetadata | null;
-    isPublic: boolean;
-    weightKg: number | null;
-    reps: number | null;
-    caption: string | null;
-    filter: string;
-    showOverlay: boolean;
-  }) => {
-    console.log('🔥 handleEditorSave called with data:', JSON.stringify(data, null, 2));
-    console.log('🔥 capturedMedia:', capturedMedia?.uri?.substring(0, 50));
-    console.log('🔥 user:', user?.id);
-
-    if (!canSave('save_video_pro')) {
-      console.log('❌ canSave blocked');
-      return;
-    }
-    if (!capturedMedia || !user) {
-      console.log('❌ No capturedMedia or user');
-      return;
-    }
-
-    console.log('✅ Starting save process...');
-    setSaving(true);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-
-    try {
-      // Subir a Cloudflare Stream (video) o R2 (foto) para generar URL compartible
-      if (data.mediaType === 'video') {
-        let uploadResult;
-
-        // En web, usar blob + compresión
-        if (
-          isWeb &&
-          (capturedMedia.uri.startsWith('blob:') || capturedMedia.uri.startsWith('data:'))
-        ) {
-          console.log('🎬 Web: Fetching video blob...');
-          const response = await fetch(capturedMedia.uri);
-          let blob = await response.blob();
-          console.log(`🎬 Original blob: ${Math.round(blob.size / 1024)}KB`);
-
-          // Comprimir si es grande (> 10MB)
-          if (blob.size > 10 * 1024 * 1024) {
-            console.log('🎬 Compressing video...');
-            blob = await compressVideo(blob, 1080, 60);
-            console.log(`🎬 Compressed: ${Math.round(blob.size / 1024)}KB`);
-          }
-
-          uploadResult = await cloudflareStream.uploadVideoFromBlob(blob, {
-            name: `TRENS_${user.id}_${Date.now()}`,
-            userId: user.id,
-            isPublic: data.isPublic,
-          });
-        } else {
-          // Nativo: usar URI directo
-          uploadResult = await cloudflareStream.uploadVideo(capturedMedia.uri, {
-            name: `TRENS_${user.id}_${Date.now()}`,
-            userId: user.id,
-            isPublic: data.isPublic,
-          });
-        }
-
-        if (!uploadResult.success || !uploadResult.videoId) {
-          throw new Error(uploadResult.error || 'Error subiendo video');
-        }
-      } else {
-        // Foto: subir a Cloudflare R2
-        console.log('📸 Subiendo foto a Cloudflare R2...');
-        const timestamp = Date.now();
-        const key = `pro-photos/${user.id}/${timestamp}.jpg`;
-
-        let blob: Blob;
-
-        // En web, el URI puede ser un blob URL o data URL
-        if (capturedMedia.uri.startsWith('blob:') || capturedMedia.uri.startsWith('data:')) {
-          console.log('📸 Web: Fetching from blob/data URL');
-          const response = await fetch(capturedMedia.uri);
-          blob = await response.blob();
-
-          // Comprimir imagen en web
-          console.log(`📸 Original: ${Math.round(blob.size / 1024)}KB`);
-          blob = await compressImage(blob, 1920, 0.85);
-          console.log(`📸 Compressed: ${Math.round(blob.size / 1024)}KB`);
-        } else {
-          // En nativo, usar fetch normal
-          console.log('📸 Native: Fetching from file URI');
-          const response = await fetch(capturedMedia.uri);
-          blob = await response.blob();
-        }
-
-        console.log('📸 Blob size:', blob.size, 'type:', blob.type);
-
-        // Subir a R2 usando el método para web (blob)
-        const r2Result = await cloudflareR2.uploadFromBlob(blob, key, 'image/jpeg');
-
-        if (!r2Result.success || !r2Result.url) {
-          console.error('❌ R2 Upload error:', r2Result.error);
-          throw new Error(r2Result.error || 'Error subiendo foto a R2');
-        }
-
-        console.log('✅ R2 Upload success:', r2Result.url);
-      }
-
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-
-      // Guardar info para share modal
-      setSavedMediaInfo({
-        mediaType: data.mediaType,
-        isPublic: data.isPublic,
-        localUri: capturedMedia.uri,
-      });
-
-      setKeepSpotifyPlaying(true);
-      discardMedia();
-
-      // Mostrar share modal para compartir en la app de preferencia
-      setShowShareModal(true);
-    } catch (error) {
-      console.error('Error saving:', error);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-    } finally {
-      setSaving(false);
-    }
+  const handleEditorSave = async () => {
+    discardMedia();
   };
 
   // -------------------------------------------------------------------------
@@ -946,32 +864,9 @@ function ProScreenContent() {
             colors={['rgba(10,0,0,0.85)', 'transparent']}
             className="absolute top-0 left-0 right-0 h-28"
           />
-          <View className="absolute top-14 left-0 right-0 px-4 flex-row justify-between items-center z-10">
-            {/* Etiqueta de Contexto */}
-            <View
-              className="flex-row items-center px-3 py-1.5 rounded-full"
-              style={{
-                backgroundColor: 'rgba(10, 0, 0, 0.8)',
-                borderWidth: 1,
-                borderColor: '#F97316',
-              }}
-            >
-              <Animated.View style={pulseAnimatedStyle}>
-                <View
-                  className="w-3 h-3 bg-fire-orange rounded-full mr-2"
-                  style={{
-                    shadowColor: '#F97316',
-                    shadowOffset: { width: 0, height: 0 },
-                    shadowOpacity: 1,
-                    shadowRadius: 8,
-                  }}
-                />
-              </Animated.View>
-              <Text className="text-fire-orange font-bold text-sm tracking-wide">
-                {getContextLabel()}
-              </Text>
-            </View>
-          </View>
+
+          {/* Brand Overlay — Pills + TRENS branding */}
+          <ProBrandOverlay hideGuides />
 
           {/* CONTADOR TIEMPO (Solo grabando) */}
           {isRecording && (
@@ -991,46 +886,6 @@ function ProScreenContent() {
                 <Text className="text-fire-orange font-mono font-bold text-lg">
                   🔥 {formatTime(recordingTime)}
                 </Text>
-              </View>
-            </View>
-          )}
-
-          {/* SPOTIFY INDICATOR */}
-          {spotifyMetadata && (
-            <View className={`absolute ${isRecording ? 'top-44' : 'top-28'} left-4 right-4 z-10`}>
-              <View
-                className="rounded-xl p-3 flex-row items-center"
-                style={{
-                  backgroundColor: 'rgba(10, 0, 0, 0.85)',
-                  borderWidth: 1,
-                  borderColor: '#1DB954',
-                }}
-              >
-                <View className="w-10 h-10 bg-green-500 rounded-lg items-center justify-center mr-3">
-                  <Music color="#000" size={20} />
-                </View>
-                <View className="flex-1">
-                  <Text className="text-white font-bold text-sm" numberOfLines={1}>
-                    {spotifyMetadata.trackName}
-                  </Text>
-                  <Text className="text-zinc-400 text-xs" numberOfLines={1}>
-                    {spotifyMetadata.artist}
-                  </Text>
-                </View>
-                <View
-                  className="px-2 py-1 rounded"
-                  style={{
-                    backgroundColor: isRecording
-                      ? 'rgba(30, 215, 96, 0.2)'
-                      : 'rgba(30, 215, 96, 0.1)',
-                    borderWidth: 1,
-                    borderColor: '#1DB954',
-                  }}
-                >
-                  <Text className="text-green-500 text-xs font-bold">
-                    {isRecording ? 'SYNC' : '🎵 DETECTADO'}
-                  </Text>
-                </View>
               </View>
             </View>
           )}
@@ -1090,17 +945,6 @@ function ProScreenContent() {
             visible={showUpgradeModal}
             onClose={() => setShowUpgradeModal(false)}
             feature="camera"
-          />
-
-          {/* SHARE SUCCESS MODAL */}
-          <ShareSuccessModal
-            visible={showShareModal}
-            onClose={() => {
-              setShowShareModal(false);
-              setSavedMediaInfo(null);
-            }}
-            mediaType={savedMediaInfo?.mediaType || 'video'}
-            isPublic={savedMediaInfo?.isPublic || false}
           />
         </View>
       </GestureHandlerRootView>
@@ -1175,6 +1019,8 @@ function ProScreenContent() {
             facing={cameraFacing}
             mode="video"
             flash={flashMode}
+            pictureSize="max"
+            videoQuality="2160p"
           />
         )}
 
@@ -1183,33 +1029,12 @@ function ProScreenContent() {
           colors={['rgba(10,0,0,0.85)', 'transparent']}
           className="absolute top-0 left-0 right-0 h-28"
         />
-        <View className="absolute top-14 left-0 right-0 px-4 flex-row justify-between items-center z-10">
-          {/* Etiqueta de Contexto */}
-          <View
-            className="flex-row items-center px-3 py-1.5 rounded-full"
-            style={{
-              backgroundColor: 'rgba(10, 0, 0, 0.8)',
-              borderWidth: 1,
-              borderColor: '#F97316',
-            }}
-          >
-            <Animated.View style={pulseAnimatedStyle}>
-              <View
-                className="w-3 h-3 bg-fire-orange rounded-full mr-2"
-                style={{
-                  shadowColor: '#F97316',
-                  shadowOffset: { width: 0, height: 0 },
-                  shadowOpacity: 1,
-                  shadowRadius: 8,
-                }}
-              />
-            </Animated.View>
-            <Text className="text-fire-orange font-bold text-sm tracking-wide">
-              {getContextLabel()}
-            </Text>
-          </View>
 
-          {/* Herramientas Rápidas */}
+        {/* Brand Overlay — TRENS branding */}
+        <ProBrandOverlay hideGuides />
+
+        {/* Herramientas Rápidas */}
+        <View className="absolute top-14 right-4 z-10">
           <View className="flex-row items-center gap-4">
             <TouchableOpacity
               onPress={toggleFlash}
@@ -1243,46 +1068,6 @@ function ProScreenContent() {
               <Text className="text-fire-orange font-mono font-bold text-lg">
                 🔥 {formatTime(recordingTime)}
               </Text>
-            </View>
-          </View>
-        )}
-
-        {/* SPOTIFY INDICATOR */}
-        {spotifyMetadata && (
-          <View className={`absolute ${isRecording ? 'top-44' : 'top-28'} left-4 right-4 z-10`}>
-            <View
-              className="rounded-xl p-3 flex-row items-center"
-              style={{
-                backgroundColor: 'rgba(10, 0, 0, 0.85)',
-                borderWidth: 1,
-                borderColor: '#1DB954',
-              }}
-            >
-              <View className="w-10 h-10 bg-green-500 rounded-lg items-center justify-center mr-3">
-                <Music color="#000" size={20} />
-              </View>
-              <View className="flex-1">
-                <Text className="text-white font-bold text-sm" numberOfLines={1}>
-                  {spotifyMetadata.trackName}
-                </Text>
-                <Text className="text-zinc-400 text-xs" numberOfLines={1}>
-                  {spotifyMetadata.artist}
-                </Text>
-              </View>
-              <View
-                className="px-2 py-1 rounded"
-                style={{
-                  backgroundColor: isRecording
-                    ? 'rgba(30, 215, 96, 0.2)'
-                    : 'rgba(30, 215, 96, 0.1)',
-                  borderWidth: 1,
-                  borderColor: '#1DB954',
-                }}
-              >
-                <Text className="text-green-500 text-xs font-bold">
-                  {isRecording ? 'SYNC' : '🎵 DETECTADO'}
-                </Text>
-              </View>
             </View>
           </View>
         )}
@@ -1342,17 +1127,6 @@ function ProScreenContent() {
           visible={showUpgradeModal}
           onClose={() => setShowUpgradeModal(false)}
           feature="camera"
-        />
-
-        {/* SHARE SUCCESS MODAL */}
-        <ShareSuccessModal
-          visible={showShareModal}
-          onClose={() => {
-            setShowShareModal(false);
-            setSavedMediaInfo(null);
-          }}
-          mediaType={savedMediaInfo?.mediaType || 'video'}
-          isPublic={savedMediaInfo?.isPublic || false}
         />
       </View>
     </GestureHandlerRootView>

@@ -262,10 +262,10 @@ export const unstable_settings = {
 };
 
 // ============================================================================
-// TAB ORDER - Solo Feed y ADN permiten swipe horizontal
+// TAB ORDER - Feed, ADN y PRO permiten swipe horizontal
 // ============================================================================
 const TAB_ROUTES = ['feed', 'adn', 'pro', 'gym', 'plan'] as const;
-const SWIPEABLE_TABS = ['feed', 'adn'] as const;
+const SWIPEABLE_TABS = ['feed', 'adn', 'pro'] as const;
 
 export default function TabsLayout() {
   const { user, loading } = useAuth();

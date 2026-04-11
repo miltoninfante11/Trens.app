@@ -37,6 +37,7 @@ import {
   Target,
   ChevronDown,
   ChevronUp,
+  BadgeCheck,
 } from 'lucide-react-native';
 import adminUsers, { AdminUser, OpenpayPayment } from '../../../services/admin/users';
 import { getUserCards } from '../../../services/admin/users';
@@ -950,6 +951,21 @@ export default function UsuarioDetailScreen() {
         console.warn('No cards found:', e);
       }
 
+      // Fetch is_elite from user_profiles
+      try {
+        const { data: profileData } = await supabase
+          .from('user_profiles')
+          .select('is_elite')
+          .eq('user_id', id)
+          .single();
+        if (profileData && userData) {
+          userData.is_elite = profileData.is_elite ?? false;
+          setUser({ ...userData });
+        }
+      } catch (e) {
+        console.warn('No elite status found:', e);
+      }
+
       // Fetch current training plan
       try {
         const plan = await getUserCurrentPlan(id);
@@ -1050,6 +1066,34 @@ export default function UsuarioDetailScreen() {
             await adminUsers.revokePro(id);
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
             setUser({ ...user, role: 'free', pro_expires_at: undefined });
+          } catch (err: any) {
+            Alert.alert('Error', err.message);
+          } finally {
+            setActionLoading(false);
+          }
+        },
+      },
+    ]);
+  };
+
+  const handleToggleElite = async () => {
+    if (!id || !user) return;
+    const isCurrentlyElite = user.is_elite;
+    const title = isCurrentlyElite ? 'Revocar ÉLITE' : 'Otorgar ÉLITE';
+    const message = isCurrentlyElite
+      ? '¿Quitar el badge ÉLITE a este usuario?'
+      : '¿Otorgar el badge ÉLITE verificado a este usuario?';
+    Alert.alert(title, message, [
+      { text: 'Cancelar', style: 'cancel' },
+      {
+        text: isCurrentlyElite ? 'Revocar' : 'Otorgar',
+        style: isCurrentlyElite ? 'destructive' : 'default',
+        onPress: async () => {
+          setActionLoading(true);
+          try {
+            await adminUsers.toggleElite(id, !isCurrentlyElite);
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            setUser({ ...user, is_elite: !isCurrentlyElite });
           } catch (err: any) {
             Alert.alert('Error', err.message);
           } finally {
@@ -1255,6 +1299,17 @@ export default function UsuarioDetailScreen() {
                   {user.role?.toUpperCase()}
                 </Text>
               </View>
+              {user.is_elite && (
+                <View
+                  className="flex-row items-center px-2 py-1 rounded-full"
+                  style={{ backgroundColor: '#A855F730' }}
+                >
+                  <BadgeCheck size={12} color="#A855F7" />
+                  <Text className="text-xs font-mono font-bold ml-1" style={{ color: '#A855F7' }}>
+                    ÉLITE
+                  </Text>
+                </View>
+              )}
               {user.subscription?.status === 'active' && (
                 <View className="flex-row items-center bg-green-600/20 px-2 py-1 rounded-full">
                   <CreditCard size={12} color={COLORS.green} />
@@ -1378,6 +1433,14 @@ export default function UsuarioDetailScreen() {
             label="Cambiar Rol"
             color={COLORS.orange}
             onPress={() => setRoleModalVisible(true)}
+          />
+
+          <ActionButton
+            icon={BadgeCheck}
+            label={user.is_elite ? 'Revocar ÉLITE' : 'Otorgar ÉLITE'}
+            color="#A855F7"
+            onPress={handleToggleElite}
+            loading={actionLoading}
           />
 
           {user.role !== 'pro' && (

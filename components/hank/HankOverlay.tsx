@@ -60,6 +60,7 @@ import { HankOnboarding, type OnboardingData } from './HankOnboarding';
 import { setHankChatOpen } from '../../lib/hankChatState';
 import { hankToolsEvent, type HankToolType } from '../../lib/hankToolsEvent';
 import { spotifyFabState, spotifyFabActions, type SpotifyFabData } from '../../lib/spotifyFabState';
+import { hankSpeakState } from '../../lib/hankSpeakState';
 import type {
   HankToolResult,
   HankToolCall,
@@ -169,6 +170,68 @@ const HankFAB: React.FC<{
   const flyScale = useSharedValue(1);
   // Gear rotation for working phase
   const gearRotation = useSharedValue(0);
+
+  // Speaking wave animation (TTS active)
+  const [isSpeaking, setIsSpeakingLocal] = useState(false);
+  const speakWave1 = useSharedValue(0);
+  const speakWave2 = useSharedValue(0);
+  const speakWave3 = useSharedValue(0);
+
+  useEffect(() => {
+    return hankSpeakState.onChange((speaking) => setIsSpeakingLocal(speaking));
+  }, []);
+
+  useEffect(() => {
+    if (isSpeaking) {
+      speakWave1.value = withRepeat(
+        withSequence(
+          withTiming(1, { duration: 1200, easing: Easing.out(Easing.ease) }),
+          withTiming(0, { duration: 0 })
+        ),
+        -1,
+        false
+      );
+      speakWave2.value = 0;
+      setTimeout(() => {
+        speakWave2.value = withRepeat(
+          withSequence(
+            withTiming(1, { duration: 1200, easing: Easing.out(Easing.ease) }),
+            withTiming(0, { duration: 0 })
+          ),
+          -1,
+          false
+        );
+      }, 400);
+      speakWave3.value = 0;
+      setTimeout(() => {
+        speakWave3.value = withRepeat(
+          withSequence(
+            withTiming(1, { duration: 1200, easing: Easing.out(Easing.ease) }),
+            withTiming(0, { duration: 0 })
+          ),
+          -1,
+          false
+        );
+      }, 800);
+    } else {
+      speakWave1.value = withTiming(0, { duration: 300 });
+      speakWave2.value = withTiming(0, { duration: 300 });
+      speakWave3.value = withTiming(0, { duration: 300 });
+    }
+  }, [isSpeaking, speakWave1, speakWave2, speakWave3]);
+
+  const speakWaveStyle1 = useAnimatedStyle(() => ({
+    opacity: interpolate(speakWave1.value, [0, 0.3, 1], [0.6, 0.4, 0]),
+    transform: [{ scale: interpolate(speakWave1.value, [0, 1], [1, 2.2]) }],
+  }));
+  const speakWaveStyle2 = useAnimatedStyle(() => ({
+    opacity: interpolate(speakWave2.value, [0, 0.3, 1], [0.5, 0.3, 0]),
+    transform: [{ scale: interpolate(speakWave2.value, [0, 1], [1, 2.2]) }],
+  }));
+  const speakWaveStyle3 = useAnimatedStyle(() => ({
+    opacity: interpolate(speakWave3.value, [0, 0.3, 1], [0.4, 0.2, 0]),
+    transform: [{ scale: interpolate(speakWave3.value, [0, 1], [1, 2.2]) }],
+  }));
 
   // Calculate home position (bottom-right corner)
   const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
@@ -946,6 +1009,57 @@ const HankFAB: React.FC<{
                   top: -10,
                 },
                 pulseRingStyle,
+              ]}
+            />
+          </>
+        )}
+
+        {/* Speaking waves - TTS ripple effect */}
+        {isSpeaking && !isFlying && !isListening && (
+          <>
+            <Animated.View
+              style={[
+                {
+                  position: 'absolute',
+                  width: 60,
+                  height: 60,
+                  borderRadius: 30,
+                  borderWidth: 2,
+                  borderColor: '#DC2626',
+                  left: 0,
+                  bottom: 0,
+                },
+                speakWaveStyle1,
+              ]}
+            />
+            <Animated.View
+              style={[
+                {
+                  position: 'absolute',
+                  width: 60,
+                  height: 60,
+                  borderRadius: 30,
+                  borderWidth: 1.5,
+                  borderColor: '#DC262690',
+                  left: 0,
+                  bottom: 0,
+                },
+                speakWaveStyle2,
+              ]}
+            />
+            <Animated.View
+              style={[
+                {
+                  position: 'absolute',
+                  width: 60,
+                  height: 60,
+                  borderRadius: 30,
+                  borderWidth: 1,
+                  borderColor: '#DC262660',
+                  left: 0,
+                  bottom: 0,
+                },
+                speakWaveStyle3,
               ]}
             />
           </>

@@ -4,7 +4,7 @@
 // seguridad, y más. Se abre al presionar la foto de perfil en ADN.
 // ============================================================================
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -16,7 +16,13 @@ import {
   ActivityIndicator,
   Linking,
   Platform,
+  PanResponder,
 } from 'react-native';
+import ReanimatedAnimated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
@@ -48,6 +54,7 @@ import {
   RotateCcw,
   Globe,
   Smartphone,
+  BadgeCheck,
 } from 'lucide-react-native';
 import * as Haptics from '../../lib/haptics';
 import { Alert } from '../../lib/alert';
@@ -100,6 +107,7 @@ interface AccountModalProps {
     display_name: string;
     avatar_url: string | null;
     user_id?: string;
+    is_elite?: boolean;
   } | null;
   onProfileSaved: () => void;
 }
@@ -123,6 +131,46 @@ export default function AccountModal({
   const isNative = Platform.OS === 'ios' || Platform.OS === 'android';
   const hasIAPSubscription = subscriptionCtx?.activeSource === 'iap';
   const hasOpenpaySubscription = subscriptionCtx?.activeSource === 'openpay';
+
+  // ÉLITE color
+  const isElite = profile?.is_elite;
+  const accentColor = isElite ? '#A855F7' : '#F97316';
+
+  // -------------------------------------------------------------------------
+  // DRAG TO CLOSE
+  // -------------------------------------------------------------------------
+  const translateY = useSharedValue(0);
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: (_, gestureState) => Math.abs(gestureState.dy) > 5,
+      onPanResponderMove: (_, gestureState) => {
+        if (gestureState.dy > 0) {
+          translateY.value = gestureState.dy;
+        }
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        if (gestureState.dy > 150) {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          onClose();
+        } else {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          translateY.value = withTiming(0, { duration: 200 });
+        }
+      },
+    })
+  ).current;
+
+  useEffect(() => {
+    if (visible) {
+      translateY.value = 0;
+    }
+  }, [visible, translateY]);
+
+  const animatedContainerStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: translateY.value }],
+  }));
 
   // Navigation
   const [section, setSection] = useState<Section>('main');
@@ -685,7 +733,15 @@ export default function AccountModal({
       <View className="items-center mb-8">
         <View
           className="w-24 h-24 rounded-full items-center justify-center mb-3"
-          style={{ borderWidth: 3, borderColor: isPro ? '#F97316' : '#3F3F46' }}
+          style={{
+            borderWidth: 3,
+            borderColor: isElite ? '#A855F7' : isPro ? '#F97316' : '#3F3F46',
+            shadowColor: isElite ? '#A855F7' : '#F97316',
+            shadowOffset: { width: 0, height: 0 },
+            shadowOpacity: isElite || isPro ? 0.8 : 0,
+            shadowRadius: 15,
+            elevation: isElite || isPro ? 10 : 0,
+          }}
         >
           <View className="w-20 h-20 rounded-full bg-zinc-800 overflow-hidden">
             {profile?.avatar_url ? (
@@ -708,12 +764,30 @@ export default function AccountModal({
         </View>
         <Text className="text-white text-xl font-bold">{profile?.display_name || 'Atleta'}</Text>
         <Text className="text-zinc-500 text-sm mt-1">{user?.email || ''}</Text>
-        {isPro && (
-          <View className="flex-row items-center gap-1 mt-2 px-3 py-1 bg-orange-500/20 rounded-full border border-orange-500/40">
-            <Crown size={12} color="#F97316" />
-            <Text className="text-orange-400 text-xs font-bold uppercase tracking-widest">PRO</Text>
-          </View>
-        )}
+        <View className="flex-row items-center gap-2 mt-2">
+          {isPro && (
+            <View className="flex-row items-center gap-1 px-3 py-1 bg-orange-500/20 rounded-full border border-orange-500/40">
+              <Crown size={12} color="#F97316" />
+              <Text className="text-orange-400 text-xs font-bold uppercase tracking-widest">
+                PRO
+              </Text>
+            </View>
+          )}
+          {isElite && (
+            <View
+              className="flex-row items-center gap-1 px-3 py-1 rounded-full"
+              style={{ backgroundColor: '#A855F720', borderWidth: 1, borderColor: '#A855F740' }}
+            >
+              <BadgeCheck size={12} color="#A855F7" />
+              <Text
+                className="text-xs font-bold uppercase tracking-widest"
+                style={{ color: '#A855F7' }}
+              >
+                ÉLITE
+              </Text>
+            </View>
+          )}
+        </View>
       </View>
 
       {/* Menu Items */}
@@ -1786,28 +1860,69 @@ export default function AccountModal({
   // =========================================================================
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={goBack}>
-      <View className="flex-1 bg-black/90 justify-end">
-        <View className="bg-zinc-900 rounded-t-3xl border-t border-zinc-800 max-h-[92%]">
-          {/* Header */}
-          <View className="flex-row items-center justify-between p-6 pb-4 border-b border-zinc-800/50">
-            {section !== 'main' ? (
-              <TouchableOpacity onPress={goBack} className="flex-row items-center gap-1">
-                <ChevronRight
-                  size={20}
-                  color="#F97316"
-                  style={{ transform: [{ rotate: '180deg' }] }}
-                />
-                <Text className="text-orange-400 font-medium">Atrás</Text>
-              </TouchableOpacity>
-            ) : (
+      <View className="flex-1 bg-transparent justify-end">
+        <ReanimatedAnimated.View
+          style={[
+            animatedContainerStyle,
+            {
+              backgroundColor: '#0a0a0a',
+              borderTopLeftRadius: 24,
+              borderTopRightRadius: 24,
+              height: '92%',
+              borderTopWidth: 2,
+              borderTopColor: isElite ? 'rgba(168, 85, 247, 0.5)' : 'rgba(220, 38, 38, 0.5)',
+              overflow: 'hidden',
+            },
+          ]}
+        >
+          {/* Línea de acento superior */}
+          <View
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              height: 3,
+              backgroundColor: isElite ? '#A855F7' : '#DC2626',
+              shadowColor: isElite ? '#A855F7' : '#DC2626',
+              shadowOffset: { width: 0, height: 0 },
+              shadowOpacity: 0.8,
+              shadowRadius: 10,
+              zIndex: 10,
+            }}
+          />
+
+          {/* Header Draggable */}
+          <View {...panResponder.panHandlers} className="border-b border-zinc-800/50">
+            {/* Drag Indicator */}
+            <View className="pt-4 pb-2 items-center">
+              <View className="w-12 h-1.5 bg-zinc-600 rounded-full" />
+              <Text className="text-zinc-600 text-[9px] mt-1 tracking-wider">
+                DESLIZA PARA CERRAR
+              </Text>
+            </View>
+
+            {/* Header Title + Navigation */}
+            <View className="flex-row items-center justify-between px-4 pb-4">
+              {section !== 'main' ? (
+                <TouchableOpacity onPress={goBack} className="flex-row items-center gap-1">
+                  <ChevronRight
+                    size={20}
+                    color={accentColor}
+                    style={{ transform: [{ rotate: '180deg' }] }}
+                  />
+                  <Text style={{ color: accentColor }} className="font-medium">
+                    Atrás
+                  </Text>
+                </TouchableOpacity>
+              ) : (
+                <View />
+              )}
+              <Text className="text-white text-lg font-bold absolute left-0 right-0 text-center">
+                {getSectionTitle()}
+              </Text>
               <View />
-            )}
-            <Text className="text-white text-lg font-bold absolute left-0 right-0 text-center">
-              {getSectionTitle()}
-            </Text>
-            <TouchableOpacity onPress={onClose} className="z-10">
-              <X size={24} color="#71717a" />
-            </TouchableOpacity>
+            </View>
           </View>
 
           {/* Content */}
@@ -1818,7 +1933,7 @@ export default function AccountModal({
           >
             {renderSection()}
           </ScrollView>
-        </View>
+        </ReanimatedAnimated.View>
       </View>
     </Modal>
   );

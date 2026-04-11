@@ -1,6 +1,6 @@
 // Service Worker mínimo - solo para PWA install
-// Cache version: 2026-04-02-v2 - FIX INSTALL + NO HANG
-const CACHE_VERSION = '2026-04-02-v2';
+// Cache version: 2026-04-11-v1 - Force refresh after ÉLITE update
+const CACHE_VERSION = '2026-04-11-v1';
 
 self.addEventListener('install', () => {
   self.skipWaiting();

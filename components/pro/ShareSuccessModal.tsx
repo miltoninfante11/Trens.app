@@ -1,13 +1,14 @@
 // =============================================================================
 // SHARE SUCCESS MODAL - Modal post-guardado con opciones de compartir
-// Estilo SAVAGE con links directos a redes sociales
+// Branding editor local — sin almacenamiento en la nube
 // =============================================================================
 
 import React, { useEffect } from 'react';
-import { View, Text, TouchableOpacity, Modal, Share } from 'react-native';
-import * as Clipboard from 'expo-clipboard';
+import { View, Text, TouchableOpacity, Modal, Platform } from 'react-native';
+import * as Sharing from 'expo-sharing';
+import * as MediaLibrary from 'expo-media-library';
 import * as Linking from 'expo-linking';
-import { CheckCircle, Copy, Share2, X, MessageCircle, Instagram } from 'lucide-react-native';
+import { CheckCircle, Download, Share2, MessageCircle, Instagram } from 'lucide-react-native';
 import * as Haptics from '../../lib/haptics';
 import Animated, {
   useSharedValue,
@@ -25,40 +26,9 @@ interface ShareSuccessModalProps {
   visible: boolean;
   onClose: () => void;
   mediaType: 'video' | 'photo';
-  exerciseName?: string | null;
-  weight?: number | null;
-  reps?: number | null;
-  isPublic: boolean;
-  videoId?: string; // ID para generar link compartible
+  localUri?: string;
+  isPublic?: boolean;
 }
-
-// =============================================================================
-// SHARE BUTTONS CONFIG
-// =============================================================================
-
-const SHARE_OPTIONS = [
-  {
-    id: 'instagram',
-    name: 'Instagram',
-    icon: Instagram,
-    color: '#E4405F',
-    action: 'stories',
-  },
-  {
-    id: 'whatsapp',
-    name: 'WhatsApp',
-    icon: MessageCircle,
-    color: '#25D366',
-    action: 'share',
-  },
-  {
-    id: 'more',
-    name: 'Más',
-    icon: Share2,
-    color: '#71717A',
-    action: 'native',
-  },
-];
 
 // =============================================================================
 // COMPONENT
@@ -68,20 +38,16 @@ export function ShareSuccessModal({
   visible,
   onClose,
   mediaType,
-  exerciseName,
-  weight,
-  reps,
-  isPublic,
-  videoId,
+  localUri,
 }: ShareSuccessModalProps) {
-  const [copied, setCopied] = React.useState(false);
+  const [savedToGallery, setSavedToGallery] = React.useState(false);
 
-  // Animación del check
   const checkScale = useSharedValue(0);
 
   useEffect(() => {
     if (visible) {
       checkScale.value = withDelay(200, withSpring(1, { damping: 8, stiffness: 150 }));
+      setSavedToGallery(false);
     } else {
       checkScale.value = 0;
     }
@@ -91,112 +57,71 @@ export function ShareSuccessModal({
     transform: [{ scale: checkScale.value }],
   }));
 
-  // Generar link compartible
-  const shareLink = videoId ? `https://trens.app/v/${videoId}` : null;
-
-  // Generar texto para compartir
-  const generateShareText = () => {
-    let text = '🔥 ';
-
-    if (exerciseName) {
-      text += exerciseName;
-    } else {
-      text += 'Entrenamiento';
-    }
-
-    if (weight && reps) {
-      text += ` | ${weight}kg × ${reps} reps`;
-    } else if (weight) {
-      text += ` | ${weight}kg`;
-    }
-
-    text += '\n\n#TRENS #Fitness #GymLife';
-
-    if (shareLink) {
-      text += `\n\n${shareLink}`;
-    }
-
-    return text;
-  };
-
-  // Copiar link
-  const handleCopyLink = async () => {
-    if (shareLink) {
-      await Clipboard.setStringAsync(shareLink);
-      setCopied(true);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      setTimeout(() => setCopied(false), 2000);
-    }
-  };
-
-  // Compartir a WhatsApp
-  const handleWhatsApp = async () => {
-    const text = encodeURIComponent(generateShareText());
-    const url = `whatsapp://send?text=${text}`;
-
+  // ── Compartir archivo nativo ──
+  const handleShare = async () => {
+    if (!localUri) return;
     try {
-      const canOpen = await Linking.canOpenURL(url);
-      if (canOpen) {
-        await Linking.openURL(url);
-      } else {
-        // Fallback a share nativo
-        handleNativeShare();
+      const available = await Sharing.isAvailableAsync();
+      if (available) {
+        await Sharing.shareAsync(localUri, {
+          mimeType: mediaType === 'video' ? 'video/mp4' : 'image/jpeg',
+          dialogTitle: 'Compartir desde TRENS',
+        });
       }
-    } catch {
-      handleNativeShare();
-    }
-
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-  };
-
-  // Compartir nativo
-  const handleNativeShare = async () => {
-    try {
-      await Share.share({
-        message: generateShareText(),
-        title: exerciseName || 'Mi entrenamiento',
-      });
     } catch (e) {
       console.warn('Error sharing:', e);
     }
-
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
   };
 
-  // Instagram Stories (requiere que el video ya esté guardado en galería)
-  const handleInstagram = async () => {
-    // Instagram Stories se abre con el video del carrete
-    // El usuario ya tiene el video guardado, solo abrimos IG
-    const url = 'instagram://story-camera';
+  // ── Guardar en galería ──
+  const handleSaveToGallery = async () => {
+    if (!localUri) return;
 
+    try {
+      if (Platform.OS === 'web') {
+        // Web: descargar archivo
+        const a = document.createElement('a');
+        a.href = localUri;
+        a.download = `trens_${mediaType}_${Date.now()}.${mediaType === 'video' ? 'mp4' : 'jpg'}`;
+        a.click();
+      } else {
+        const { status } = await MediaLibrary.requestPermissionsAsync();
+        if (status === 'granted') {
+          await MediaLibrary.saveToLibraryAsync(localUri);
+        }
+      }
+      setSavedToGallery(true);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (e) {
+      console.warn('Error saving to gallery:', e);
+    }
+  };
+
+  // ── Instagram Stories ──
+  const handleInstagram = async () => {
+    // Guardar primero en galería para que el usuario lo tenga disponible
+    if (!savedToGallery) await handleSaveToGallery();
+
+    const url = 'instagram://story-camera';
     try {
       const canOpen = await Linking.canOpenURL(url);
       if (canOpen) {
         await Linking.openURL(url);
       } else {
-        // Fallback: abrir Instagram normal
-        await Linking.openURL('instagram://');
+        await Linking.openURL('https://instagram.com');
       }
     } catch {
-      // Si no tiene Instagram, abrir web
       await Linking.openURL('https://instagram.com');
     }
-
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
   };
 
-  const handleShareOption = (optionId: string) => {
-    switch (optionId) {
-      case 'instagram':
-        handleInstagram();
-        break;
-      case 'whatsapp':
-        handleWhatsApp();
-        break;
-      case 'more':
-        handleNativeShare();
-        break;
-    }
+  // ── WhatsApp ──
+  const handleWhatsApp = async () => {
+    // Primero compartir el archivo directamente vía share nativo
+    await handleShare();
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
   };
 
   return (
@@ -206,14 +131,6 @@ export function ShareSuccessModal({
           entering={SlideInUp.springify().damping(15)}
           className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 w-full max-w-sm"
         >
-          {/* Close Button */}
-          <TouchableOpacity
-            onPress={onClose}
-            className="absolute top-4 right-4 w-8 h-8 rounded-full bg-zinc-800 items-center justify-center z-10"
-          >
-            <X color="#71717A" size={18} />
-          </TouchableOpacity>
-
           {/* Success Icon */}
           <View className="items-center mb-4">
             <Animated.View
@@ -223,16 +140,17 @@ export function ShareSuccessModal({
                   width: 72,
                   height: 72,
                   borderRadius: 36,
-                  backgroundColor: 'rgba(34, 197, 94, 0.2)',
+                  backgroundColor: 'rgba(220, 38, 38, 0.2)',
                   alignItems: 'center',
                   justifyContent: 'center',
                 },
               ]}
             >
               <View
-                className="w-14 h-14 rounded-full bg-green-500 items-center justify-center"
+                className="w-14 h-14 rounded-full items-center justify-center"
                 style={{
-                  shadowColor: '#22C55E',
+                  backgroundColor: '#DC2626',
+                  shadowColor: '#DC2626',
                   shadowOffset: { width: 0, height: 4 },
                   shadowOpacity: 0.5,
                   shadowRadius: 12,
@@ -245,78 +163,72 @@ export function ShareSuccessModal({
 
           {/* Title */}
           <Text className="text-white text-xl font-bold text-center mb-1">
-            {mediaType === 'video' ? '¡VIDEO GUARDADO!' : '¡FOTO GUARDADA!'}
+            {mediaType === 'video' ? '¡VIDEO LISTO!' : '¡FOTO LISTA!'}
           </Text>
 
           {/* Subtitle */}
           <Text className="text-zinc-400 text-center text-sm mb-6">
-            {isPublic ? 'Tu contenido está listo para compartir' : 'Guardado en tu bóveda privada'}
+            Comparte tu contenido con branding TRENS
           </Text>
 
-          {/* Exercise Info */}
-          {exerciseName && (
-            <View className="bg-zinc-800/50 rounded-xl p-3 mb-4">
-              <Text className="text-zinc-400 text-xs mb-1">EJERCICIO</Text>
-              <Text className="text-white font-bold text-lg">{exerciseName}</Text>
-              {weight && reps && (
-                <Text className="text-savage-red font-mono text-sm mt-1">
-                  {weight}kg × {reps} reps
-                </Text>
-              )}
-            </View>
-          )}
-
-          {/* Share Link */}
-          {shareLink && isPublic && (
-            <View className="mb-4">
-              <Text className="text-zinc-500 text-xs mb-2 uppercase tracking-wide">
-                Link para compartir
-              </Text>
-              <TouchableOpacity
-                onPress={handleCopyLink}
-                className="flex-row items-center bg-zinc-800 rounded-xl px-4 py-3"
-              >
-                <Text className="flex-1 text-white text-sm font-mono" numberOfLines={1}>
-                  {shareLink}
-                </Text>
+          {/* Share Options */}
+          <View className="mb-4">
+            <Text className="text-zinc-500 text-xs mb-3 uppercase tracking-wide">Compartir en</Text>
+            <View className="flex-row justify-center gap-4">
+              {/* Instagram */}
+              <TouchableOpacity onPress={handleInstagram} className="items-center">
                 <View
-                  className={`px-3 py-1 rounded-lg ${copied ? 'bg-green-500/20' : 'bg-zinc-700'}`}
+                  className="w-14 h-14 rounded-2xl items-center justify-center mb-2"
+                  style={{ backgroundColor: 'rgba(228, 64, 95, 0.2)' }}
                 >
-                  {copied ? (
-                    <Text className="text-green-500 text-xs font-bold">COPIADO</Text>
-                  ) : (
-                    <Copy color="#A1A1AA" size={16} />
-                  )}
+                  <Instagram color="#E4405F" size={24} />
                 </View>
+                <Text className="text-zinc-400 text-xs">Instagram</Text>
+              </TouchableOpacity>
+
+              {/* WhatsApp */}
+              <TouchableOpacity onPress={handleWhatsApp} className="items-center">
+                <View
+                  className="w-14 h-14 rounded-2xl items-center justify-center mb-2"
+                  style={{ backgroundColor: 'rgba(37, 211, 102, 0.2)' }}
+                >
+                  <MessageCircle color="#25D366" size={24} />
+                </View>
+                <Text className="text-zinc-400 text-xs">WhatsApp</Text>
+              </TouchableOpacity>
+
+              {/* Más */}
+              <TouchableOpacity onPress={handleShare} className="items-center">
+                <View
+                  className="w-14 h-14 rounded-2xl items-center justify-center mb-2"
+                  style={{ backgroundColor: 'rgba(113, 113, 122, 0.2)' }}
+                >
+                  <Share2 color="#71717A" size={24} />
+                </View>
+                <Text className="text-zinc-400 text-xs">Más</Text>
               </TouchableOpacity>
             </View>
-          )}
+          </View>
 
-          {/* Share Options */}
-          {isPublic && (
-            <View className="mb-4">
-              <Text className="text-zinc-500 text-xs mb-3 uppercase tracking-wide">
-                Compartir en
-              </Text>
-              <View className="flex-row justify-center gap-4">
-                {SHARE_OPTIONS.map((option) => (
-                  <TouchableOpacity
-                    key={option.id}
-                    onPress={() => handleShareOption(option.id)}
-                    className="items-center"
-                  >
-                    <View
-                      className="w-14 h-14 rounded-2xl items-center justify-center mb-2"
-                      style={{ backgroundColor: `${option.color}20` }}
-                    >
-                      <option.icon color={option.color} size={24} />
-                    </View>
-                    <Text className="text-zinc-400 text-xs">{option.name}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </View>
-          )}
+          {/* Save to Gallery */}
+          <TouchableOpacity
+            onPress={handleSaveToGallery}
+            className="flex-row items-center justify-center py-4 rounded-2xl mb-3"
+            style={{
+              backgroundColor: savedToGallery
+                ? 'rgba(34, 197, 94, 0.15)'
+                : 'rgba(220, 38, 38, 0.15)',
+            }}
+          >
+            <Download
+              color={savedToGallery ? '#22C55E' : '#DC2626'}
+              size={20}
+              style={{ marginRight: 8 }}
+            />
+            <Text className="font-bold" style={{ color: savedToGallery ? '#22C55E' : '#DC2626' }}>
+              {savedToGallery ? 'GUARDADO ✓' : 'GUARDAR EN GALERÍA'}
+            </Text>
+          </TouchableOpacity>
 
           {/* Done Button */}
           <TouchableOpacity onPress={onClose} className="py-4 rounded-2xl items-center bg-zinc-800">

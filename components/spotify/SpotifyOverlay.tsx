@@ -442,25 +442,29 @@ export function SpotifyOverlay() {
   const isGymModule =
     pathname?.includes('gym') || pathname === '/gym' || pathname === '/(tabs)/gym';
 
+  // Verificar si estamos en el módulo PRO
+  const isProModule =
+    pathname?.includes('pro') || pathname === '/pro' || pathname === '/(tabs)/pro';
+
   // Verificar si estamos en Feed (siempre oculto)
   const isFeedModule =
     pathname?.includes('feed') || pathname === '/feed/index' || pathname === '/feed';
 
   // Lógica de visibilidad:
   // - Si está en Feed → SIEMPRE oculto
-  // - Si Spotify NO está conectado → solo visible en GYM
+  // - Si Spotify NO está conectado → solo visible en GYM y PRO
   // - Si Spotify SÍ está conectado → visible en todos excepto Feed
-  const isHidden = isFeedModule || (!spotifyConnected && !isGymModule);
+  const isHidden = isFeedModule || (!spotifyConnected && !isGymModule && !isProModule);
 
   // -------------------------------------------------------------------------
-  // 🔥 WARM UP AUTOMÁTICO - Pre-calentar Spotify al entrar a GYM
+  // 🔥 WARM UP AUTOMÁTICO - Pre-calentar Spotify al entrar a GYM o PRO
   // -------------------------------------------------------------------------
   useEffect(() => {
     // Solo hacer warm-up si:
     // 1. Spotify está conectado
-    // 2. Estamos en el módulo GYM
+    // 2. Estamos en el módulo GYM o PRO
     // 3. No está oculto
-    if (spotifyConnected && isGymModule && !isHidden) {
+    if (spotifyConnected && (isGymModule || isProModule) && !isHidden) {
       // Warm-up silencioso en segundo plano
       spotify.warmUp().then((ready) => {
         if (ready) {
@@ -470,7 +474,7 @@ export function SpotifyOverlay() {
         setWarmUpStatus(spotify.getWarmUpStatus());
       });
     }
-  }, [spotifyConnected, isGymModule, isHidden]);
+  }, [spotifyConnected, isGymModule, isProModule, isHidden]);
 
   // -------------------------------------------------------------------------
   // 🔥 POLLING DE WARM-UP STATUS
@@ -575,7 +579,9 @@ export function SpotifyOverlay() {
   // POLLING DE PLAYBACK STATE
   // -------------------------------------------------------------------------
   useEffect(() => {
-    if (!spotifyConnected || isHidden) return;
+    // Polling si Spotify conectado y no oculto, o si estamos en GYM/PRO
+    const shouldPoll = (!isHidden && spotifyConnected) || isGymModule || isProModule;
+    if (!shouldPoll) return;
 
     const interval = setInterval(async () => {
       try {
@@ -598,7 +604,7 @@ export function SpotifyOverlay() {
     }, 5000);
 
     return () => clearInterval(interval);
-  }, [spotifyConnected, isHidden]);
+  }, [spotifyConnected, isHidden, isGymModule, isProModule]);
 
   // -------------------------------------------------------------------------
   // ANIMACIÓN DE PULSO CUANDO HAY REPRODUCCIÓN

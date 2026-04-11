@@ -17,6 +17,7 @@ export interface AdminUser {
   created_at: string;
   training_frequency?: number;
   role: 'free' | 'pro' | 'admin' | 'ceo';
+  is_elite?: boolean;
   pro_expires_at?: string;
   subscription?: {
     user_id: string;
@@ -251,6 +252,18 @@ export async function impersonateUser(
   return { token_hash: data.token_hash, email: data.email };
 }
 
+/**
+ * Toggle ÉLITE status de un usuario
+ */
+export async function toggleElite(userId: string, isElite: boolean): Promise<void> {
+  const { error } = await supabase
+    .from('user_profiles')
+    .update({ is_elite: isElite })
+    .eq('user_id', userId);
+
+  if (error) throw new Error(error.message);
+}
+
 export default {
   createUser,
   listUsers,
@@ -265,4 +278,5 @@ export default {
   getUserCards,
   deleteUserCard,
   impersonateUser,
+  toggleElite,
 };

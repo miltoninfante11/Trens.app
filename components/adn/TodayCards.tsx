@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import { View, Text, ActivityIndicator, ScrollView, Pressable, Image } from 'react-native';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import {
@@ -13,10 +13,14 @@ import {
   FlaskConical,
   Droplets,
   Activity,
+  Volume2,
+  VolumeX,
 } from 'lucide-react-native';
 import { router, useFocusEffect } from 'expo-router';
+import * as Speech from 'expo-speech';
 import * as Haptics from '../../lib/haptics';
 import { supabase } from '../../lib/supabase';
+import { hankSpeakState } from '../../lib/hankSpeakState';
 
 // ============================================================================
 // TYPES
@@ -641,6 +645,8 @@ export const TodayCards: React.FC<TodayCardsProps> = ({ userId }) => {
   const [loading, setLoading] = useState(true);
   const [timeline, setTimeline] = useState<TimelineItem[]>([]);
   const [nextItemId, setNextItemId] = useState<string | null>(null);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const speakingRef = useRef(false);
 
   const fetchTodayData = useCallback(async () => {
     if (!userId) {
@@ -981,23 +987,25 @@ export const TodayCards: React.FC<TodayCardsProps> = ({ userId }) => {
       }
 
       // =====================================================================
-      // 5. FILTER: ONLY NEXT UPCOMING OF EACH TYPE
+      // 5. FILTER: ITEMS IN THE NEXT 5 HOURS
       // =====================================================================
       items.sort((a, b) => a.minutes - b.minutes);
 
-      // For each type, pick the first item with time >= now (or the last one if all passed)
-      const nextByType: Record<string, TimelineItem> = {};
-      const types: TimelineItemType[] = ['meal', 'stack', 'workout', 'cardio'];
+      const fiveHoursLater = currentMinutes + 5 * 60;
+      // Show items from now (or up to 30min ago if in progress) to 5h ahead
+      const filtered = items.filter(
+        (i) => i.minutes >= currentMinutes - 30 && i.minutes <= fiveHoursLater
+      );
 
-      types.forEach((type) => {
-        const ofType = items.filter((i) => i.type === type);
-        if (ofType.length === 0) return;
-        const upcoming = ofType.find((i) => i.minutes >= currentMinutes);
-        nextByType[type] = upcoming || ofType[ofType.length - 1];
-      });
-
-      const filtered = Object.values(nextByType);
-      filtered.sort((a, b) => a.minutes - b.minutes);
+      // If nothing in window, show the next upcoming item of each type as fallback
+      if (filtered.length === 0) {
+        const types: TimelineItemType[] = ['meal', 'stack', 'workout', 'cardio'];
+        types.forEach((type) => {
+          const upcoming = items.find((i) => i.type === type && i.minutes >= currentMinutes);
+          if (upcoming) filtered.push(upcoming);
+        });
+        filtered.sort((a, b) => a.minutes - b.minutes);
+      }
 
       // The overall next item is the first one >= now
       const nextItem = filtered.find((i) => i.minutes >= currentMinutes) || filtered[0];
@@ -1010,6 +1018,162 @@ export const TodayCards: React.FC<TodayCardsProps> = ({ userId }) => {
       setLoading(false);
     }
   }, [userId]);
+
+  // ===========================================================================
+  // TTS — Narrar "Lo que viene"
+  // ===========================================================================
+  const buildNarrationText = useCallback((): string => {
+    if (timeline.length === 0) return 'No tienes actividades pendientes.';
+
+    const currentMinutes = getCurrentMinutes();
+    const parts: string[] = ['Esto es lo que viene.'];
+
+    timeline.forEach((item) => {
+      const timeLabel = formatTime12h(item.time);
+      const diff = item.minutes - currentMinutes;
+      const isNow = diff >= -30 && diff <= 0;
+      const timeContext = isNow
+        ? 'ahora mismo'
+        : diff > 0
+          ? `en ${Math.floor(diff / 60) > 0 ? `${Math.floor(diff / 60)} hora${Math.floor(diff / 60) > 1 ? 's' : ''} y ` : ''}${diff % 60} minutos`
+          : '';
+
+      switch (item.type) {
+        case 'meal': {
+          const ingredients: string[] = item.data.ingredients || [];
+          const ingText = ingredients.length > 0 ? `: ${ingredients.slice(0, 5).join(', ')}` : '';
+          parts.push(
+            `${item.label} a las ${timeLabel}${timeContext ? `, ${timeContext}` : ''}${ingText}.`
+          );
+          break;
+        }
+        case 'stack': {
+          const stackItems: Array<{ name: string; dose: string }> = item.data.items || [];
+          const stackText = stackItems
+            .slice(0, 4)
+            .map((s) => `${s.name}${s.dose ? ` ${s.dose}` : ''}`)
+            .join(', ');
+          parts.push(
+            `Suplementos a las ${timeLabel}${timeContext ? `, ${timeContext}` : ''}: ${stackText}.`
+          );
+          break;
+        }
+        case 'workout': {
+          const exercises: Exercise[] = item.data.exercises || [];
+          const isRest = item.data.isRestDay;
+          const sessionLabel = item.data.sessionLabel || item.label;
+          const preStacks: WorkoutStackItem[] = item.data.preStacks || [];
+          const postStacks: WorkoutStackItem[] = item.data.postStacks || [];
+          const preCardios: CardioItem[] = item.data.preCardios || [];
+          const postCardios: CardioItem[] = item.data.postCardios || [];
+
+          if (isRest) {
+            parts.push('Hoy es día de descanso.');
+          } else {
+            // Pre-workout supplements first
+            if (preStacks.length > 0) {
+              parts.push(`Pre-entreno: ${preStacks.map((s) => `${s.name} ${s.dose}`).join(', ')}.`);
+            }
+            // Pre-workout cardio
+            if (preCardios.length > 0) {
+              preCardios.forEach((c) => {
+                const eq = c.activity || c.cardio_type || 'cardio';
+                const dur = c.duration_minutes ? `, ${c.duration_minutes} minutos` : '';
+                parts.push(`Cardio pre-entreno: ${eq}${dur}.`);
+              });
+            }
+            // Session
+            parts.push(
+              `Entrenamiento ${sessionLabel} a las ${timeLabel}${timeContext ? `, ${timeContext}` : ''}, con ${exercises.length} ejercicio${exercises.length !== 1 ? 's' : ''}.`
+            );
+            // Post-workout cardio
+            if (postCardios.length > 0) {
+              postCardios.forEach((c) => {
+                const eq = c.activity || c.cardio_type || 'cardio';
+                const dur = c.duration_minutes ? `, ${c.duration_minutes} minutos` : '';
+                parts.push(`Cardio post-entreno: ${eq}${dur}.`);
+              });
+            }
+            // Post-workout supplements
+            if (postStacks.length > 0) {
+              parts.push(
+                `Post-entreno: ${postStacks.map((s) => `${s.name} ${s.dose}`).join(', ')}.`
+              );
+            }
+          }
+          break;
+        }
+        case 'cardio': {
+          const c = item.data as CardioItem;
+          const equipment = c.activity || c.cardio_type || 'sesión';
+          const duration = c.duration_minutes ? `${c.duration_minutes} minutos` : '';
+          const intensity = c.intensity ? `, intensidad ${c.intensity}` : '';
+          const context = c.is_pre_workout
+            ? ' antes del entrenamiento'
+            : c.is_post_workout
+              ? ' después del entrenamiento'
+              : '';
+          parts.push(
+            `Cardio${context} a las ${timeLabel}${timeContext ? `, ${timeContext}` : ''}: ${equipment}${duration ? `, ${duration}` : ''}${intensity}.`
+          );
+          break;
+        }
+      }
+    });
+
+    parts.push('Eso es todo por ahora. A darle.');
+    return parts.join(' ');
+  }, [timeline]);
+
+  const handleSpeak = useCallback(async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
+    if (speakingRef.current) {
+      Speech.stop();
+      speakingRef.current = false;
+      setIsSpeaking(false);
+      hankSpeakState.set(false);
+      return;
+    }
+
+    // Strip emojis and fix abbreviations for TTS
+    const raw = buildNarrationText();
+    const text = raw
+      .replace(
+        /[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{FE00}-\u{FE0F}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{200D}\u{20E3}\u{E0020}-\u{E007F}]/gu,
+        ''
+      )
+      .replace(/\bgr\b/gi, 'gramos')
+      .replace(/\bml\b/gi, 'mililitros')
+      .replace(/\bmg\b/gi, 'miligramos')
+      .replace(/\bkcal\b/gi, 'kilocalorías')
+      .replace(/\s{2,}/g, ' ')
+      .trim();
+
+    speakingRef.current = true;
+    setIsSpeaking(true);
+    hankSpeakState.set(true);
+
+    Speech.speak(text, {
+      language: 'es-MX',
+      rate: 0.92,
+      onDone: () => {
+        speakingRef.current = false;
+        setIsSpeaking(false);
+        hankSpeakState.set(false);
+      },
+      onStopped: () => {
+        speakingRef.current = false;
+        setIsSpeaking(false);
+        hankSpeakState.set(false);
+      },
+      onError: () => {
+        speakingRef.current = false;
+        setIsSpeaking(false);
+        hankSpeakState.set(false);
+      },
+    });
+  }, [buildNarrationText]);
 
   useFocusEffect(
     useCallback(() => {
@@ -1063,16 +1227,38 @@ export const TodayCards: React.FC<TodayCardsProps> = ({ userId }) => {
             LO QUE VIENE
           </Text>
         </View>
-        <Pressable
-          onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            router.push('/(tabs)/plan');
-          }}
-          className="px-3 py-1.5 rounded-lg active:scale-95"
-          style={{ backgroundColor: '#DC262615' }}
-        >
-          <Text className="text-red-600 text-[10px] font-bold tracking-wider">VER PLAN</Text>
-        </Pressable>
+        <View className="flex-row items-center gap-2">
+          {/* Audio TTS */}
+          <Pressable
+            onPress={handleSpeak}
+            className="px-3 py-1.5 rounded-lg active:scale-95 flex-row items-center gap-1.5"
+            style={{
+              backgroundColor: isSpeaking ? '#DC262625' : '#DC262610',
+              borderWidth: isSpeaking ? 1 : 0,
+              borderColor: '#DC262650',
+            }}
+          >
+            {isSpeaking ? (
+              <VolumeX size={12} color="#DC2626" />
+            ) : (
+              <Volume2 size={12} color="#DC2626" />
+            )}
+            <Text className="text-red-600 text-[10px] font-bold tracking-wider">
+              {isSpeaking ? 'PARAR' : 'AUDIO'}
+            </Text>
+          </Pressable>
+          {/* Ver Plan */}
+          <Pressable
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              router.push('/(tabs)/plan');
+            }}
+            className="px-3 py-1.5 rounded-lg active:scale-95"
+            style={{ backgroundColor: '#DC262615' }}
+          >
+            <Text className="text-red-600 text-[10px] font-bold tracking-wider">VER PLAN</Text>
+          </Pressable>
+        </View>
       </View>
 
       {/* Timeline */}

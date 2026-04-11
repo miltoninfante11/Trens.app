@@ -32,6 +32,8 @@ import {
   Trophy,
   ImageIcon,
   Pencil,
+  Crown,
+  BadgeCheck,
 } from 'lucide-react-native';
 import * as Haptics from '../../../lib/haptics';
 
@@ -76,6 +78,7 @@ interface UserProfile {
   training_experience?: string;
   metabolic_rate?: string;
   training_days_per_week?: number;
+  is_elite?: boolean;
   // Campos CALCULADOS (vienen de GYM y PLAN)
   training_frequency?: number;
   meal_count?: number;
@@ -898,8 +901,8 @@ function AdnScreenContent() {
                 className="w-24 h-24 rounded-full items-center justify-center"
                 style={{
                   borderWidth: 3,
-                  borderColor: '#F97316',
-                  shadowColor: '#F97316',
+                  borderColor: profile?.is_elite ? '#A855F7' : '#F97316',
+                  shadowColor: profile?.is_elite ? '#A855F7' : '#F97316',
                   shadowOffset: { width: 0, height: 0 },
                   shadowOpacity: 0.8,
                   shadowRadius: 15,
@@ -934,32 +937,10 @@ function AdnScreenContent() {
                 )}
               </TouchableOpacity>
 
-              {/* Badge PRO/FREE debajo del avatar */}
-              <View
-                className={`mt-2 px-3 py-1 rounded-full ${isPro ? '' : 'bg-zinc-800'}`}
-                style={
-                  isPro
-                    ? {
-                        backgroundColor: '#0a0000',
-                        borderWidth: 2,
-                        borderColor: '#F97316',
-                        shadowColor: '#DC2626',
-                        shadowOffset: { width: 0, height: 0 },
-                        shadowOpacity: 0.8,
-                        shadowRadius: 10,
-                      }
-                    : {}
-                }
-              >
-                <Text
-                  className={`text-xs font-bold ${isPro ? 'text-fire-orange' : 'text-zinc-500'}`}
-                >
-                  {isPro ? '🔥 PRO' : '🔒 FREE'}
-                </Text>
-              </View>
+              {/* Badge PRO/FREE — movido debajo del nombre */}
             </View>
 
-            {/* Columna derecha: Nombre + Sport Badges */}
+            {/* Columna derecha: Nombre + PRO Badge */}
             <View className="flex-1 ml-4 justify-center">
               {/* Nombre con Fire Glow - Tocable para editar */}
               <TouchableOpacity
@@ -970,7 +951,7 @@ function AdnScreenContent() {
                 <Text
                   className="text-2xl font-black text-white uppercase tracking-tight"
                   style={{
-                    textShadowColor: '#F97316',
+                    textShadowColor: profile?.is_elite ? '#A855F7' : '#F97316',
                     textShadowOffset: { width: 0, height: 0 },
                     textShadowRadius: 10,
                   }}
@@ -980,9 +961,50 @@ function AdnScreenContent() {
                 {isOwner && <Pencil size={14} color="#71717a" className="ml-2" />}
               </TouchableOpacity>
 
-              {/* Sport Badges */}
-              <View className="mt-3">
-                <SportBadges />
+              {/* PRO + ÉLITE Badges - debajo del nombre */}
+              <View className="mt-2 flex-row items-center gap-2">
+                <View
+                  className={`px-3 py-1 rounded-full flex-row items-center gap-1.5 ${isPro ? '' : 'bg-zinc-900 border border-zinc-800'}`}
+                  style={
+                    isPro
+                      ? {
+                          backgroundColor: '#0a0000',
+                          borderWidth: 1.5,
+                          borderColor: '#F97316',
+                          shadowColor: '#DC2626',
+                          shadowOffset: { width: 0, height: 0 },
+                          shadowOpacity: 0.6,
+                          shadowRadius: 8,
+                        }
+                      : {}
+                  }
+                >
+                  {isPro ? <Crown size={12} color="#F97316" /> : <Lock size={10} color="#71717a" />}
+                  <Text
+                    className={`text-[10px] font-bold tracking-widest ${isPro ? 'text-fire-orange' : 'text-zinc-500'}`}
+                  >
+                    {isPro ? 'PRO' : 'FREE'}
+                  </Text>
+                </View>
+                {profile?.is_elite && (
+                  <View
+                    className="px-3 py-1 rounded-full flex-row items-center gap-1.5"
+                    style={{
+                      backgroundColor: '#0a000a',
+                      borderWidth: 1.5,
+                      borderColor: '#A855F7',
+                      shadowColor: '#A855F7',
+                      shadowOffset: { width: 0, height: 0 },
+                      shadowOpacity: 0.6,
+                      shadowRadius: 8,
+                    }}
+                  >
+                    <BadgeCheck size={12} color="#A855F7" />
+                    <Text className="text-[10px] font-bold tracking-widest text-purple-400">
+                      ÉLITE
+                    </Text>
+                  </View>
+                )}
               </View>
             </View>
           </View>
@@ -1051,403 +1073,408 @@ function AdnScreenContent() {
           )}
         </View>
 
-        {/* INSTAGRAM CONNECT — Solo visible para el dueño del perfil */}
+        {/* INSTAGRAM CONNECT — Oculto temporalmente
         {isOwner && isPro && (
           <View className="px-4 mt-4">
             <InstagramConnectButton />
           </View>
         )}
+        */}
 
-        {/* RECORDS (PÚBLICO) - ED HARDY FIRE STYLE */}
-        <View className={`px-4 ${!isOwner ? 'mt-8' : ''}`}>
-          <View className="flex-row justify-between items-center mb-3 border-b border-fire-red/30 pb-2">
-            <View className="flex-row items-center gap-2">
-              <Text className="text-fire-orange text-sm">🔥</Text>
-              <Text
-                className="text-fire-orange font-bold uppercase tracking-widest text-xs"
-                style={{
-                  textShadowColor: '#F97316',
-                  textShadowOffset: { width: 0, height: 0 },
-                  textShadowRadius: 5,
-                }}
-              >
-                Top 3 Récords
-              </Text>
-            </View>
-            <Text className="text-zinc-600 text-xs font-mono">VIDEOS PÚBLICOS</Text>
-          </View>
-
-          <View className="flex-row gap-2">
-            {records.slice(0, 3).map((rec) => {
-              // Buscar el video asociado para obtener el thumbnail y spotify
-              const associatedVideo = videos.find((v) => v.id === rec.video_id);
-              const hasSpotify = !!associatedVideo?.spotify?.enabled;
-              return (
-                <View key={rec.id} className="flex-1">
-                  <RecordCard
-                    record={rec}
-                    thumbnailUrl={associatedVideo?.thumbnail_url}
-                    hasSpotify={hasSpotify}
-                    onPress={() => {
-                      setSelectedRecord(rec);
-                      setSelectedRecordVideo(associatedVideo || null);
-                      setRecordViewerVisible(true);
-                    }}
-                  />
-                </View>
-              );
-            })}
-
-            {/* Botón añadir (solo dueño y si hay espacio) - NO manual según MASTER */}
-            {/* Los récords solo se eligen desde videos públicos, no ingreso manual */}
-            {isOwner && records.length < 3 && publicVideos.length > 0 && (
-              <TouchableOpacity
-                onPress={() => {
-                  if (!isPro) {
-                    setShowUpgradeModal(true);
-                    return;
-                  }
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                  setShowAddModal(true);
-                }}
-                className="flex-1 min-h-[160px] rounded items-center justify-center"
-                style={{
-                  borderWidth: 1,
-                  borderColor: '#F97316',
-                  borderStyle: 'dashed',
-                  backgroundColor: '#0a0500',
-                }}
-              >
-                <View
-                  className="w-10 h-10 rounded-full items-center justify-center mb-2"
+        {/* RECORDS (PÚBLICO) — Oculto temporalmente */}
+        {false && (
+          <View className={`px-4 ${!isOwner ? 'mt-8' : ''}`}>
+            <View className="flex-row justify-between items-center mb-3 border-b border-fire-red/30 pb-2">
+              <View className="flex-row items-center gap-2">
+                <Text className="text-fire-orange text-sm">🔥</Text>
+                <Text
+                  className="text-fire-orange font-bold uppercase tracking-widest text-xs"
                   style={{
-                    backgroundColor: '#1a0a00',
-                    borderWidth: 1,
-                    borderColor: '#F97316',
+                    textShadowColor: '#F97316',
+                    textShadowOffset: { width: 0, height: 0 },
+                    textShadowRadius: 5,
                   }}
                 >
-                  <Plus size={18} color="#F97316" />
-                </View>
-                <Text className="text-[10px] font-bold text-fire-orange uppercase tracking-widest">
-                  Elegir
-                </Text>
-              </TouchableOpacity>
-            )}
-          </View>
-        </View>
-
-        {/* TABS - ED HARDY FIRE STYLE */}
-        <View className="mt-12 border-t border-fire-red/20">
-          <View className="flex-row">
-            {/* LEGADO (Videos públicos) */}
-            <TouchableOpacity
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                setActiveTab('legacy');
-              }}
-              className={`flex-1 py-4 flex-row items-center justify-center gap-2 ${
-                activeTab === 'legacy' ? 'border-t-2 border-fire-orange' : ''
-              }`}
-              style={
-                activeTab === 'legacy'
-                  ? {
-                      backgroundColor: 'rgba(249, 115, 22, 0.1)',
-                    }
-                  : {}
-              }
-            >
-              <Grid size={14} color={activeTab === 'legacy' ? '#F97316' : '#52525b'} />
-              <Text
-                className={`text-[10px] font-bold uppercase tracking-[0.2em] ${
-                  activeTab === 'legacy' ? 'text-fire-orange' : 'text-zinc-600'
-                }`}
-              >
-                Legado
-              </Text>
-              <View
-                className={`px-1.5 py-0.5 rounded ${activeTab === 'legacy' ? 'bg-fire-red/30' : 'bg-zinc-800'}`}
-              >
-                <Text
-                  className={`text-[9px] font-bold font-mono ${activeTab === 'legacy' ? 'text-fire-orange' : 'text-zinc-500'}`}
-                >
-                  {publicVideos.length}
+                  Top 3 Récords
                 </Text>
               </View>
-            </TouchableOpacity>
+              <Text className="text-zinc-600 text-xs font-mono">VIDEOS PÚBLICOS</Text>
+            </View>
 
-            {/* BÓVEDA (Todos los videos, para gestión) - Solo dueño */}
-            {isOwner && (
+            <View className="flex-row gap-2">
+              {records.slice(0, 3).map((rec) => {
+                // Buscar el video asociado para obtener el thumbnail y spotify
+                const associatedVideo = videos.find((v) => v.id === rec.video_id);
+                const hasSpotify = !!associatedVideo?.spotify?.enabled;
+                return (
+                  <View key={rec.id} className="flex-1">
+                    <RecordCard
+                      record={rec}
+                      thumbnailUrl={associatedVideo?.thumbnail_url}
+                      hasSpotify={hasSpotify}
+                      onPress={() => {
+                        setSelectedRecord(rec);
+                        setSelectedRecordVideo(associatedVideo || null);
+                        setRecordViewerVisible(true);
+                      }}
+                    />
+                  </View>
+                );
+              })}
+
+              {/* Botón añadir (solo dueño y si hay espacio) - NO manual según MASTER */}
+              {/* Los récords solo se eligen desde videos públicos, no ingreso manual */}
+              {isOwner && records.length < 3 && publicVideos.length > 0 && (
+                <TouchableOpacity
+                  onPress={() => {
+                    if (!isPro) {
+                      setShowUpgradeModal(true);
+                      return;
+                    }
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                    setShowAddModal(true);
+                  }}
+                  className="flex-1 min-h-[160px] rounded items-center justify-center"
+                  style={{
+                    borderWidth: 1,
+                    borderColor: '#F97316',
+                    borderStyle: 'dashed',
+                    backgroundColor: '#0a0500',
+                  }}
+                >
+                  <View
+                    className="w-10 h-10 rounded-full items-center justify-center mb-2"
+                    style={{
+                      backgroundColor: '#1a0a00',
+                      borderWidth: 1,
+                      borderColor: '#F97316',
+                    }}
+                  >
+                    <Plus size={18} color="#F97316" />
+                  </View>
+                  <Text className="text-[10px] font-bold text-fire-orange uppercase tracking-widest">
+                    Elegir
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
+        )}
+
+        {/* TABS LEGADO / BÓVEDA — Oculto temporalmente */}
+        {false && (
+          <View className="mt-12 border-t border-fire-red/20">
+            <View className="flex-row">
+              {/* LEGADO (Videos públicos) */}
               <TouchableOpacity
                 onPress={() => {
-                  if (!isPro) {
-                    setShowUpgradeModal(true);
-                    return;
-                  }
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  setActiveTab('vault');
+                  setActiveTab('legacy');
                 }}
                 className={`flex-1 py-4 flex-row items-center justify-center gap-2 ${
-                  activeTab === 'vault' ? 'border-t-2 border-fire-red' : ''
+                  activeTab === 'legacy' ? 'border-t-2 border-fire-orange' : ''
                 }`}
                 style={
-                  activeTab === 'vault'
+                  activeTab === 'legacy'
                     ? {
-                        backgroundColor: 'rgba(220, 38, 38, 0.1)',
+                        backgroundColor: 'rgba(249, 115, 22, 0.1)',
                       }
                     : {}
                 }
               >
-                <Lock size={14} color={activeTab === 'vault' ? '#DC2626' : '#52525b'} />
+                <Grid size={14} color={activeTab === 'legacy' ? '#F97316' : '#52525b'} />
                 <Text
                   className={`text-[10px] font-bold uppercase tracking-[0.2em] ${
-                    activeTab === 'vault' ? 'text-fire-red' : 'text-zinc-600'
+                    activeTab === 'legacy' ? 'text-fire-orange' : 'text-zinc-600'
                   }`}
                 >
-                  Bóveda
+                  Legado
                 </Text>
                 <View
-                  className={`px-1.5 py-0.5 rounded ${activeTab === 'vault' ? 'bg-fire-red/30' : 'bg-zinc-800'}`}
+                  className={`px-1.5 py-0.5 rounded ${activeTab === 'legacy' ? 'bg-fire-red/30' : 'bg-zinc-800'}`}
                 >
                   <Text
-                    className={`text-[9px] font-bold font-mono ${activeTab === 'vault' ? 'text-fire-red' : 'text-zinc-500'}`}
+                    className={`text-[9px] font-bold font-mono ${activeTab === 'legacy' ? 'text-fire-orange' : 'text-zinc-500'}`}
                   >
-                    {vaultVideos.length}
+                    {publicVideos.length}
                   </Text>
                 </View>
               </TouchableOpacity>
-            )}
-          </View>
 
-          {/* CONTENIDO TABS */}
-          <View className="bg-[#030000] min-h-[300px]">
-            {/* LEGADO - Grid de videos públicos */}
-            {activeTab === 'legacy' && (
-              <View className="flex-row flex-wrap">
-                {publicVideos.length === 0 ? (
-                  <View className="flex-1 items-center justify-center py-20">
-                    <Grid size={40} color="#27272a" />
-                    <Text className="text-zinc-600 text-xs uppercase tracking-widest mt-4">
-                      Sin contenido público
-                    </Text>
-                    <Text className="text-zinc-700 text-xs text-center mt-2 px-8">
-                      Graba videos y hazlos públicos para mostrar tu legado
-                    </Text>
-                  </View>
-                ) : (
-                  publicVideos.map((vid) => (
-                    <TouchableOpacity
-                      key={vid.id}
-                      className="w-1/3 bg-zinc-900 relative overflow-hidden"
-                      style={{ aspectRatio: 9 / 16 }}
-                      onPress={() => {
-                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                        if (vid.video_url || vid.thumbnail_url) {
-                          setSelectedVideo(vid);
-                          setVideoViewerVisible(true);
+              {/* BÓVEDA (Todos los videos, para gestión) - Solo dueño */}
+              {isOwner && (
+                <TouchableOpacity
+                  onPress={() => {
+                    if (!isPro) {
+                      setShowUpgradeModal(true);
+                      return;
+                    }
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    setActiveTab('vault');
+                  }}
+                  className={`flex-1 py-4 flex-row items-center justify-center gap-2 ${
+                    activeTab === 'vault' ? 'border-t-2 border-fire-red' : ''
+                  }`}
+                  style={
+                    activeTab === 'vault'
+                      ? {
+                          backgroundColor: 'rgba(220, 38, 38, 0.1)',
                         }
-                      }}
+                      : {}
+                  }
+                >
+                  <Lock size={14} color={activeTab === 'vault' ? '#DC2626' : '#52525b'} />
+                  <Text
+                    className={`text-[10px] font-bold uppercase tracking-[0.2em] ${
+                      activeTab === 'vault' ? 'text-fire-red' : 'text-zinc-600'
+                    }`}
+                  >
+                    Bóveda
+                  </Text>
+                  <View
+                    className={`px-1.5 py-0.5 rounded ${activeTab === 'vault' ? 'bg-fire-red/30' : 'bg-zinc-800'}`}
+                  >
+                    <Text
+                      className={`text-[9px] font-bold font-mono ${activeTab === 'vault' ? 'text-fire-red' : 'text-zinc-500'}`}
                     >
-                      {vid.media_type === 'photo' ? (
-                        <Image
-                          source={{ uri: vid.video_url || vid.thumbnail_url }}
-                          className="w-full h-full opacity-80"
-                          resizeMode="cover"
-                        />
-                      ) : vid.video_url ? (
-                        <View className="w-full h-full opacity-80">
-                          <VideoThumbnail videoUrl={vid.video_url} size={videoTileSize} />
-                        </View>
-                      ) : (
-                        <Image
-                          source={{ uri: vid.thumbnail_url }}
-                          className="w-full h-full opacity-80"
-                          resizeMode="cover"
-                        />
-                      )}
-                      <View className="absolute inset-0 items-center justify-center bg-black/20">
-                        <View className="w-8 h-8 rounded-full bg-black/50 items-center justify-center">
-                          {vid.media_type === 'photo' ? (
-                            <ImageIcon size={14} color="#fff" />
-                          ) : (
-                            <Play size={14} color="#fff" fill="#fff" />
-                          )}
-                        </View>
-                      </View>
-                      {vid.spotify?.enabled && (
-                        <View className="absolute top-1 right-1">
-                          <Music size={10} color="#1DB954" />
-                        </View>
-                      )}
-                    </TouchableOpacity>
-                  ))
-                )}
-              </View>
-            )}
-
-            {/* BÓVEDA - Lista de todos los videos con gestión */}
-            {activeTab === 'vault' && isOwner && (
-              <View className="p-2">
-                {/* Info box */}
-                <View className="p-3 bg-zinc-900/30 border border-zinc-800 rounded flex-row gap-3 mb-4">
-                  <Lock size={16} color="#DC2626" />
-                  <View className="flex-1">
-                    <Text className="text-white text-xs font-bold mb-1">BÓVEDA PRIVADA</Text>
-                    <Text className="text-zinc-400 text-[10px] leading-relaxed">
-                      Gestiona la visibilidad de tu contenido. Los videos privados solo tú puedes
-                      verlos.
+                      {vaultVideos.length}
                     </Text>
                   </View>
-                </View>
+                </TouchableOpacity>
+              )}
+            </View>
 
-                {videos.length === 0 ? (
-                  <View className="items-center justify-center py-16">
-                    <Lock size={40} color="#27272a" />
-                    <Text className="text-zinc-600 text-xs uppercase tracking-widest mt-4">
-                      Bóveda vacía
-                    </Text>
-                    <Text className="text-zinc-700 text-xs text-center mt-2 px-8">
-                      Graba tu primer video con el botón PRO
-                    </Text>
-                  </View>
-                ) : (
-                  videos.map((vid) => (
-                    <Pressable
-                      key={vid.id}
-                      onLongPress={() => {
-                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-                        deleteVideo(vid);
-                      }}
-                      delayLongPress={500}
-                      className="flex-row gap-3 p-3 bg-[#0a0a0a] border border-zinc-900 rounded-xl mb-2"
-                    >
-                      {/* Thumbnail */}
+            {/* CONTENIDO TABS */}
+            <View className="bg-[#030000] min-h-[300px]">
+              {/* LEGADO - Grid de videos públicos */}
+              {activeTab === 'legacy' && (
+                <View className="flex-row flex-wrap">
+                  {publicVideos.length === 0 ? (
+                    <View className="flex-1 items-center justify-center py-20">
+                      <Grid size={40} color="#27272a" />
+                      <Text className="text-zinc-600 text-xs uppercase tracking-widest mt-4">
+                        Sin contenido público
+                      </Text>
+                      <Text className="text-zinc-700 text-xs text-center mt-2 px-8">
+                        Graba videos y hazlos públicos para mostrar tu legado
+                      </Text>
+                    </View>
+                  ) : (
+                    publicVideos.map((vid) => (
                       <TouchableOpacity
+                        key={vid.id}
+                        className="w-1/3 bg-zinc-900 relative overflow-hidden"
+                        style={{ aspectRatio: 9 / 16 }}
                         onPress={() => {
+                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                           if (vid.video_url || vid.thumbnail_url) {
                             setSelectedVideo(vid);
                             setVideoViewerVisible(true);
                           }
                         }}
-                        className="w-20 h-28 bg-zinc-800 rounded-lg overflow-hidden"
                       >
                         {vid.media_type === 'photo' ? (
                           <Image
                             source={{ uri: vid.video_url || vid.thumbnail_url }}
-                            className="w-full h-full opacity-60"
+                            className="w-full h-full opacity-80"
                             resizeMode="cover"
                           />
                         ) : vid.video_url ? (
-                          <VideoThumbnail videoUrl={vid.video_url} size={80} />
+                          <View className="w-full h-full opacity-80">
+                            <VideoThumbnail videoUrl={vid.video_url} size={videoTileSize} />
+                          </View>
                         ) : (
                           <Image
                             source={{ uri: vid.thumbnail_url }}
-                            className="w-full h-full opacity-60"
+                            className="w-full h-full opacity-80"
                             resizeMode="cover"
                           />
                         )}
-                        <View className="absolute inset-0 items-center justify-center">
-                          {vid.media_type === 'photo' ? (
-                            <ImageIcon size={16} color="#fff" />
-                          ) : (
-                            <Play size={16} color="#fff" fill="#fff" />
-                          )}
+                        <View className="absolute inset-0 items-center justify-center bg-black/20">
+                          <View className="w-8 h-8 rounded-full bg-black/50 items-center justify-center">
+                            {vid.media_type === 'photo' ? (
+                              <ImageIcon size={14} color="#fff" />
+                            ) : (
+                              <Play size={14} color="#fff" fill="#fff" />
+                            )}
+                          </View>
                         </View>
-                      </TouchableOpacity>
-
-                      {/* Info */}
-                      <View className="flex-1 justify-center">
-                        <Text className="text-sm font-bold text-white mb-1" numberOfLines={1}>
-                          {vid.title}
-                        </Text>
-
-                        {/* Caption si existe */}
-                        {vid.free_text && (
-                          <Text className="text-zinc-400 text-xs italic mb-1" numberOfLines={1}>
-                            {vid.free_text}
-                          </Text>
-                        )}
-
-                        {/* Métricas si existen */}
-                        {(vid.weight_kg || vid.reps) && (
-                          <Text className="text-savage-red text-xs font-mono mb-1">
-                            {vid.weight_kg && vid.reps
-                              ? `${vid.weight_kg}kg × ${vid.reps} reps`
-                              : vid.weight_kg
-                                ? `${vid.weight_kg}kg`
-                                : `${vid.reps} reps`}
-                          </Text>
-                        )}
-
-                        {/* Estado + Fecha */}
-                        <View className="flex-row items-center gap-2">
-                          {vid.is_public ? (
-                            <View className="flex-row items-center gap-1 border border-green-900 bg-green-900/10 px-2 py-0.5 rounded-full">
-                              <Eye size={10} color="#22c55e" />
-                              <Text className="text-[10px] text-green-500 font-bold uppercase">
-                                Público
-                              </Text>
-                            </View>
-                          ) : (
-                            <View className="flex-row items-center gap-1 border border-zinc-800 bg-zinc-900/50 px-2 py-0.5 rounded-full">
-                              <Lock size={10} color="#71717a" />
-                              <Text className="text-[10px] text-zinc-500 font-bold uppercase">
-                                Bóveda
-                              </Text>
-                            </View>
-                          )}
-                          <Text className="text-[10px] text-zinc-600">
-                            {new Date(vid.created_at).toLocaleDateString('es', {
-                              day: '2-digit',
-                              month: 'short',
-                            })}
-                          </Text>
-                        </View>
-
-                        {/* Spotify */}
                         {vid.spotify?.enabled && (
-                          <View className="flex-row items-center gap-1 mt-1">
+                          <View className="absolute top-1 right-1">
                             <Music size={10} color="#1DB954" />
-                            <Text className="text-[10px] text-zinc-500" numberOfLines={1}>
-                              {vid.spotify.trackName}
-                            </Text>
                           </View>
                         )}
-                      </View>
+                      </TouchableOpacity>
+                    ))
+                  )}
+                </View>
+              )}
 
-                      {/* Acciones */}
-                      <View className="justify-center gap-2">
-                        {/* Toggle visibilidad */}
-                        <TouchableOpacity
-                          onPress={() => toggleVideoVisibility(vid)}
-                          className={`w-10 h-10 rounded-full items-center justify-center ${
-                            vid.is_public ? 'bg-green-900/20' : 'bg-zinc-800'
-                          }`}
-                        >
-                          {vid.is_public ? (
-                            <Eye size={16} color="#22c55e" />
-                          ) : (
-                            <EyeOff size={16} color="#71717a" />
-                          )}
-                        </TouchableOpacity>
+              {/* BÓVEDA - Lista de todos los videos con gestión */}
+              {activeTab === 'vault' && isOwner && (
+                <View className="p-2">
+                  {/* Info box */}
+                  <View className="p-3 bg-zinc-900/30 border border-zinc-800 rounded flex-row gap-3 mb-4">
+                    <Lock size={16} color="#DC2626" />
+                    <View className="flex-1">
+                      <Text className="text-white text-xs font-bold mb-1">BÓVEDA PRIVADA</Text>
+                      <Text className="text-zinc-400 text-[10px] leading-relaxed">
+                        Gestiona la visibilidad de tu contenido. Los videos privados solo tú puedes
+                        verlos.
+                      </Text>
+                    </View>
+                  </View>
 
-                        {/* Más opciones */}
+                  {videos.length === 0 ? (
+                    <View className="items-center justify-center py-16">
+                      <Lock size={40} color="#27272a" />
+                      <Text className="text-zinc-600 text-xs uppercase tracking-widest mt-4">
+                        Bóveda vacía
+                      </Text>
+                      <Text className="text-zinc-700 text-xs text-center mt-2 px-8">
+                        Graba tu primer video con el botón PRO
+                      </Text>
+                    </View>
+                  ) : (
+                    videos.map((vid) => (
+                      <Pressable
+                        key={vid.id}
+                        onLongPress={() => {
+                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+                          deleteVideo(vid);
+                        }}
+                        delayLongPress={500}
+                        className="flex-row gap-3 p-3 bg-[#0a0a0a] border border-zinc-900 rounded-xl mb-2"
+                      >
+                        {/* Thumbnail */}
                         <TouchableOpacity
                           onPress={() => {
-                            setSelectedVideoForEdit(vid);
-                            setVideoOptionsVisible(true);
+                            if (vid.video_url || vid.thumbnail_url) {
+                              setSelectedVideo(vid);
+                              setVideoViewerVisible(true);
+                            }
                           }}
-                          className="w-10 h-10 rounded-full bg-zinc-800 items-center justify-center"
+                          className="w-20 h-28 bg-zinc-800 rounded-lg overflow-hidden"
                         >
-                          <MoreVertical size={16} color="#71717a" />
+                          {vid.media_type === 'photo' ? (
+                            <Image
+                              source={{ uri: vid.video_url || vid.thumbnail_url }}
+                              className="w-full h-full opacity-60"
+                              resizeMode="cover"
+                            />
+                          ) : vid.video_url ? (
+                            <VideoThumbnail videoUrl={vid.video_url} size={80} />
+                          ) : (
+                            <Image
+                              source={{ uri: vid.thumbnail_url }}
+                              className="w-full h-full opacity-60"
+                              resizeMode="cover"
+                            />
+                          )}
+                          <View className="absolute inset-0 items-center justify-center">
+                            {vid.media_type === 'photo' ? (
+                              <ImageIcon size={16} color="#fff" />
+                            ) : (
+                              <Play size={16} color="#fff" fill="#fff" />
+                            )}
+                          </View>
                         </TouchableOpacity>
-                      </View>
-                    </Pressable>
-                  ))
-                )}
-              </View>
-            )}
+
+                        {/* Info */}
+                        <View className="flex-1 justify-center">
+                          <Text className="text-sm font-bold text-white mb-1" numberOfLines={1}>
+                            {vid.title}
+                          </Text>
+
+                          {/* Caption si existe */}
+                          {vid.free_text && (
+                            <Text className="text-zinc-400 text-xs italic mb-1" numberOfLines={1}>
+                              {vid.free_text}
+                            </Text>
+                          )}
+
+                          {/* Métricas si existen */}
+                          {(vid.weight_kg || vid.reps) && (
+                            <Text className="text-savage-red text-xs font-mono mb-1">
+                              {vid.weight_kg && vid.reps
+                                ? `${vid.weight_kg}kg × ${vid.reps} reps`
+                                : vid.weight_kg
+                                  ? `${vid.weight_kg}kg`
+                                  : `${vid.reps} reps`}
+                            </Text>
+                          )}
+
+                          {/* Estado + Fecha */}
+                          <View className="flex-row items-center gap-2">
+                            {vid.is_public ? (
+                              <View className="flex-row items-center gap-1 border border-green-900 bg-green-900/10 px-2 py-0.5 rounded-full">
+                                <Eye size={10} color="#22c55e" />
+                                <Text className="text-[10px] text-green-500 font-bold uppercase">
+                                  Público
+                                </Text>
+                              </View>
+                            ) : (
+                              <View className="flex-row items-center gap-1 border border-zinc-800 bg-zinc-900/50 px-2 py-0.5 rounded-full">
+                                <Lock size={10} color="#71717a" />
+                                <Text className="text-[10px] text-zinc-500 font-bold uppercase">
+                                  Bóveda
+                                </Text>
+                              </View>
+                            )}
+                            <Text className="text-[10px] text-zinc-600">
+                              {new Date(vid.created_at).toLocaleDateString('es', {
+                                day: '2-digit',
+                                month: 'short',
+                              })}
+                            </Text>
+                          </View>
+
+                          {/* Spotify */}
+                          {vid.spotify?.enabled && (
+                            <View className="flex-row items-center gap-1 mt-1">
+                              <Music size={10} color="#1DB954" />
+                              <Text className="text-[10px] text-zinc-500" numberOfLines={1}>
+                                {vid.spotify.trackName}
+                              </Text>
+                            </View>
+                          )}
+                        </View>
+
+                        {/* Acciones */}
+                        <View className="justify-center gap-2">
+                          {/* Toggle visibilidad */}
+                          <TouchableOpacity
+                            onPress={() => toggleVideoVisibility(vid)}
+                            className={`w-10 h-10 rounded-full items-center justify-center ${
+                              vid.is_public ? 'bg-green-900/20' : 'bg-zinc-800'
+                            }`}
+                          >
+                            {vid.is_public ? (
+                              <Eye size={16} color="#22c55e" />
+                            ) : (
+                              <EyeOff size={16} color="#71717a" />
+                            )}
+                          </TouchableOpacity>
+
+                          {/* Más opciones */}
+                          <TouchableOpacity
+                            onPress={() => {
+                              setSelectedVideoForEdit(vid);
+                              setVideoOptionsVisible(true);
+                            }}
+                            className="w-10 h-10 rounded-full bg-zinc-800 items-center justify-center"
+                          >
+                            <MoreVertical size={16} color="#71717a" />
+                          </TouchableOpacity>
+                        </View>
+                      </Pressable>
+                    ))
+                  )}
+                </View>
+              )}
+            </View>
           </View>
-        </View>
+        )}
 
         {/* Espaciado inferior */}
         <View className="h-20" />
