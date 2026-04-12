@@ -23,6 +23,7 @@ import {
   ArrowRight,
   Sparkles,
   Crown,
+  UserPlus,
 } from 'lucide-react-native';
 import { ProUpgradeModal } from '../../components/pro/ProUpgradeModal';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -38,6 +39,7 @@ import Animated, {
   FadeInUp,
   ZoomIn,
 } from 'react-native-reanimated';
+import { signInWithApple, isAppleAuthAvailable } from '../../services/appleAuth';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -212,9 +214,16 @@ export default function LoginScreen() {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [appleLoading, setAppleLoading] = useState(false);
+  const [appleAvailable, setAppleAvailable] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showProModal, setShowProModal] = useState(false);
   const router = useRouter();
+
+  // Check Apple Sign In availability
+  useEffect(() => {
+    isAppleAuthAvailable().then(setAppleAvailable);
+  }, []);
 
   // Refs para mantener focus en inputs
   const emailRef = useRef<TextInput>(null);
@@ -305,6 +314,26 @@ export default function LoginScreen() {
       setLoading(false);
     }
   }, [email, password, router]);
+
+  const handleAppleSignIn = useCallback(async () => {
+    setAppleLoading(true);
+    setError(null);
+
+    try {
+      const result = await signInWithApple();
+      if (result.success) {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        router.replace('/(tabs)/feed');
+      } else if (result.error && result.error !== 'cancelled') {
+        setError(result.error);
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      }
+    } catch (err: any) {
+      setError(err.message || 'Error con Apple Sign In');
+    } finally {
+      setAppleLoading(false);
+    }
+  }, [router]);
 
   return (
     <KeyboardAvoidingView
@@ -489,43 +518,76 @@ export default function LoginScreen() {
                 )}
               </LinearGradient>
             </TouchableOpacity>
+
+            {/* Forgot Password */}
+            <Link href="/(auth)/forgot-password" asChild>
+              <TouchableOpacity className="mt-3 self-center">
+                <Text className="text-zinc-500 text-sm">¿Olvidaste tu contraseña?</Text>
+              </TouchableOpacity>
+            </Link>
           </WebFormWrapper>
+
+          {/* Sign in with Apple (iOS only) */}
+          {appleAvailable && (
+            <View className="mt-5">
+              <View className="flex-row items-center gap-3 mb-4">
+                <View className="flex-1 h-px bg-zinc-800" />
+                <Text className="text-zinc-600 text-xs">o continúa con</Text>
+                <View className="flex-1 h-px bg-zinc-800" />
+              </View>
+              <TouchableOpacity
+                onPress={handleAppleSignIn}
+                disabled={appleLoading}
+                activeOpacity={0.9}
+                className="bg-white rounded-2xl py-4 flex-row items-center justify-center gap-3"
+                style={{
+                  shadowColor: '#fff',
+                  shadowOffset: { width: 0, height: 2 },
+                  shadowOpacity: 0.1,
+                  shadowRadius: 8,
+                  elevation: 4,
+                }}
+              >
+                {appleLoading ? (
+                  <ActivityIndicator color="#000" />
+                ) : (
+                  <>
+                    <Text style={{ fontSize: 20 }}></Text>
+                    <Text className="text-black font-bold text-base">Continuar con Apple</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+          )}
         </Animated.View>
 
-        {/* Suscríbete + Coach */}
+        {/* Suscríbete + Registro + Coach */}
         <Animated.View
           entering={FadeInUp.delay(700).duration(600)}
           className="mt-8 items-center gap-4"
         >
-          {/* Botón Suscríbete */}
-          <TouchableOpacity
-            onPress={() => {
-              if (Platform.OS === 'web') {
-                router.push('/(web)/landing' as any);
-              } else {
-                setShowProModal(true);
-              }
-            }}
-            activeOpacity={0.9}
-          >
-            <LinearGradient
-              colors={['#F97316', '#FBBF24']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              className="flex-row items-center gap-2 px-6 py-3 rounded-full"
-              style={{
-                shadowColor: '#F97316',
-                shadowOffset: { width: 0, height: 4 },
-                shadowOpacity: 0.3,
-                shadowRadius: 8,
-                elevation: 6,
-              }}
-            >
-              <Crown size={16} color="white" />
-              <Text className="text-white font-bold text-sm tracking-widest">SUSCRÍBETE</Text>
-              <ArrowRight size={16} color="white" />
-            </LinearGradient>
-          </TouchableOpacity>
+          {/* Crear cuenta */}
+          <Link href="/(auth)/register" asChild>
+            <TouchableOpacity activeOpacity={0.9}>
+              <LinearGradient
+                colors={['#F97316', '#FBBF24']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                className="flex-row items-center gap-2 px-6 py-3 rounded-full"
+                style={{
+                  shadowColor: '#F97316',
+                  shadowOffset: { width: 0, height: 4 },
+                  shadowOpacity: 0.3,
+                  shadowRadius: 8,
+                  elevation: 6,
+                }}
+              >
+                <UserPlus size={16} color="white" />
+                <Text className="text-white font-bold text-sm tracking-widest">CREAR CUENTA</Text>
+                <ArrowRight size={16} color="white" />
+              </LinearGradient>
+            </TouchableOpacity>
+          </Link>
 
           <Link href="/(auth)/coach-access" asChild>
             <TouchableOpacity className="flex-row items-center gap-2">

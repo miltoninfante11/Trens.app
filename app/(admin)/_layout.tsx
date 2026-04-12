@@ -9,6 +9,7 @@ import {
   BarChart3,
   Shield,
   Video,
+  ImageIcon,
 } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
 import { useAuth } from '../_layout';
@@ -195,6 +196,13 @@ export default function AdminLayout() {
           options={{
             title: 'FEED',
             tabBarIcon: ({ color, size }) => <Video size={size} color={color} />,
+          }}
+        />
+        <Tabs.Screen
+          name="assets/index"
+          options={{
+            title: 'ASSETS',
+            tabBarIcon: ({ color, size }) => <ImageIcon size={size} color={color} />,
           }}
         />
 

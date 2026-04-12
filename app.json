@@ -11,27 +11,20 @@
       "resizeMode": "contain",
       "backgroundColor": "#000000"
     },
-    "assetBundlePatterns": [
-      "**/*"
-    ],
+    "assetBundlePatterns": ["**/*"],
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.trens.app",
       "buildNumber": "1",
-      "associatedDomains": [
-        "applinks:share.trens.app",
-        "applinks:trens.app"
-      ],
+      "associatedDomains": ["applinks:share.trens.app", "applinks:trens.app"],
       "infoPlist": {
-        "LSApplicationQueriesSchemes": [
-          "spotify",
-          "instagram"
-        ],
+        "NSCameraUsageDescription": "TRENS necesita acceso a tu cámara para grabar tus entrenamientos y ejercicios.",
+        "NSMicrophoneUsageDescription": "TRENS necesita acceso al micrófono para grabar audio durante tus entrenamientos.",
+        "NSPhotoLibraryUsageDescription": "TRENS necesita acceso a tu galería para seleccionar fotos y videos de tus entrenamientos.",
+        "LSApplicationQueriesSchemes": ["spotify", "instagram"],
         "CFBundleURLTypes": [
           {
-            "CFBundleURLSchemes": [
-              "trensdev"
-            ]
+            "CFBundleURLSchemes": ["trensdev"]
           }
         ]
       }
@@ -43,10 +36,7 @@
       },
       "versionCode": 6,
       "package": "com.trens.app",
-      "permissions": [
-        "CAMERA",
-        "RECORD_AUDIO"
-      ],
+      "permissions": ["CAMERA", "RECORD_AUDIO"],
       "intentFilters": [
         {
           "action": "VIEW",
@@ -71,10 +61,7 @@
               "host": "instagram-callback"
             }
           ],
-          "category": [
-            "BROWSABLE",
-            "DEFAULT"
-          ]
+          "category": ["BROWSABLE", "DEFAULT"]
         }
       ]
     },
@@ -129,7 +116,8 @@
           "defaultChannel": "trens-default",
           "sounds": []
         }
-      ]
+      ],
+      "@sentry/react-native"
     ],
     "scheme": "trensdev",
     "sdkVersion": "54.0.0",

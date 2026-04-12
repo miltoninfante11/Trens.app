@@ -14,9 +14,20 @@ import { SaveGuardProvider } from '../context/SaveGuardContext';
 import { NotificationProvider } from '../context/NotificationContext';
 import { SubscriptionProvider } from '../context/SubscriptionContext';
 import { useDeepLinkHandler } from '../services/share/deepLinkHandler';
+import { useWebVideoInline } from '../hooks/useWebVideoInline';
 import { ErrorBoundary } from '../components/ui/ErrorBoundary';
+import { OfflineBanner } from '../components/ui/OfflineBanner';
+import * as Sentry from '@sentry/react-native';
 import * as WebBrowser from 'expo-web-browser';
 import '../global.css';
+
+// Initialize Sentry for crash reporting
+Sentry.init({
+  dsn: 'YOUR_SENTRY_DSN', // TODO: Replace with real DSN from sentry.io
+  debug: __DEV__,
+  tracesSampleRate: __DEV__ ? 1.0 : 0.2,
+  enabled: !__DEV__,
+});
 
 // IMPORTANTE: Completar OAuth sessions pendientes (Spotify, etc.)
 // Debe ejecutarse antes de que Expo Router intercepte los deep links
@@ -149,6 +160,9 @@ const SaveGuardWrapper = ({ children }: { children: React.ReactNode }) => {
 };
 
 export default function RootLayout() {
+  // Force playsinline on all <video> elements for iOS PWA
+  useWebVideoInline();
+
   return (
     <ErrorBoundary>
       <GestureHandlerRootView style={{ flex: 1 }}>
@@ -162,6 +176,7 @@ export default function RootLayout() {
                       <SubscriptionProvider>
                         <HankWrapper>
                           <View className="flex-1 bg-savage-black">
+                            <OfflineBanner />
                             <Slot />
                             {/* Overlays movidos a (tabs)/_layout.tsx donde hay contexto de navegación */}
                             <StatusBar style="light" />

@@ -45,6 +45,7 @@ import spotify from '../../../services/spotify/spotify';
 import { spotifyModalEvent, SpotifyNowPlaying } from '../../../lib/spotifyModalEvent';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import feedTracking from '../../../services/feed/feedTracking';
+import { useWebVideoInline } from '../../../hooks/useWebVideoInline';
 
 // ============================================================================
 // TIPOS
@@ -976,6 +977,9 @@ const FeedVideoItem = memo(
 // MAIN COMPONENT
 // ============================================================================
 function FeedScreenContent() {
+  // Force playsinline on all <video> elements for iOS PWA
+  useWebVideoInline();
+
   const insets = useSafeAreaInsets();
   const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = useWindowDimensions();
 

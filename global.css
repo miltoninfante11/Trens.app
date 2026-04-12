@@ -30,9 +30,9 @@
     color: #ffffff;
   }
 
-  /* Video inline en iOS Safari/PWA */
+  /* Video inline en iOS Safari/PWA - playsinline se fuerza vía JS (atributo HTML) */
   video {
-    -webkit-playsinline: true;
+    object-fit: cover;
   }
 
   * {

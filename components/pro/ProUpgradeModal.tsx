@@ -29,9 +29,10 @@ import {
   Dumbbell,
   Globe,
   Smartphone,
+  FileText,
 } from 'lucide-react-native';
 import * as Haptics from '../../lib/haptics';
-import { useRouter } from 'expo-router';
+import { useRouter, Link } from 'expo-router';
 import { useUserRoleContext } from '../../context/UserRoleContext';
 
 // Dynamic import para SubscriptionContext (puede no estar montado)
@@ -174,7 +175,7 @@ export function ProUpgradeModal({ visible, onClose, feature = 'camera' }: ProUpg
     }
   };
 
-  // Get display price
+  // Get display price - always use dynamic price from RevenueCat when available
   const getDisplayPrice = (): string => {
     if (isNative && subscription?.iapPackages?.length) {
       const pkg = subscription.iapPackages.find(
@@ -182,7 +183,8 @@ export function ProUpgradeModal({ visible, onClose, feature = 'camera' }: ProUpg
       );
       if (pkg?.priceString) return `${pkg.priceString}/mes`;
     }
-    if (isNative) return subscription?.nativePrice || 'S/ 69.90/mes';
+    // Fallback prices — only shown while loading offerings
+    if (isNative) return subscription?.nativePrice || 'Cargando precio...';
     return subscription?.webPrice || 'S/ 59.90/mes';
   };
 
@@ -317,6 +319,31 @@ export function ProUpgradeModal({ visible, onClose, feature = 'camera' }: ProUpg
                   </Text>
                 </View>
 
+                {/* Legal auto-renewal text (required by Apple/Google) */}
+                <View className="mt-3 px-2">
+                  <Text className="text-zinc-600 text-[10px] text-center leading-4">
+                    La suscripción se renueva automáticamente al final de cada periodo a menos que
+                    la canceles al menos 24 horas antes. El pago se cargará a tu cuenta de{' '}
+                    {isIOS ? 'iTunes/App Store' : 'Google Play'}. Puedes gestionar y cancelar tu
+                    suscripción desde la configuración de {isIOS ? 'tu Apple ID' : 'Google Play'}.
+                  </Text>
+                </View>
+
+                {/* Terms & Privacy links (required by stores) */}
+                <View className="flex-row items-center justify-center gap-3 mt-2">
+                  <Link href="/terms" asChild>
+                    <TouchableOpacity>
+                      <Text className="text-zinc-500 text-[10px] underline">Términos</Text>
+                    </TouchableOpacity>
+                  </Link>
+                  <Text className="text-zinc-700 text-[10px]">•</Text>
+                  <Link href="/privacy" asChild>
+                    <TouchableOpacity>
+                      <Text className="text-zinc-500 text-[10px] underline">Privacidad</Text>
+                    </TouchableOpacity>
+                  </Link>
+                </View>
+
                 {/* Android: motivar pago web */}
                 {isAndroid && (
                   <View className="mt-3 p-3 bg-green-500/5 border border-green-500/20 rounded-xl">
@@ -356,6 +383,28 @@ export function ProUpgradeModal({ visible, onClose, feature = 'camera' }: ProUpg
                   <Text className="text-zinc-600 text-[10px]">
                     Pago seguro con tarjeta de crédito/débito
                   </Text>
+                </View>
+
+                {/* Legal auto-renewal text */}
+                <View className="mt-2 px-2">
+                  <Text className="text-zinc-600 text-[10px] text-center leading-4">
+                    La suscripción se renueva automáticamente cada mes. Puedes cancelar en cualquier
+                    momento desde tu perfil.
+                  </Text>
+                </View>
+
+                <View className="flex-row items-center justify-center gap-3 mt-2">
+                  <Link href="/terms" asChild>
+                    <TouchableOpacity>
+                      <Text className="text-zinc-500 text-[10px] underline">Términos</Text>
+                    </TouchableOpacity>
+                  </Link>
+                  <Text className="text-zinc-700 text-[10px]">•</Text>
+                  <Link href="/privacy" asChild>
+                    <TouchableOpacity>
+                      <Text className="text-zinc-500 text-[10px] underline">Privacidad</Text>
+                    </TouchableOpacity>
+                  </Link>
                 </View>
               </View>
             )}

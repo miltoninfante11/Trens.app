@@ -47,6 +47,11 @@
         "track": "internal",
         "releaseStatus": "draft",
         "changesNotSentForReview": true
+      },
+      "ios": {
+        "appleId": "micorp.latam@gmail.com",
+        "ascAppId": "YOUR_ASC_APP_ID",
+        "appleTeamId": "YOUR_TEAM_ID"
       }
     }
   }
