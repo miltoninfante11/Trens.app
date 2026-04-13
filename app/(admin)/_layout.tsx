@@ -10,6 +10,7 @@ import {
   Shield,
   Video,
   ImageIcon,
+  Link2,
 } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
 import { useAuth } from '../_layout';
@@ -203,6 +204,13 @@ export default function AdminLayout() {
           options={{
             title: 'ASSETS',
             tabBarIcon: ({ color, size }) => <ImageIcon size={size} color={color} />,
+          }}
+        />
+        <Tabs.Screen
+          name="enlaces/index"
+          options={{
+            title: 'ENLACES',
+            tabBarIcon: ({ color, size }) => <Link2 size={size} color={color} />,
           }}
         />
 

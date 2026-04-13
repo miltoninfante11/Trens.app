@@ -1,0 +1,17 @@
+name = "trens-link-redirector"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
+account_id = "1eaa95adf7e0fbfc97fe56906bbc4ed9"
+
+# Este worker se ejecuta en las rutas de trens.app y *.trens.app
+# Intercepta requests ANTES de que lleguen a la SPA
+# Si el slug existe en short_links → redirect 302
+# Si no existe → pasa al origen (SPA)
+
+[vars]
+SUPABASE_URL = "https://cnrcrhlrteeqsyhlxhbb.supabase.co"
+SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNucmNyaGxydGVlcXN5aGx4aGJiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjYxODIyODYsImV4cCI6MjA4MTc1ODI4Nn0.9C2orxQ6xSBIt2Y7ua37rvlvPZBxNNIv0eZoYVRM5tE"
+
+# Configurar routes en Cloudflare Dashboard:
+# Route 1: trens.app/* (para rutas tipo path)
+# Route 2: *.trens.app/* (para subdominios) - requiere wildcard DNS

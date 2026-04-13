@@ -21,6 +21,12 @@ import { isPWA } from '../../lib/platform';
 import * as Haptics from '../../lib/haptics';
 
 // ============================================================================
+// TOGGLE: Poner en `true` para bloquear acceso desde navegador (solo PWA)
+// Poner en `false` para permitir uso completo desde cualquier navegador
+// ============================================================================
+const REQUIRE_PWA = false;
+
+// ============================================================================
 // COLORS
 // ============================================================================
 const COLORS = {
@@ -47,6 +53,9 @@ interface PWAGuardProps {
 // MAIN COMPONENT
 // ============================================================================
 export function PWAGuard({ children, moduleName = 'este módulo' }: PWAGuardProps) {
+  // Si REQUIRE_PWA está desactivado, permitir acceso directo
+  if (!REQUIRE_PWA) return <>{children}</>;
+
   const router = useRouter();
   const [isAllowed, setIsAllowed] = useState<boolean | null>(null);
   const pulseAnim = useSharedValue(1);
