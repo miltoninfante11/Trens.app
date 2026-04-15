@@ -56,10 +56,15 @@ const NOTE_TABS: Array<{ type: NoteType; label: string; icon: React.ReactNode; c
 interface PlanNotesModalProps {
   visible: boolean;
   onClose: () => void;
+  initialTab?: NoteType;
 }
 
-export const PlanNotesModal: React.FC<PlanNotesModalProps> = ({ visible, onClose }) => {
-  const [activeTab, setActiveTab] = useState<NoteType>('pizarra');
+export const PlanNotesModal: React.FC<PlanNotesModalProps> = ({
+  visible,
+  onClose,
+  initialTab = 'pizarra',
+}) => {
+  const [activeTab, setActiveTab] = useState<NoteType>(initialTab);
   const [notesMap, setNotesMap] = useState<Record<NoteType, string>>({
     pizarra: '',
     entrenamiento: '',
@@ -110,18 +115,43 @@ export const PlanNotesModal: React.FC<PlanNotesModalProps> = ({ visible, onClose
     transform: [{ translateX: pillIndicatorX.value }],
   }));
 
+  // Guardar el índice inicial para aplicarlo después del load
+  const pendingTabIndex = useRef(0);
+
   // Cargar todas las notas al abrir
   useEffect(() => {
     if (visible) {
       translateY.value = 0;
+      const tabIndex = NOTE_TABS.findIndex((t) => t.type === initialTab);
+      const idx = tabIndex >= 0 ? tabIndex : 0;
+      pendingTabIndex.current = idx;
+      setActiveTab(NOTE_TABS[idx].type);
+      pillIndicatorX.value = idx * ((SCREEN_WIDTH - 48) / 3);
       loadAllNotes();
-      setActiveTab('pizarra');
-      pillIndicatorX.value = 0;
-      setTimeout(() => {
-        pagerRef.current?.scrollTo({ x: 0, animated: false });
-      }, 300);
     }
-  }, [visible]);
+  }, [visible, initialTab]);
+
+  // Scroll al tab correcto después de que las notas cargan
+  useEffect(() => {
+    if (visible && !loading) {
+      const idx = pendingTabIndex.current;
+      // Múltiples intentos para asegurar que el ScrollView está listo
+      const t1 = setTimeout(() => {
+        pagerRef.current?.scrollTo({ x: idx * (SCREEN_WIDTH - 32), animated: false });
+      }, 50);
+      const t2 = setTimeout(() => {
+        pagerRef.current?.scrollTo({ x: idx * (SCREEN_WIDTH - 32), animated: false });
+      }, 200);
+      const t3 = setTimeout(() => {
+        pagerRef.current?.scrollTo({ x: idx * (SCREEN_WIDTH - 32), animated: false });
+      }, 500);
+      return () => {
+        clearTimeout(t1);
+        clearTimeout(t2);
+        clearTimeout(t3);
+      };
+    }
+  }, [visible, loading]);
 
   const loadAllNotes = useCallback(async () => {
     setLoading(true);

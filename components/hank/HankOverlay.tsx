@@ -2797,7 +2797,17 @@ export const HankOverlay: React.FC = () => {
       <QuickStackModal visible={showQuickStack} onClose={() => setShowQuickStack(false)} />
 
       {/* Plan Notes Modal - opened from Hank Tools fan */}
-      <PlanNotesModal visible={showQuickNotes} onClose={() => setShowQuickNotes(false)} />
+      <PlanNotesModal
+        visible={showQuickNotes}
+        onClose={() => setShowQuickNotes(false)}
+        initialTab={
+          pathname?.includes('/plan')
+            ? 'nutricion'
+            : pathname?.includes('/gym')
+              ? 'entrenamiento'
+              : 'pizarra'
+        }
+      />
 
       {/* Chat Panel Modal */}
       <Modal visible={isOpen} transparent={true} animationType="slide" onRequestClose={handleClose}>

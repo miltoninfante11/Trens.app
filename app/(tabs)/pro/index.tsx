@@ -298,16 +298,17 @@ function ProScreenContent() {
     setWebCameraReady(false);
   }, []);
 
-  // Auto-start web camera on mount
-  useEffect(() => {
-    if (isWeb) {
+  // Auto-start web camera on focus, cleanup on blur
+  useFocusEffect(
+    useCallback(() => {
+      if (!isWeb) return;
       const timer = setTimeout(() => startWebCamera(), 300);
       return () => {
         clearTimeout(timer);
         cleanupWebCamera();
       };
-    }
-  }, []);
+    }, [startWebCamera, cleanupWebCamera])
+  );
 
   // Restart web camera when facing changes
   useEffect(() => {

@@ -262,10 +262,10 @@ export const unstable_settings = {
 };
 
 // ============================================================================
-// TAB ORDER - Feed, ADN y PRO permiten swipe horizontal
+// TAB ORDER - Todos los tabs permiten swipe horizontal
 // ============================================================================
-const TAB_ROUTES = ['feed', 'adn', 'pro', 'gym', 'plan'] as const;
-const SWIPEABLE_TABS = ['feed', 'adn', 'pro'] as const;
+const TAB_ROUTES = ['feed', 'adn', 'pro', 'plan', 'gym'] as const;
+const SWIPEABLE_TABS = ['feed', 'adn', 'pro', 'plan', 'gym'] as const;
 
 export default function TabsLayout() {
   const { user, loading } = useAuth();
@@ -378,11 +378,49 @@ export default function TabsLayout() {
     [router, SCREEN_W, slideX]
   );
 
+  // Ref para bloquear swipe de tabs cuando el toque está en un scroll horizontal
+  const touchInHScrollRef = useRef(false);
+
+  // Listener nativo de document que se ejecuta ANTES que PanResponder
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof document === 'undefined') return;
+
+    const handler = (e: Event) => {
+      const te = e as TouchEvent;
+      let el = te.target as HTMLElement | null;
+      touchInHScrollRef.current = false;
+      while (el) {
+        try {
+          // Detectar ScrollView horizontal nativo (MealCard, etc.)
+          const style = window.getComputedStyle(el);
+          if (
+            (style.overflowX === 'scroll' || style.overflowX === 'auto') &&
+            el.scrollWidth > el.clientWidth
+          ) {
+            touchInHScrollRef.current = true;
+            return;
+          }
+        } catch {}
+        // Detectar contenedores marcados (GYM exercise area)
+        if (el.getAttribute?.('data-horizontalscroll') === 'true') {
+          touchInHScrollRef.current = true;
+          return;
+        }
+        el = el.parentElement;
+      }
+    };
+
+    document.addEventListener('touchstart', handler, { capture: true, passive: true });
+    return () => document.removeEventListener('touchstart', handler, { capture: true } as any);
+  }, []);
+
   const sliderPanResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => false,
       onMoveShouldSetPanResponder: (_evt, gs) => {
         if (swipeIdxRef.current < 0) return false;
+        // Bloquear si el toque está dentro de un elemento con scroll horizontal
+        if (touchInHScrollRef.current) return false;
         const isHorizontal = Math.abs(gs.dx) > 12 && Math.abs(gs.dx) > Math.abs(gs.dy) * 1.8;
         return isHorizontal;
       },
@@ -554,6 +592,15 @@ export default function TabsLayout() {
             }}
           />
 
+          {/* PLAN/TRACK/WAVES - Dinámico según deporte */}
+          <Tabs.Screen
+            name="plan/index"
+            options={{
+              title: tabConfig.tab5.name,
+              tabBarIcon: ({ color }) => <TabIcon Icon={Tab5Icon} color={color} size={26} />,
+            }}
+          />
+
           {/* GYM/GARAGE/QUIVER - Dinámico según deporte */}
           <Tabs.Screen
             name="gym/index"
@@ -561,15 +608,6 @@ export default function TabsLayout() {
               title: tabConfig.tab4.name,
               tabBarIcon: ({ color }) => <TabIcon Icon={Tab4Icon} color={color} size={26} />,
               lazy: false,
-            }}
-          />
-
-          {/* PLAN/TRACK/WAVES - Dinámico según deporte */}
-          <Tabs.Screen
-            name="plan/index"
-            options={{
-              title: tabConfig.tab5.name,
-              tabBarIcon: ({ color }) => <TabIcon Icon={Tab5Icon} color={color} size={26} />,
             }}
           />
 

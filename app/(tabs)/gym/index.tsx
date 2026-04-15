@@ -346,6 +346,7 @@ const SwipeableSeriesRow: React.FC<SwipeableSeriesRowProps> = ({ children, onDel
         onStartShouldSetPanResponder: () => false,
         onMoveShouldSetPanResponder: (_, gestureState) =>
           Math.abs(gestureState.dx) > 10 && Math.abs(gestureState.dx) > Math.abs(gestureState.dy),
+        onPanResponderTerminationRequest: () => false,
         onPanResponderMove: (_, gestureState) => {
           if (gestureState.dx < 0) {
             translateX.value = Math.max(gestureState.dx, -120);
@@ -1522,9 +1523,22 @@ function GymScreen() {
     return false;
   };
 
+  // Helper: verificar si el elemento está dentro de la zona de ejercicio (imagen/nombre)
+  const isInsideExerciseZone = (element: HTMLElement | null): boolean => {
+    let current = element;
+    while (current) {
+      if (current.getAttribute?.('data-horizontalscroll') === 'true') {
+        return true;
+      }
+      current = current.parentElement;
+    }
+    return false;
+  };
+
   // Ref para guardar si el touch empezó dentro de un scroll horizontal o modal
   const touchStartedInScrollRef = useRef(false);
   const touchStartedInModalRef = useRef(false);
+  const touchStartedInExerciseZoneRef = useRef(false);
 
   // Effect para capturar wheel/touch events en web
   useEffect(() => {
@@ -1546,12 +1560,14 @@ function GymScreen() {
       e.preventDefault();
       e.stopPropagation();
 
-      // Scroll horizontal para alternativas tiene prioridad
+      // Scroll horizontal para alternativas SOLO desde zona de imagen/nombre
       if (Math.abs(e.deltaX) > Math.abs(e.deltaY) && Math.abs(e.deltaX) > 10) {
-        if (e.deltaX > 0) {
-          scrollToAlternative('right');
-        } else {
-          scrollToAlternative('left');
+        if (isInsideExerciseZone(e.target as HTMLElement)) {
+          if (e.deltaX > 0) {
+            scrollToAlternative('right');
+          } else {
+            scrollToAlternative('left');
+          }
         }
       } else if (Math.abs(e.deltaY) > 10) {
         // Scroll vertical para ejercicios
@@ -1573,6 +1589,9 @@ function GymScreen() {
 
       // Verificar si el touch empezó dentro de un scroll horizontal
       touchStartedInScrollRef.current = isInsideHorizontalScroll(e.target as HTMLElement);
+
+      // Verificar si el touch empezó en la zona de imagen/nombre del ejercicio
+      touchStartedInExerciseZoneRef.current = isInsideExerciseZone(e.target as HTMLElement);
 
       touchStartY.current = e.touches[0].clientY;
       touchStartX.current = e.touches[0].clientX;
@@ -1600,11 +1619,13 @@ function GymScreen() {
 
       // Detectar dirección predominante
       if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > SWIPE_THRESHOLD) {
-        // Swipe horizontal - cambiar alternativa
-        if (deltaX > 0) {
-          scrollToAlternative('right');
-        } else {
-          scrollToAlternative('left');
+        // Swipe horizontal - cambiar alternativa SOLO si empezó en zona de imagen/nombre
+        if (touchStartedInExerciseZoneRef.current) {
+          if (deltaX > 0) {
+            scrollToAlternative('right');
+          } else {
+            scrollToAlternative('left');
+          }
         }
       } else if (Math.abs(deltaY) > SWIPE_THRESHOLD) {
         // Swipe vertical - cambiar ejercicio
@@ -10448,6 +10469,7 @@ function GymScreen() {
               {/* PARTE SUPERIOR SCROLLEABLE - Imagen, nombre, historial */}
               {/* Key incluye listRefreshKey para forzar remontaje después de loadExercises */}
               <FlatList
+                {...(Platform.OS === 'web' ? { dataSet: { horizontalscroll: 'true' } } : {})}
                 key={`variations-${listRefreshKey}-${item.id}-${allVariations.length}`}
                 horizontal
                 data={allVariations}

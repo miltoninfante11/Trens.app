@@ -1251,6 +1251,18 @@ function FeedScreenContent() {
       // Al entrar al Feed, marcar como enfocado (resume video playback)
       setIsFeedFocused(true);
 
+      // Reactivar silent audio y MediaSession al volver
+      if (Platform.OS === 'web') {
+        if (silentAudioElRef.current) {
+          silentAudioElRef.current.play().catch(() => {});
+        }
+        if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
+          try {
+            navigator.mediaSession.playbackState = 'playing';
+          } catch {}
+        }
+      }
+
       // Refrescar datos de entrenamiento (por si cambió en GYM)
       training?.refresh();
 
@@ -1321,6 +1333,20 @@ function FeedScreenContent() {
         // Flush all pending tracking data to Supabase
         feedTracking.flushAll();
         cleanup?.();
+
+        // Pausar silent audio y limpiar MediaSession al salir
+        if (Platform.OS === 'web') {
+          if (silentAudioElRef.current) {
+            try {
+              silentAudioElRef.current.pause();
+            } catch {}
+          }
+          if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
+            try {
+              navigator.mediaSession.playbackState = 'none';
+            } catch {}
+          }
+        }
       };
     }, [spotifyConnected])
   );

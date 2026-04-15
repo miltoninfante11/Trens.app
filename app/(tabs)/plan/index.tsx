@@ -3328,7 +3328,11 @@ function PlanScreen() {
         meals={meals}
       />
 
-      <PlanNotesModal visible={showPlanNotes} onClose={() => setShowPlanNotes(false)} />
+      <PlanNotesModal
+        visible={showPlanNotes}
+        onClose={() => setShowPlanNotes(false)}
+        initialTab="nutricion"
+      />
 
       <AddCardioModal
         visible={showAddCardio}
