@@ -4,7 +4,7 @@
 // Solo visible desde web (no PWA). Página de venta y suscripción.
 // ============================================================================
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -57,6 +57,18 @@ import {
   ListChecks,
   Zap,
   Timer,
+  MessageCircle,
+  Bookmark,
+  Share2,
+  Activity,
+  ChevronLeft,
+  ChevronUp,
+  Pause,
+  SkipForward,
+  SkipBack,
+  Droplets,
+  Apple,
+  Beef,
 } from 'lucide-react-native';
 import Animated, {
   useSharedValue,
@@ -544,6 +556,924 @@ const TestimonialCard = ({
 };
 
 // ============================================================================
+// INTERACTIVE PHONE DEMO - 5 MODULE CAROUSEL
+// ============================================================================
+const MODULE_TABS = [
+  { key: 'FEED', icon: Play, label: 'FEED' },
+  { key: 'ADN', icon: Dna, label: 'ADN' },
+  { key: 'PRO', icon: Camera, label: 'PRO' },
+  { key: 'GYM', icon: Dumbbell, label: 'GYM' },
+  { key: 'PLAN', icon: Utensils, label: 'PLAN' },
+] as const;
+
+type ModuleKey = (typeof MODULE_TABS)[number]['key'];
+
+const MODULE_DURATIONS: Record<ModuleKey, number> = {
+  FEED: 7500, // 5 videos × 1.5s
+  ADN: 5000,
+  PRO: 5000,
+  GYM: 6000,
+  PLAN: 6000,
+};
+
+const MODULE_DESCRIPTIONS: Record<ModuleKey, string> = {
+  FEED: 'Videos reales de la comunidad. Likes, comentarios y la canción de Spotify que sonaba. Pura motivación.',
+  ADN: 'Tu perfil atlético completo: macros, medidas, objetivo y progreso. Todo sincronizado automáticamente.',
+  PRO: 'Grábate mientras entrenas y escuchas Spotify. Controla la música sin salir de la app.',
+  GYM: 'Modo Focus: un ejercicio a la vez. Desliza para alternativas, scroll para el siguiente.',
+  PLAN: 'Comidas, suplementos, bloques de entreno y cardio. Todo organizado por horarios.',
+};
+
+// --- FEED SCREEN ---
+const FEED_VIDEOS = [
+  {
+    exercise: 'BENCH PRESS',
+    weight: '120 KG × 5',
+    user: 'carlos_fit',
+    avatar: '#DC2626',
+    likes: '247',
+    badge: 'PR 🏆',
+    gradient: ['#1a0808', '#0d0d0d', '#150505'] as [string, string, string],
+  },
+  {
+    exercise: 'SQUAT',
+    weight: '180 KG × 3',
+    user: 'ana_power',
+    avatar: '#EA580C',
+    likes: '389',
+    badge: '',
+    gradient: ['#0d0d0d', '#150808', '#0d0d0d'] as [string, string, string],
+  },
+  {
+    exercise: 'DEADLIFT',
+    weight: '200 KG × 1',
+    user: 'diego_coach',
+    avatar: '#CA8A04',
+    likes: '512',
+    badge: '1RM 🔥',
+    gradient: ['#0d100d', '#0d0d0d', '#0a0a0a'] as [string, string, string],
+  },
+  {
+    exercise: 'MILITARY PRESS',
+    weight: '80 KG × 6',
+    user: 'lucia_strong',
+    avatar: '#7C3AED',
+    likes: '178',
+    badge: '',
+    gradient: ['#0d0d14', '#0d0d0d', '#0d0d0d'] as [string, string, string],
+  },
+  {
+    exercise: 'BARBELL ROW',
+    weight: '100 KG × 8',
+    user: 'marcos_gym',
+    avatar: '#059669',
+    likes: '93',
+    badge: 'Vol 🔥',
+    gradient: ['#0d0f0d', '#0d0d0d', '#0d0d0d'] as [string, string, string],
+  },
+];
+
+const FeedVideoCard = ({
+  video,
+  isActive,
+}: {
+  video: (typeof FEED_VIDEOS)[0];
+  isActive: boolean;
+}) => (
+  <View
+    style={{
+      width: '100%',
+      height: '100%',
+      position: 'absolute',
+      top: 0,
+      left: 0,
+      opacity: isActive ? 1 : 0,
+    }}
+  >
+    <LinearGradient colors={video.gradient} style={{ flex: 1 }} className="justify-end">
+      {/* Exercise overlay */}
+      <View className="absolute top-4 left-4">
+        <Text className="text-white font-bold text-lg">{video.exercise}</Text>
+        <Text className="text-red-500 font-mono text-sm mt-0.5">{video.weight}</Text>
+      </View>
+
+      {/* Right action buttons */}
+      <View className="absolute right-3 bottom-24 items-center gap-5">
+        <View className="items-center">
+          <Heart size={22} color="#DC2626" fill="#DC2626" />
+          <Text className="text-white text-xs font-mono mt-1">{video.likes}</Text>
+        </View>
+        <View className="items-center">
+          <MessageCircle size={22} color="white" />
+          <Text className="text-white text-xs font-mono mt-1">32</Text>
+        </View>
+        <View className="items-center">
+          <Bookmark size={22} color="white" />
+        </View>
+        <View className="items-center">
+          <Share2 size={22} color="white" />
+        </View>
+      </View>
+
+      {/* Bottom info */}
+      <View className="px-4 pb-4">
+        <View className="flex-row items-center gap-2 mb-2">
+          <View className="w-8 h-8 rounded-full" style={{ backgroundColor: video.avatar }} />
+          <Text className="text-white text-sm font-bold">{video.user}</Text>
+          {video.badge ? <Text className="text-zinc-400 text-xs">· {video.badge}</Text> : null}
+        </View>
+        <View className="flex-row items-center gap-2">
+          <Music size={10} color="#1DB954" />
+          <Text className="text-zinc-500 text-xs">Spotify · Playing</Text>
+        </View>
+      </View>
+
+      {/* Play icon center */}
+      <View className="absolute" style={{ top: '40%', left: '45%' }}>
+        <Play size={40} color="rgba(255,255,255,0.3)" fill="rgba(255,255,255,0.15)" />
+      </View>
+
+      {/* Progress bar */}
+      <View className="absolute bottom-0 left-0 right-0 h-0.5 bg-zinc-800">
+        <View className="h-full bg-red-600" style={{ width: isActive ? '100%' : '0%' }} />
+      </View>
+    </LinearGradient>
+  </View>
+);
+
+const FeedScreen = ({ scrollIndex }: { scrollIndex: number }) => (
+  <View className="flex-1" style={{ position: 'relative' }}>
+    {FEED_VIDEOS.map((video, i) => (
+      <FeedVideoCard key={i} video={video} isActive={scrollIndex === i} />
+    ))}
+  </View>
+);
+
+// --- ADN SCREEN ---
+const AdnScreen = ({ scrollY }: { scrollY: number }) => {
+  const items = [
+    // TrensID card
+    { type: 'id' as const },
+    // Macros
+    { type: 'macros' as const },
+    // Measurements
+    { type: 'measurements' as const },
+    // Today timeline
+    { type: 'today' as const },
+  ];
+  const visibleItems = items.slice(0, Math.min(items.length, Math.floor(scrollY / 25) + 2));
+
+  return (
+    <View className="flex-1 px-3 pt-2">
+      {/* TrensID Card */}
+      {visibleItems.some((i) => i.type === 'id') && (
+        <View className="bg-zinc-900 rounded-2xl p-3 mb-3 border border-zinc-800/50">
+          <View className="flex-row items-center gap-2 mb-3">
+            <View className="w-10 h-10 rounded-full bg-red-600 items-center justify-center">
+              <Text className="text-white font-bold text-sm">MR</Text>
+            </View>
+            <View>
+              <Text className="text-white font-bold text-sm">Marco Rodríguez</Text>
+              <Text className="text-zinc-500 text-xs font-mono">ÉLITE · 78 kg</Text>
+            </View>
+            <View className="ml-auto bg-red-600/20 px-2 py-0.5 rounded-full">
+              <Text className="text-red-500 text-xs font-bold">PRO</Text>
+            </View>
+          </View>
+          <View className="flex-row gap-2">
+            <View className="flex-1 bg-zinc-800/50 rounded-xl p-2 items-center">
+              <Text className="text-zinc-500 text-xs">Objetivo</Text>
+              <Text className="text-white text-xs font-bold">Fuerza</Text>
+            </View>
+            <View className="flex-1 bg-zinc-800/50 rounded-xl p-2 items-center">
+              <Text className="text-zinc-500 text-xs">Peso</Text>
+              <Text className="text-white text-xs font-bold font-mono">78.4 kg</Text>
+            </View>
+            <View className="flex-1 bg-zinc-800/50 rounded-xl p-2 items-center">
+              <Text className="text-zinc-500 text-xs">Grasa</Text>
+              <Text className="text-white text-xs font-bold font-mono">14.2%</Text>
+            </View>
+          </View>
+        </View>
+      )}
+
+      {/* Macros */}
+      {visibleItems.some((i) => i.type === 'macros') && (
+        <View className="bg-zinc-900 rounded-2xl p-3 mb-3 border border-zinc-800/50">
+          <Text className="text-white font-bold text-xs mb-2">Macros Diarios</Text>
+          <View className="flex-row gap-2">
+            <View className="flex-1 items-center">
+              <Text className="text-red-500 font-mono font-bold text-sm">2,850</Text>
+              <Text className="text-zinc-500 text-xs">Kcal</Text>
+            </View>
+            <View className="flex-1 items-center">
+              <Text className="text-red-400 font-mono font-bold text-sm">185g</Text>
+              <Text className="text-zinc-500 text-xs">Proteína</Text>
+            </View>
+            <View className="flex-1 items-center">
+              <Text className="text-yellow-500 font-mono font-bold text-sm">320g</Text>
+              <Text className="text-zinc-500 text-xs">Carbos</Text>
+            </View>
+            <View className="flex-1 items-center">
+              <Text className="text-blue-400 font-mono font-bold text-sm">78g</Text>
+              <Text className="text-zinc-500 text-xs">Grasas</Text>
+            </View>
+          </View>
+        </View>
+      )}
+
+      {/* Measurements */}
+      {visibleItems.some((i) => i.type === 'measurements') && (
+        <View className="bg-zinc-900 rounded-2xl p-3 mb-3 border border-zinc-800/50">
+          <Text className="text-white font-bold text-xs mb-2">Medidas</Text>
+          <View className="flex-row flex-wrap gap-2">
+            {[
+              { l: 'Pecho', v: '102 cm' },
+              { l: 'Brazo', v: '38 cm' },
+              { l: 'Cintura', v: '82 cm' },
+              { l: 'Muslo', v: '61 cm' },
+            ].map((m, i) => (
+              <View key={i} className="bg-zinc-800/50 rounded-lg px-2.5 py-1.5">
+                <Text className="text-zinc-500 text-xs">{m.l}</Text>
+                <Text className="text-white text-xs font-mono font-bold">{m.v}</Text>
+              </View>
+            ))}
+          </View>
+        </View>
+      )}
+
+      {/* Timeline */}
+      {visibleItems.some((i) => i.type === 'today') && (
+        <View className="bg-zinc-900 rounded-2xl p-3 border border-zinc-800/50">
+          <Text className="text-white font-bold text-xs mb-2">Hoy</Text>
+          {[
+            { time: '07:00', label: 'Desayuno', icon: '🥚', color: '#22C55E' },
+            { time: '08:00', label: 'Pre-Workout Stack', icon: '💊', color: '#A855F7' },
+            { time: '09:00', label: 'Push + Abs', icon: '🏋️', color: '#DC2626' },
+            { time: '12:00', label: 'Almuerzo', icon: '🍗', color: '#22C55E' },
+          ].map((item, i) => (
+            <View key={i} className="flex-row items-center gap-2 py-1.5">
+              <Text className="text-zinc-600 text-xs font-mono w-10">{item.time}</Text>
+              <View className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: item.color }} />
+              <Text style={{ fontSize: 12 }}>{item.icon}</Text>
+              <Text className="text-zinc-300 text-xs">{item.label}</Text>
+            </View>
+          ))}
+        </View>
+      )}
+    </View>
+  );
+};
+
+// --- PRO SCREEN ---
+const ProScreen = () => (
+  <View className="flex-1">
+    {/* Camera viewfinder */}
+    <LinearGradient colors={['#0a0a0a', '#1a0808', '#0a0a0a']} className="flex-1 justify-between">
+      {/* Top controls */}
+      <View className="flex-row items-center justify-between px-3 pt-2">
+        <View className="bg-red-600/90 px-2 py-1 rounded-full flex-row items-center gap-1">
+          <View className="w-2 h-2 rounded-full bg-white" />
+          <Text className="text-white text-xs font-mono font-bold">REC 0:34</Text>
+        </View>
+        <View className="bg-zinc-800/80 px-2 py-1 rounded-lg">
+          <Text className="text-white text-xs font-bold">9:16</Text>
+        </View>
+      </View>
+
+      {/* Exercise overlay on camera */}
+      <View className="items-center justify-center flex-1">
+        <View className="items-center">
+          <View className="w-16 h-16 rounded-full border-2 border-red-600/40 items-center justify-center mb-2">
+            <Camera size={24} color="#DC2626" />
+          </View>
+          <Text className="text-white font-bold text-sm">BENCH PRESS</Text>
+          <Text className="text-red-500 font-mono text-xs mt-0.5">Serie 3 / 4</Text>
+        </View>
+      </View>
+
+      {/* Spotify mini player */}
+      <View className="mx-3 mb-2 bg-zinc-900/90 rounded-2xl p-3 border border-zinc-800/50">
+        <View className="flex-row items-center gap-3">
+          <View className="w-10 h-10 rounded-lg bg-green-900/50 items-center justify-center">
+            <Music size={18} color="#1DB954" />
+          </View>
+          <View className="flex-1">
+            <Text className="text-white text-xs font-bold" numberOfLines={1}>
+              Till I Collapse
+            </Text>
+            <Text className="text-zinc-500 text-xs">Eminem</Text>
+          </View>
+          <View className="flex-row items-center gap-3">
+            <SkipBack size={14} color="white" />
+            <View className="w-7 h-7 rounded-full bg-white items-center justify-center">
+              <Pause size={12} color="black" />
+            </View>
+            <SkipForward size={14} color="white" />
+          </View>
+        </View>
+        {/* Progress bar */}
+        <View className="h-0.5 bg-zinc-700 rounded-full mt-2">
+          <View className="h-full bg-green-500 rounded-full" style={{ width: '62%' }} />
+        </View>
+      </View>
+
+      {/* Bottom info */}
+      <View className="px-3 pb-3">
+        <View className="bg-zinc-800/60 rounded-xl p-2.5">
+          <Text className="text-zinc-400 text-xs leading-4">
+            📹 Cámara PRO graba mientras escuchas Spotify.{'\n'}
+            Controla la música desde el reproductor integrado sin salir de tu sesión.
+          </Text>
+        </View>
+      </View>
+    </LinearGradient>
+  </View>
+);
+
+// --- GYM SCREEN (Focus Mode) ---
+const GYM_EXERCISES = [
+  {
+    name: 'BENCH PRESS',
+    alternatives: ['INCLINE DB PRESS', 'CABLE FLY'],
+    series: [
+      { type: 'C', color: '#3B82F6', reps: 12, weight: 60 },
+      { type: 'A', color: '#F97316', reps: 8, weight: 100 },
+      { type: 'E', color: '#22C55E', reps: 5, weight: 120 },
+      { type: 'E', color: '#22C55E', reps: 5, weight: 120 },
+    ],
+  },
+  {
+    name: 'INCLINE DB PRESS',
+    alternatives: ['SMITH INCLINE', 'LANDMINE PRESS'],
+    series: [
+      { type: 'E', color: '#22C55E', reps: 10, weight: 36 },
+      { type: 'E', color: '#22C55E', reps: 10, weight: 36 },
+      { type: 'E', color: '#22C55E', reps: 8, weight: 40 },
+    ],
+  },
+  {
+    name: 'CABLE FLY',
+    alternatives: ['PEC DECK', 'DB FLY'],
+    series: [
+      { type: 'E', color: '#22C55E', reps: 12, weight: 15 },
+      { type: 'E', color: '#22C55E', reps: 12, weight: 15 },
+      { type: 'F', color: '#EF4444', reps: 10, weight: 15 },
+    ],
+  },
+];
+
+const GymScreen = ({ exerciseIndex, altIndex }: { exerciseIndex: number; altIndex: number }) => {
+  const ex = GYM_EXERCISES[exerciseIndex] || GYM_EXERCISES[0];
+  const displayName = altIndex > 0 ? ex.alternatives[altIndex - 1] || ex.name : ex.name;
+
+  return (
+    <View className="flex-1 px-3 pt-2">
+      {/* Focus mode header */}
+      <View className="flex-row items-center justify-between mb-2">
+        <Text className="text-red-500 text-xs font-mono font-bold">FOCUS MODE</Text>
+        <Text className="text-zinc-600 text-xs font-mono">
+          {exerciseIndex + 1}/{GYM_EXERCISES.length}
+        </Text>
+      </View>
+
+      {/* Exercise image area */}
+      <LinearGradient
+        colors={['#1a0808', '#0d0d0d']}
+        className="rounded-2xl items-center justify-center mb-3"
+        style={{ height: 120 }}
+      >
+        <Dumbbell size={28} color="#DC2626" />
+        <Text className="text-white font-bold text-sm mt-2">{displayName}</Text>
+        {altIndex > 0 && (
+          <View className="bg-orange-600/20 px-2 py-0.5 rounded-full mt-1">
+            <Text className="text-orange-400 text-xs font-mono">ALT {altIndex}</Text>
+          </View>
+        )}
+      </LinearGradient>
+
+      {/* Alternative indicators */}
+      <View className="flex-row items-center justify-center gap-1.5 mb-3">
+        {[ex.name, ...ex.alternatives].map((_, i) => (
+          <View
+            key={i}
+            className="rounded-full"
+            style={{
+              width: i === altIndex ? 16 : 6,
+              height: 6,
+              backgroundColor: i === altIndex ? '#DC2626' : '#3f3f46',
+            }}
+          />
+        ))}
+        <Text className="text-zinc-600 text-xs ml-1">← desliza →</Text>
+      </View>
+
+      {/* Series list */}
+      <View className="bg-zinc-900 rounded-2xl p-3 border border-zinc-800/50">
+        <Text className="text-white font-bold text-xs mb-2">Series</Text>
+        {ex.series.map((s, i) => (
+          <View key={i} className="flex-row items-center gap-2 py-1.5 border-b border-zinc-800/30">
+            <View
+              className="w-5 h-5 rounded items-center justify-center"
+              style={{ backgroundColor: `${s.color}20` }}
+            >
+              <Text style={{ color: s.color, fontSize: 9, fontWeight: 'bold' }}>{s.type}</Text>
+            </View>
+            <Text className="text-zinc-300 text-xs flex-1">{s.reps} reps</Text>
+            <Text className="text-white text-xs font-mono font-bold">{s.weight} kg</Text>
+            <View className="w-4 h-4 rounded border border-zinc-700" />
+          </View>
+        ))}
+      </View>
+
+      {/* Swipe hint */}
+      <View className="items-center mt-3">
+        <ChevronUp size={14} color="#52525B" />
+        <Text className="text-zinc-600 text-xs">siguiente ejercicio</Text>
+      </View>
+    </View>
+  );
+};
+
+// --- PLAN SCREEN ---
+const PLAN_SECTIONS = ['Comidas', 'Stack', 'Entreno', 'Cardio'] as const;
+
+const PlanScreen = ({ sectionIndex }: { sectionIndex: number }) => {
+  const section = PLAN_SECTIONS[sectionIndex] || PLAN_SECTIONS[0];
+
+  return (
+    <View className="flex-1 px-3 pt-2">
+      {/* Section tabs */}
+      <View className="flex-row gap-1 mb-3">
+        {PLAN_SECTIONS.map((s, i) => (
+          <View
+            key={i}
+            className="flex-1 py-1.5 rounded-lg items-center"
+            style={{ backgroundColor: i === sectionIndex ? '#DC262620' : '#18181b' }}
+          >
+            <Text
+              className="text-xs font-bold"
+              style={{ color: i === sectionIndex ? '#DC2626' : '#71717A', fontSize: 9 }}
+            >
+              {s}
+            </Text>
+          </View>
+        ))}
+      </View>
+
+      {/* Meals */}
+      {section === 'Comidas' && (
+        <View>
+          {[
+            {
+              time: '07:00',
+              name: 'Desayuno',
+              items: ['4 claras + 2 huevos', 'Avena 80g', 'Banana', 'Café negro'],
+              kcal: 620,
+            },
+            {
+              time: '10:30',
+              name: 'Snack AM',
+              items: ['Yogurt griego 200g', 'Almendras 30g', 'Miel 10g'],
+              kcal: 340,
+            },
+            {
+              time: '13:00',
+              name: 'Almuerzo',
+              items: ['Pechuga 200g', 'Arroz 150g', 'Brócoli', 'Aceite oliva'],
+              kcal: 680,
+            },
+          ].map((meal, i) => (
+            <View key={i} className="bg-zinc-900 rounded-xl p-2.5 mb-2 border border-zinc-800/30">
+              <View className="flex-row items-center justify-between mb-1.5">
+                <View className="flex-row items-center gap-1.5">
+                  <Text className="text-green-500 text-xs font-mono">{meal.time}</Text>
+                  <Text className="text-white text-xs font-bold">{meal.name}</Text>
+                </View>
+                <Text className="text-zinc-500 text-xs font-mono">{meal.kcal} kcal</Text>
+              </View>
+              {meal.items.map((item, j) => (
+                <Text key={j} className="text-zinc-400 text-xs pl-2">
+                  • {item}
+                </Text>
+              ))}
+            </View>
+          ))}
+        </View>
+      )}
+
+      {/* Stack */}
+      {section === 'Stack' && (
+        <View>
+          {[
+            { time: '07:00', name: 'Creatina', dose: '5g', type: 'powder', color: '#A855F7' },
+            { time: '07:00', name: 'Omega 3', dose: '2 caps', type: 'pill', color: '#3B82F6' },
+            {
+              time: '08:30',
+              name: 'Pre-Workout',
+              dose: '1 scoop',
+              type: 'powder',
+              color: '#EF4444',
+            },
+            { time: '10:00', name: 'Whey Protein', dose: '30g', type: 'powder', color: '#F97316' },
+            { time: '15:00', name: 'Vitamina D3', dose: '4000 UI', type: 'pill', color: '#FBBF24' },
+            { time: '22:00', name: 'Magnesio', dose: '400mg', type: 'pill', color: '#8B5CF6' },
+          ].map((s, i) => (
+            <View key={i} className="flex-row items-center gap-2 py-2 border-b border-zinc-800/30">
+              <View
+                className="w-7 h-7 rounded-lg items-center justify-center"
+                style={{ backgroundColor: `${s.color}20` }}
+              >
+                <Pill size={12} color={s.color} />
+              </View>
+              <View className="flex-1">
+                <Text className="text-white text-xs font-bold">{s.name}</Text>
+                <Text className="text-zinc-500 text-xs font-mono">{s.dose}</Text>
+              </View>
+              <Text className="text-zinc-600 text-xs font-mono">{s.time}</Text>
+            </View>
+          ))}
+        </View>
+      )}
+
+      {/* Training block */}
+      {section === 'Entreno' && (
+        <View>
+          <View className="bg-zinc-900 rounded-xl p-3 mb-2 border border-red-900/30">
+            <View className="flex-row items-center gap-2 mb-2">
+              <Dumbbell size={14} color="#DC2626" />
+              <Text className="text-white text-xs font-bold">PUSH + ABS</Text>
+              <View className="ml-auto bg-zinc-800 px-2 py-0.5 rounded-full">
+                <Text className="text-zinc-400 text-xs font-mono">~65 min</Text>
+              </View>
+            </View>
+            <View className="bg-zinc-800/50 rounded-lg p-2 mb-2">
+              <Text className="text-purple-400 text-xs font-bold mb-1">Pre-Workout</Text>
+              {['Creatina 5g', 'Pre-Workout 1 scoop', 'Cafeína 200mg'].map((s, i) => (
+                <Text key={i} className="text-zinc-400 text-xs">
+                  💊 {s}
+                </Text>
+              ))}
+            </View>
+            <View className="bg-zinc-800/50 rounded-lg p-2">
+              <Text className="text-green-400 text-xs font-bold mb-1">Post-Workout</Text>
+              {['Whey Protein 30g', 'Glutamina 5g'].map((s, i) => (
+                <Text key={i} className="text-zinc-400 text-xs">
+                  💊 {s}
+                </Text>
+              ))}
+            </View>
+          </View>
+          <View className="bg-zinc-900 rounded-xl p-3 border border-orange-900/30">
+            <View className="flex-row items-center gap-2 mb-1">
+              <Flame size={14} color="#F97316" />
+              <Text className="text-white text-xs font-bold">SESIÓN 2: CARDIO PM</Text>
+            </View>
+            <Text className="text-zinc-400 text-xs">LISS · Caminata inclinada · 30 min</Text>
+          </View>
+        </View>
+      )}
+
+      {/* Cardio */}
+      {section === 'Cardio' && (
+        <View>
+          {[
+            {
+              type: 'HIIT',
+              activity: 'Sprints',
+              duration: '20 min',
+              intensity: 4,
+              color: '#DC2626',
+              hr: '165 bpm',
+            },
+            {
+              type: 'LISS',
+              activity: 'Caminata inclinada',
+              duration: '30 min',
+              intensity: 2,
+              color: '#22C55E',
+              hr: '125 bpm',
+            },
+            {
+              type: 'STEADY STATE',
+              activity: 'Bicicleta',
+              duration: '25 min',
+              intensity: 3,
+              color: '#F97316',
+              hr: '145 bpm',
+            },
+          ].map((c, i) => (
+            <View key={i} className="bg-zinc-900 rounded-xl p-3 mb-2 border border-zinc-800/30">
+              <View className="flex-row items-center gap-2 mb-1.5">
+                <View
+                  className="w-6 h-6 rounded items-center justify-center"
+                  style={{ backgroundColor: `${c.color}20` }}
+                >
+                  <Activity size={12} color={c.color} />
+                </View>
+                <Text className="text-white text-xs font-bold">{c.type}</Text>
+                <Text className="text-zinc-500 text-xs ml-auto font-mono">{c.duration}</Text>
+              </View>
+              <View className="flex-row items-center gap-3">
+                <Text className="text-zinc-400 text-xs">{c.activity}</Text>
+                <Text className="text-zinc-600 text-xs">·</Text>
+                <View className="flex-row items-center gap-0.5">
+                  {[1, 2, 3, 4].map((level) => (
+                    <View
+                      key={level}
+                      className="rounded-sm"
+                      style={{
+                        width: 3,
+                        height: 8 + level * 2,
+                        backgroundColor: level <= c.intensity ? c.color : '#3f3f46',
+                      }}
+                    />
+                  ))}
+                </View>
+                <Text className="text-zinc-500 text-xs font-mono">{c.hr}</Text>
+              </View>
+            </View>
+          ))}
+        </View>
+      )}
+    </View>
+  );
+};
+
+// --- MAIN INTERACTIVE PHONE DEMO ---
+const InteractivePhoneDemo = () => {
+  const [activeModule, setActiveModule] = useState<ModuleKey>('FEED');
+  const [feedIndex, setFeedIndex] = useState(0);
+  const [adnScroll, setAdnScroll] = useState(0);
+  const [gymExercise, setGymExercise] = useState(0);
+  const [gymAlt, setGymAlt] = useState(0);
+  const [planSection, setPlanSection] = useState(0);
+  const [isPaused, setIsPaused] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const moduleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const phoneW = SCREEN_WIDTH < 640 ? 270 : 310;
+  const phoneH = SCREEN_WIDTH < 640 ? 560 : 640;
+
+  // Module cycling
+  const goToNextModule = useCallback(() => {
+    setActiveModule((prev) => {
+      const idx = MODULE_TABS.findIndex((t) => t.key === prev);
+      const next = MODULE_TABS[(idx + 1) % MODULE_TABS.length];
+      return next.key;
+    });
+    // Reset inner states
+    setFeedIndex(0);
+    setAdnScroll(0);
+    setGymExercise(0);
+    setGymAlt(0);
+    setPlanSection(0);
+  }, []);
+
+  // Inner content animation per module
+  useEffect(() => {
+    if (isPaused) return;
+
+    if (timerRef.current) clearInterval(timerRef.current);
+    if (moduleTimerRef.current) clearTimeout(moduleTimerRef.current);
+
+    const duration = MODULE_DURATIONS[activeModule];
+
+    if (activeModule === 'FEED') {
+      // Cycle videos every 1.5s
+      let idx = 0;
+      timerRef.current = setInterval(() => {
+        idx++;
+        if (idx >= FEED_VIDEOS.length) {
+          if (timerRef.current) clearInterval(timerRef.current);
+          goToNextModule();
+        } else {
+          setFeedIndex(idx);
+        }
+      }, 1500);
+    } else if (activeModule === 'ADN') {
+      // Gradually scroll content
+      let scroll = 0;
+      timerRef.current = setInterval(() => {
+        scroll += 25;
+        setAdnScroll(scroll);
+      }, 1000);
+      moduleTimerRef.current = setTimeout(goToNextModule, duration);
+    } else if (activeModule === 'PRO') {
+      moduleTimerRef.current = setTimeout(goToNextModule, duration);
+    } else if (activeModule === 'GYM') {
+      // Cycle: show exercise → show alt → next exercise → show alt → next
+      const sequence = [
+        { ex: 0, alt: 0 },
+        { ex: 0, alt: 1 },
+        { ex: 0, alt: 0 },
+        { ex: 1, alt: 0 },
+        { ex: 2, alt: 0 },
+        { ex: 2, alt: 1 },
+      ];
+      let step = 0;
+      timerRef.current = setInterval(() => {
+        step++;
+        if (step >= sequence.length) {
+          if (timerRef.current) clearInterval(timerRef.current);
+          goToNextModule();
+        } else {
+          setGymExercise(sequence[step].ex);
+          setGymAlt(sequence[step].alt);
+        }
+      }, 1000);
+    } else if (activeModule === 'PLAN') {
+      // Cycle plan sections
+      let sec = 0;
+      timerRef.current = setInterval(() => {
+        sec++;
+        if (sec >= PLAN_SECTIONS.length) {
+          if (timerRef.current) clearInterval(timerRef.current);
+          goToNextModule();
+        } else {
+          setPlanSection(sec);
+        }
+      }, 1500);
+    }
+
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+      if (moduleTimerRef.current) clearTimeout(moduleTimerRef.current);
+    };
+  }, [activeModule, isPaused, goToNextModule]);
+
+  // Manual tab selection
+  const selectModule = (key: ModuleKey) => {
+    if (timerRef.current) clearInterval(timerRef.current);
+    if (moduleTimerRef.current) clearTimeout(moduleTimerRef.current);
+    setActiveModule(key);
+    setFeedIndex(0);
+    setAdnScroll(0);
+    setGymExercise(0);
+    setGymAlt(0);
+    setPlanSection(0);
+    setIsPaused(false);
+  };
+
+  return (
+    <View
+      className="bg-black relative overflow-hidden"
+      style={{ paddingHorizontal: 16, paddingVertical: SCREEN_WIDTH < 768 ? 48 : 80 }}
+    >
+      <GlowOrb color={PREMIUM_COLORS.fireRed} size={400} top="30%" left="60%" delay={500} />
+
+      {/* Section header */}
+      <Animated.View entering={FadeInUp.duration(600)} className="items-center mb-6">
+        <View className="flex-row items-center gap-3 mb-4">
+          <Smartphone size={20} color={PREMIUM_COLORS.fireRed} />
+          <Text
+            className="text-red-500 font-mono tracking-[0.3em] uppercase"
+            style={{ fontSize: SCREEN_WIDTH < 640 ? 11 : 14 }}
+          >
+            Demo interactivo
+          </Text>
+        </View>
+        <Text
+          className="text-white font-bold text-center max-w-2xl px-2"
+          style={{ fontSize: SCREEN_WIDTH < 640 ? 22 : SCREEN_WIDTH < 768 ? 32 : 40 }}
+        >
+          5 módulos, <Text style={{ color: PREMIUM_COLORS.fireRed }}>una sola app</Text>
+        </Text>
+      </Animated.View>
+
+      {/* Module description */}
+      <Animated.View entering={FadeInUp.delay(200).duration(600)} className="items-center mb-6">
+        <Text className="text-zinc-400 text-sm text-center max-w-md px-4">
+          {MODULE_DESCRIPTIONS[activeModule]}
+        </Text>
+      </Animated.View>
+
+      <Animated.View
+        entering={FadeInUp.delay(300).duration(800).springify()}
+        className="items-center"
+      >
+        {/* Phone Frame */}
+        <TouchableOpacity
+          activeOpacity={0.95}
+          onPress={() => setIsPaused((p) => !p)}
+          style={{
+            width: phoneW,
+            height: phoneH,
+            borderRadius: 40,
+            borderWidth: 3,
+            borderColor: isPaused ? 'rgba(220,38,38,0.4)' : 'rgba(255,255,255,0.1)',
+            backgroundColor: '#0A0A0A',
+            overflow: 'hidden',
+            position: 'relative',
+            shadowColor: PREMIUM_COLORS.fireRed,
+            shadowOffset: { width: 0, height: 20 },
+            shadowOpacity: 0.3,
+            shadowRadius: 40,
+          }}
+        >
+          {/* Notch */}
+          <View
+            style={{
+              width: 120,
+              height: 28,
+              backgroundColor: '#000',
+              borderBottomLeftRadius: 20,
+              borderBottomRightRadius: 20,
+              alignSelf: 'center',
+              zIndex: 10,
+            }}
+          />
+
+          {/* Status bar */}
+          <View className="flex-row items-center justify-between px-6 py-1">
+            <Text className="text-white text-xs font-bold">9:41</Text>
+            <View className="flex-row items-center gap-1">
+              <View className="w-4 h-2 rounded-sm bg-white" />
+            </View>
+          </View>
+
+          {/* App header */}
+          <View className="px-4 py-2 flex-row items-center justify-between">
+            <View className="flex-row items-center gap-2">
+              <LinearGradient
+                colors={[PREMIUM_COLORS.fireRed, PREMIUM_COLORS.fireOrange]}
+                className="w-7 h-7 rounded-lg items-center justify-center"
+              >
+                <Dumbbell size={14} color="white" />
+              </LinearGradient>
+              <Text className="text-white font-bold text-sm">{activeModule}</Text>
+            </View>
+            {isPaused && (
+              <View className="bg-red-600/20 px-2 py-0.5 rounded-full">
+                <Text className="text-red-500 text-xs font-bold">PAUSADO</Text>
+              </View>
+            )}
+          </View>
+
+          {/* Module Content */}
+          <View className="flex-1">
+            {activeModule === 'FEED' && <FeedScreen scrollIndex={feedIndex} />}
+            {activeModule === 'ADN' && <AdnScreen scrollY={adnScroll} />}
+            {activeModule === 'PRO' && <ProScreen />}
+            {activeModule === 'GYM' && <GymScreen exerciseIndex={gymExercise} altIndex={gymAlt} />}
+            {activeModule === 'PLAN' && <PlanScreen sectionIndex={planSection} />}
+          </View>
+
+          {/* Bottom Tab Bar */}
+          <View className="flex-row items-center justify-around py-3 border-t border-zinc-800/50 bg-black/90">
+            {MODULE_TABS.map((tab) => {
+              const Icon = tab.icon;
+              const isActive = activeModule === tab.key;
+              return (
+                <TouchableOpacity
+                  key={tab.key}
+                  onPress={() => selectModule(tab.key)}
+                  className="items-center"
+                  activeOpacity={0.7}
+                >
+                  <Icon
+                    size={18}
+                    color={isActive ? PREMIUM_COLORS.fireRed : '#71717A'}
+                    fill={isActive && tab.key === 'FEED' ? PREMIUM_COLORS.fireRed : 'none'}
+                  />
+                  <Text
+                    style={{ fontSize: 8, color: isActive ? PREMIUM_COLORS.fireRed : '#52525B' }}
+                    className="mt-0.5 font-bold"
+                  >
+                    {tab.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </TouchableOpacity>
+
+        {/* Pause hint */}
+        <Text className="text-zinc-600 text-xs mt-4 text-center">
+          Toca el teléfono para {isPaused ? 'reanudar' : 'pausar'} · Toca un tab para navegar
+        </Text>
+      </Animated.View>
+
+      {/* Module progress dots */}
+      <View className="flex-row items-center justify-center gap-2 mt-6">
+        {MODULE_TABS.map((tab) => (
+          <TouchableOpacity key={tab.key} onPress={() => selectModule(tab.key)}>
+            <View
+              className="rounded-full"
+              style={{
+                width: activeModule === tab.key ? 24 : 8,
+                height: 8,
+                backgroundColor: activeModule === tab.key ? PREMIUM_COLORS.fireRed : '#3f3f46',
+              }}
+            />
+          </TouchableOpacity>
+        ))}
+      </View>
+    </View>
+  );
+};
+
+// ============================================================================
 // MAIN LANDING COMPONENT - PREMIUM VERSION
 // ============================================================================
 export default function LandingPage() {
@@ -950,224 +1880,9 @@ export default function LandingPage() {
       </View>
 
       {/* ================================================================== */}
-      {/* PHONE MOCKUP + FEED MOTIVACIONAL */}
+      {/* INTERACTIVE PHONE DEMO - 5 MODULES */}
       {/* ================================================================== */}
-      <View
-        className="bg-black relative overflow-hidden"
-        style={{ paddingHorizontal: 16, paddingVertical: SCREEN_WIDTH < 768 ? 48 : 80 }}
-      >
-        <GlowOrb color={PREMIUM_COLORS.fireRed} size={400} top="30%" left="60%" delay={500} />
-
-        <Animated.View entering={FadeInUp.duration(600)} className="items-center mb-10">
-          <View className="flex-row items-center gap-3 mb-4">
-            <Play size={20} color={PREMIUM_COLORS.fireRed} />
-            <Text
-              className="text-red-500 font-mono tracking-[0.3em] uppercase"
-              style={{ fontSize: SCREEN_WIDTH < 640 ? 11 : 14 }}
-            >
-              Feed motivacional
-            </Text>
-          </View>
-          <Text
-            className="text-white font-bold text-center max-w-2xl px-2"
-            style={{ fontSize: SCREEN_WIDTH < 640 ? 22 : SCREEN_WIDTH < 768 ? 32 : 40 }}
-          >
-            Motivación <Text style={{ color: PREMIUM_COLORS.fireRed }}>constante</Text> de la
-            comunidad
-          </Text>
-          <Text className="text-zinc-400 text-center mt-4 max-w-lg px-4">
-            Abre TRENS y lo primero que ves es el Feed: videos reales de atletas entrenando. Likes,
-            comentarios y saves. Tu dosis diaria de motivación antes de cada sesión.
-          </Text>
-        </Animated.View>
-
-        <Animated.View
-          entering={FadeInUp.delay(300).duration(800).springify()}
-          className="items-center"
-        >
-          {/* Phone Frame */}
-          <View
-            style={{
-              width: SCREEN_WIDTH < 640 ? 260 : 300,
-              height: SCREEN_WIDTH < 640 ? 520 : 600,
-              borderRadius: 40,
-              borderWidth: 3,
-              borderColor: 'rgba(255,255,255,0.1)',
-              backgroundColor: '#0A0A0A',
-              overflow: 'hidden',
-              position: 'relative',
-              shadowColor: PREMIUM_COLORS.fireRed,
-              shadowOffset: { width: 0, height: 20 },
-              shadowOpacity: 0.3,
-              shadowRadius: 40,
-            }}
-          >
-            {/* Notch */}
-            <View
-              style={{
-                width: 120,
-                height: 28,
-                backgroundColor: '#000',
-                borderBottomLeftRadius: 20,
-                borderBottomRightRadius: 20,
-                alignSelf: 'center',
-                zIndex: 10,
-              }}
-            />
-
-            {/* Status bar */}
-            <View className="flex-row items-center justify-between px-6 py-1">
-              <Text className="text-white text-xs font-bold">9:41</Text>
-              <View className="flex-row items-center gap-1">
-                <View className="w-4 h-2 rounded-sm bg-white" />
-              </View>
-            </View>
-
-            {/* App header */}
-            <View className="px-4 py-3 flex-row items-center justify-between">
-              <View className="flex-row items-center gap-2">
-                <LinearGradient
-                  colors={[PREMIUM_COLORS.fireRed, PREMIUM_COLORS.fireOrange]}
-                  className="w-7 h-7 rounded-lg items-center justify-center"
-                >
-                  <Dumbbell size={14} color="white" />
-                </LinearGradient>
-                <Text className="text-white font-bold text-sm">FEED</Text>
-              </View>
-              <Camera size={18} color="#71717A" />
-            </View>
-
-            {/* Feed Cards */}
-            <ScrollView className="flex-1 px-3" showsVerticalScrollIndicator={false}>
-              {/* Video Card 1 */}
-              <View className="bg-zinc-900 rounded-2xl mb-3 overflow-hidden">
-                <LinearGradient
-                  colors={['#1a0808', '#0d0d0d', '#150505']}
-                  style={{ height: 160 }}
-                  className="items-center justify-center"
-                >
-                  <View className="items-center">
-                    <Play size={32} color="white" fill="white" />
-                    <Text className="text-white text-xs font-bold mt-2">BENCH PRESS</Text>
-                    <Text className="text-red-500 text-xs font-mono mt-1">120 KG × 5</Text>
-                  </View>
-                </LinearGradient>
-                <View className="p-3">
-                  <View className="flex-row items-center gap-2 mb-1">
-                    <View className="w-5 h-5 rounded-full bg-red-600" />
-                    <Text className="text-white text-xs font-bold">carlos_fit</Text>
-                    <Text className="text-zinc-600 text-xs">· PR 🏆</Text>
-                  </View>
-                  <View className="flex-row items-center gap-3 mt-2">
-                    <View className="flex-row items-center gap-1">
-                      <Heart size={12} color="#DC2626" fill="#DC2626" />
-                      <Text className="text-zinc-400 text-xs">247</Text>
-                    </View>
-                    <View className="flex-row items-center gap-1">
-                      <Video size={12} color="#71717A" />
-                      <Text className="text-zinc-400 text-xs">1.2K</Text>
-                    </View>
-                  </View>
-                </View>
-              </View>
-
-              {/* Video Card 2 */}
-              <View className="bg-zinc-900 rounded-2xl mb-3 overflow-hidden">
-                <LinearGradient
-                  colors={['#0d0d0d', '#150808', '#0d0d0d']}
-                  style={{ height: 120 }}
-                  className="items-center justify-center"
-                >
-                  <View className="items-center">
-                    <Play size={24} color="white" fill="white" />
-                    <Text className="text-white text-xs font-bold mt-1">SQUAT</Text>
-                    <Text className="text-red-500 text-xs font-mono">180 KG × 3</Text>
-                  </View>
-                </LinearGradient>
-                <View className="p-3">
-                  <View className="flex-row items-center gap-2">
-                    <View className="w-5 h-5 rounded-full bg-orange-600" />
-                    <Text className="text-white text-xs font-bold">ana_power</Text>
-                  </View>
-                  <View className="flex-row items-center gap-3 mt-2">
-                    <View className="flex-row items-center gap-1">
-                      <Heart size={12} color="#DC2626" fill="#DC2626" />
-                      <Text className="text-zinc-400 text-xs">389</Text>
-                    </View>
-                    <View className="flex-row items-center gap-1">
-                      <Music size={10} color="#1DB954" />
-                      <Text className="text-zinc-500 text-xs">Spotify</Text>
-                    </View>
-                  </View>
-                </View>
-              </View>
-
-              {/* Video Card 3 */}
-              <View className="bg-zinc-900 rounded-2xl mb-3 overflow-hidden">
-                <LinearGradient
-                  colors={['#0d100d', '#0d0d0d']}
-                  style={{ height: 100 }}
-                  className="items-center justify-center"
-                >
-                  <View className="items-center">
-                    <Play size={20} color="white" fill="white" />
-                    <Text className="text-white text-xs font-bold mt-1">DEADLIFT</Text>
-                    <Text className="text-red-500 text-xs font-mono">200 KG × 1</Text>
-                  </View>
-                </LinearGradient>
-                <View className="p-2.5">
-                  <View className="flex-row items-center gap-2">
-                    <View className="w-5 h-5 rounded-full bg-yellow-600" />
-                    <Text className="text-white text-xs font-bold">diego_coach</Text>
-                    <Text className="text-zinc-600 text-xs">· 1RM 🔥</Text>
-                  </View>
-                </View>
-              </View>
-            </ScrollView>
-
-            {/* Bottom Tab Bar */}
-            <View className="flex-row items-center justify-around py-3 border-t border-zinc-800/50 bg-black/80">
-              <View className="items-center">
-                <Play size={18} color={PREMIUM_COLORS.fireRed} fill={PREMIUM_COLORS.fireRed} />
-                <Text style={{ fontSize: 8 }} className="text-red-500 mt-0.5">
-                  FEED
-                </Text>
-              </View>
-              <View className="items-center">
-                <Dna size={18} color="#71717A" />
-                <Text style={{ fontSize: 8 }} className="text-zinc-600 mt-0.5">
-                  ADN
-                </Text>
-              </View>
-              <View className="items-center">
-                <Camera size={18} color="#71717A" />
-                <Text style={{ fontSize: 8 }} className="text-zinc-600 mt-0.5">
-                  PRO
-                </Text>
-              </View>
-              <View className="items-center">
-                <Dumbbell size={18} color="#71717A" />
-                <Text style={{ fontSize: 8 }} className="text-zinc-600 mt-0.5">
-                  GYM
-                </Text>
-              </View>
-              <View className="items-center">
-                <Utensils size={18} color="#71717A" />
-                <Text style={{ fontSize: 8 }} className="text-zinc-600 mt-0.5">
-                  PLAN
-                </Text>
-              </View>
-            </View>
-          </View>
-        </Animated.View>
-
-        <Animated.View entering={FadeInUp.delay(600).duration(600)} className="items-center mt-8">
-          <Text className="text-zinc-500 text-sm text-center max-w-md px-4">
-            Cada video del feed incluye ejercicio, peso, repeticiones y la canción de Spotify que
-            sonaba. Pura información de valor.
-          </Text>
-        </Animated.View>
-      </View>
+      <InteractivePhoneDemo />
       <View
         className="bg-black relative overflow-hidden"
         style={{ paddingHorizontal: 16, paddingVertical: SCREEN_WIDTH < 768 ? 48 : 80 }}
