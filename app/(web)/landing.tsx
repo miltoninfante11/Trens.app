@@ -853,12 +853,13 @@ export default function LandingPage() {
           className="items-center mb-8 max-w-3xl"
         >
           <Text className="text-white text-3xl md:text-5xl font-bold text-center leading-tight">
-            Entrena como un{' '}
-            <Text style={{ color: PREMIUM_COLORS.fireRed }}>atleta profesional</Text>
+            Tu entrenador, nutricionista y cámara{' '}
+            <Text style={{ color: PREMIUM_COLORS.fireRed }}>en una sola app</Text>
           </Text>
           <Text className="text-zinc-400 text-lg md:text-xl text-center mt-6 max-w-2xl leading-relaxed">
-            IA entrenador, cámara PRO, rutinas, nutrición, suplementos, récords automáticos, Spotify
-            sync, feed social — todo en una sola app.
+            HANK, tu IA con +90 herramientas, crea tu rutina, calcula tus macros, analiza tu técnica
+            en video, trackea récords automáticos y sincroniza tu música — todo mientras entrenas.
+            Para GYM, Motociclismo, Automovilismo y Surf.
           </Text>
         </Animated.View>
 
@@ -950,6 +951,98 @@ export default function LandingPage() {
       {/* ================================================================== */}
       {/* FEATURES SECTION - PREMIUM */}
       {/* ================================================================== */}
+
+      {/* ================================================================== */}
+      {/* EL PROBLEMA — VALUE COMPARISON */}
+      {/* ================================================================== */}
+      <View
+        className="bg-black relative overflow-hidden"
+        style={{ paddingHorizontal: 16, paddingVertical: SCREEN_WIDTH < 768 ? 48 : 80 }}
+      >
+        <GlowOrb color="#991B1B" size={400} top="50%" left="50%" delay={0} />
+
+        <Animated.View entering={FadeInUp.duration(600)} className="items-center mb-10">
+          <Text
+            className="text-red-500 font-mono tracking-[0.3em] uppercase mb-4"
+            style={{ fontSize: SCREEN_WIDTH < 640 ? 11 : 14 }}
+          >
+            ¿Cuánto gastas cada mes?
+          </Text>
+          <Text
+            className="text-white font-bold text-center max-w-2xl px-2"
+            style={{ fontSize: SCREEN_WIDTH < 640 ? 22 : SCREEN_WIDTH < 768 ? 32 : 40 }}
+          >
+            Todo lo que necesitas,{' '}
+            <Text style={{ color: PREMIUM_COLORS.fireRed }}>por una fracción del costo</Text>
+          </Text>
+        </Animated.View>
+
+        <View
+          className="items-center"
+          style={{ maxWidth: 700, alignSelf: 'center', width: '100%' }}
+        >
+          {/* Cost comparison rows */}
+          {[
+            { label: 'Entrenador Personal', price: 'S/ 300 - 500', emoji: '🏋️' },
+            { label: 'Nutricionista', price: 'S/ 150 - 300', emoji: '🥗' },
+            { label: 'Apps de fitness (varias)', price: 'S/ 30 - 60', emoji: '📱' },
+            { label: 'App de grabación/edición', price: 'S/ 20 - 40', emoji: '🎬' },
+            { label: 'Rastreo de suplementos', price: 'S/ 15 - 30', emoji: '💊' },
+          ].map((item, i) => (
+            <Animated.View
+              key={i}
+              entering={FadeInLeft.delay(200 + i * 100).duration(500)}
+              className="flex-row items-center justify-between w-full py-4 border-b border-zinc-800/50"
+            >
+              <View className="flex-row items-center gap-3">
+                <Text style={{ fontSize: 20 }}>{item.emoji}</Text>
+                <Text className="text-zinc-300 text-base">{item.label}</Text>
+              </View>
+              <Text className="text-zinc-500 text-base line-through font-mono">{item.price}</Text>
+            </Animated.View>
+          ))}
+
+          {/* Total comparison */}
+          <Animated.View
+            entering={FadeInUp.delay(800).duration(600)}
+            className="w-full mt-6 p-6 rounded-2xl border-2 border-red-600/30 bg-red-950/20"
+          >
+            <View className="flex-row items-center justify-between">
+              <View className="flex-row items-center gap-3">
+                <Flame size={24} color={PREMIUM_COLORS.fireRed} fill={PREMIUM_COLORS.fireRed} />
+                <View>
+                  <Text className="text-white text-lg font-bold">TRENS PRO</Text>
+                  <Text className="text-zinc-400 text-sm">Todo incluido en una sola app</Text>
+                </View>
+              </View>
+              <View className="items-end">
+                <Text
+                  className="text-white text-2xl font-bold"
+                  style={{
+                    textShadowColor: PREMIUM_COLORS.glowRed,
+                    textShadowOffset: { width: 0, height: 2 },
+                    textShadowRadius: 12,
+                  }}
+                >
+                  S/ 59.90
+                </Text>
+                <Text className="text-zinc-500 text-xs">/ mes</Text>
+              </View>
+            </View>
+          </Animated.View>
+
+          <Animated.View entering={FadeInUp.delay(1000).duration(600)} className="mt-4">
+            <Text className="text-zinc-500 text-center text-sm">
+              Ahorra hasta <Text className="text-red-500 font-bold">S/ 870</Text> al mes frente a
+              contratar todo por separado
+            </Text>
+          </Animated.View>
+        </View>
+      </View>
+
+      {/* ================================================================== */}
+      {/* FEATURES GRID - PREMIUM */}
+      {/* ================================================================== */}
       <View
         className="bg-black relative overflow-hidden"
         style={{ paddingHorizontal: 16, paddingVertical: SCREEN_WIDTH < 768 ? 48 : 96 }}
@@ -989,112 +1082,112 @@ export default function LandingPage() {
           <PremiumFeatureCard
             icon={Brain}
             title="HANK — IA Entrenador"
-            description="Asistente con 150+ herramientas especializadas powered by Gemini. Crea rutinas, ajusta nutrición, analiza progreso y responde cualquier duda de entrenamiento en tiempo real."
+            description='Díle "Crea una rutina Push Pull Legs" o "Calcula mis macros" y HANK lo hace instantáneamente. +90 herramientas powered by Gemini: arma rutinas, ajusta nutrición, analiza tu técnica en video, sugiere ejercicios alternativos y responde cualquier duda — por texto o voz.'
             delay={100}
             index={0}
           />
           <PremiumFeatureCard
             icon={Camera}
-            title="Cámara PRO"
-            description="Graba tus ejercicios en calidad profesional 9:16. Filtros de video, flash, cámara frontal/trasera. Tu técnica documentada en tu bóveda personal."
+            title="Cámara PRO 9:16"
+            description="Graba cada set en formato vertical profesional como TikTok. Flash, cámara frontal/trasera, compresión inteligente. Cada video queda vinculado al ejercicio, peso y repeticiones exactas. HANK puede analizar tu técnica y darte feedback."
             delay={150}
             index={1}
           />
           <PremiumFeatureCard
             icon={Dna}
             title="ADN Atlético"
-            description="Tu perfil completo: TrensID Card, medidas corporales, récords personales, macros diarios, fotos de progreso, badges deportivos y stats de volumen semanal."
+            description="Tu perfil de atleta con TrensID Card compartible, medidas corporales (peso, grasa, masa muscular), récords personales auto-detectados, macros objetivo, fotos de progreso con comparativas, badges y stats de volumen semanal. Tu historial completo."
             delay={200}
             index={2}
           />
           <PremiumFeatureCard
             icon={Dumbbell}
             title="Rutinas GYM"
-            description="Constructor de rutinas con biblioteca de +500 ejercicios. Series personalizadas (calentamiento, aproximación, efectiva, fallo), drag & drop y alternativas inteligentes."
+            description="Constructor de rutinas con +500 ejercicios, días rotacionales automáticos, 4 tipos de series (calentamiento, aproximación, efectiva, fallo). Configura peso, reps, RIR, tempo y descanso. Agrega fotos/videos por ejercicio. Drag & drop para reorganizar."
             delay={250}
             index={3}
           />
           <PremiumFeatureCard
             icon={Utensils}
-            title="Plan Nutricional"
-            description="Planificador de comidas por horario con ingredientes, macros automáticos y sugerencias de IA. Desde desayuno hasta cena, con opciones múltiples por comida."
+            title="Plan Nutricional IA"
+            description="Planifica cada comida por horario con ingredientes detallados. La IA Gemini calcula calorías, proteína, carbs y grasa automáticamente. Múltiples opciones por comida, sugerencias de sustitución, detección de alérgenos y ajuste dinámico según tus objetivos."
             delay={300}
             index={4}
           />
           <PremiumFeatureCard
             icon={Pill}
             title="Stack de Suplementos"
-            description="Gestiona tu suplementación completa: pre/post workout, horarios, dosis (pastillas, polvo, líquido). Integrado con tu bloque de entrenamiento."
+            description="Gestiona tu suplementación completa con horarios múltiples y dosis específicas: pastillas, polvo, líquido, inyectables. Pre/intra/post workout integrado en tu timeline. HANK puede sugerirte el stack ideal para tu objetivo."
             delay={350}
             index={5}
           />
           <PremiumFeatureCard
             icon={Trophy}
-            title="Récords Personales"
-            description="Detección automática de PRs con IA de visión. Cuando superas tu mejor marca, TRENS lo detecta y lo registra con video incluido."
+            title="Récords Automáticos"
+            description="TRENS detecta automáticamente cuando superas tu mejor marca: PR dominante, peso máximo, 1RM estimado y máx reps. Cada récord queda registrado con video, fecha y datos exactos. Ve tu historial de progreso por ejercicio."
             delay={400}
             index={6}
           />
           <PremiumFeatureCard
             icon={Music}
             title="Spotify Sync"
-            description="Conecta tu Spotify Premium. La canción que suena durante tu set se guarda con cada video. Tu playlist de gym, siempre documentada."
+            description="Conecta tu Spotify Premium y la canción que suena durante tu set se sincroniza automáticamente con tu video: nombre del track, artista, carátula y posición exacta. Control de reproducción integrado."
             delay={450}
             index={7}
           />
           <PremiumFeatureCard
             icon={Video}
             title="Feed Social"
-            description="Comparte tus videos con la comunidad TRENS. Dale like, comenta y guarda los mejores levantamientos. Ve qué entrenan otros atletas."
+            description="Publica tus mejores sets en el feed de la comunidad TRENS. Likes, comentarios, saves y shares con deep links. Filtra por ejercicio, ve lo que entrenan otros atletas e importa contenido desde Instagram Reels."
             delay={500}
             index={8}
           />
           <PremiumFeatureCard
             icon={TrendingUp}
             title="Progreso Visual"
-            description="Timeline de fotos de progreso con comparativas lado a lado. Ve tu transformación mes a mes con datos de composición corporal."
+            description="Sube fotos de progreso y compáralas en timeline con slider lado a lado. HANK analiza tu composición corporal por foto. Ve tu transformación mes a mes con datos de peso, grasa corporal y masa muscular."
             delay={550}
             index={9}
           />
           <PremiumFeatureCard
             icon={ShoppingCart}
             title="Lista de Compras"
-            description="Generada automáticamente desde tus comidas planificadas. Todo lo que necesitas para tu semana de nutrición, listo para el supermercado."
+            description="Se genera automáticamente desde tus comidas planificadas. Agrega todos los ingredientes de la semana, agrupa por categoría y lleva al super exactamente lo que necesitas. Sin desperdiciar, sin olvidar nada."
             delay={600}
             index={10}
           />
           <PremiumFeatureCard
             icon={BarChart3}
             title="Macros Inteligentes"
-            description="Cálculo automático de macros diarios basado en tu peso, altura, edad, y objetivo. Se ajustan dinámicamente con tu plan de comidas."
+            description="Calorías, proteína, carbs y grasa calculados automáticamente según tu peso, altura, edad, nivel de actividad y objetivo (volumen, definición, mantenimiento). Se ajustan en tiempo real cuando modificas tu plan de comidas."
             delay={650}
             index={11}
           />
           <PremiumFeatureCard
             icon={Instagram}
             title="Instagram Connect"
-            description="Vincula tu cuenta de Instagram para importar contenido y mostrar tu perfil social en tu TrensID Card."
+            description="Vincula tu Instagram para importar Reels al feed de TRENS, cross-postear tus videos de entrenamiento, y mostrar tu perfil social directamente en tu TrensID Card pública. Hashtags automáticos."
             delay={700}
             index={12}
           />
           <PremiumFeatureCard
             icon={BellRing}
             title="Notificaciones Smart"
-            description="Recordatorios de entrenamiento, alertas de suplementos y notificaciones de la comunidad. Todo personalizable."
+            description="Recordatorios automáticos de entrenamiento, alertas de suplementos programadas a la hora exacta, avisos de comidas y notificaciones de actividad social. 100% personalizables, nunca spam."
             delay={750}
             index={13}
           />
           <PremiumFeatureCard
             icon={Mic}
             title="Comandos de Voz"
-            description="Habla con HANK usando tu voz. Pide cambios en tu rutina, ajusta comidas o pregunta cualquier cosa — manos libres mientras entrenas."
+            description='Manos en la barra, voz en HANK. Di "agrega 10kg al press" o "pon un snack a las 4pm" y HANK ejecuta el cambio en tiempo real. Ideal para medio entrenamiento sin tocar el celular.'
             delay={800}
             index={14}
           />
           <PremiumFeatureCard
             icon={Layers}
             title="Multi-Deporte"
-            description="No solo GYM: TRENS soporta Motociclismo, Automovilismo y Surf. Cada deporte con módulos dedicados: Garaje, Race, Tabla y Spot."
+            description="Más allá del GYM: MOTO y AUTO tienen Garaje (inventario de vehículos, mantenimiento, costos) y Race (eventos, tiempos, checklists). SURF tiene Tabla (quiver de tablas y equipo) y Spot (sesiones con olas, viento, marea)."
             delay={850}
             index={15}
           />
@@ -1124,10 +1217,20 @@ export default function LandingPage() {
             style={{ paddingHorizontal: 8 }}
           >
             {[
-              { icon: Dumbbell, name: 'FITNESS', color: '#DC2626', desc: 'GYM + PLAN' },
-              { icon: Warehouse, name: 'MOTO', color: '#F97316', desc: 'GARAJE + RACE' },
-              { icon: Flag, name: 'AUTO', color: '#EAB308', desc: 'GARAJE + RACE' },
-              { icon: Waves, name: 'SURF', color: '#0EA5E9', desc: 'TABLA + SPOT' },
+              {
+                icon: Dumbbell,
+                name: 'FITNESS',
+                color: '#DC2626',
+                desc: 'GYM + PLAN + SUPLEMENTOS',
+              },
+              {
+                icon: Warehouse,
+                name: 'MOTO',
+                color: '#F97316',
+                desc: 'GARAJE + RACE + CHECKLISTS',
+              },
+              { icon: Flag, name: 'AUTO', color: '#EAB308', desc: 'GARAJE + RACE + TIEMPOS' },
+              { icon: Waves, name: 'SURF', color: '#0EA5E9', desc: 'TABLA + SPOT + SESIONES' },
             ].map((sport, i) => (
               <Animated.View
                 key={sport.name}
@@ -1172,31 +1275,31 @@ export default function LandingPage() {
               {
                 icon: Play,
                 name: 'FEED',
-                desc: 'Videos sociales de la comunidad, likes, comentarios y saves',
+                desc: 'Tu red social de fitness. Videos de la comunidad, likes, comentarios, saves y shares con deep links. Importa Reels de Instagram.',
                 color: '#DC2626',
               },
               {
                 icon: Dna,
                 name: 'ADN',
-                desc: 'Tu perfil atlético completo con records, medidas y progreso',
+                desc: 'Tu perfil atlético completo. TrensID Card, medidas corporales, récords con video, fotos de progreso con comparativas, macros y badges.',
                 color: '#F97316',
               },
               {
                 icon: Camera,
                 name: 'PRO',
-                desc: 'Cámara profesional, editor de video, filtros y publicación',
+                desc: 'Cámara profesional 9:16 con flash, frontal/trasera, Spotify sync, editor de video, publicación al feed e Instagram.',
                 color: '#FBBF24',
               },
               {
                 icon: Dumbbell,
                 name: 'GYM',
-                desc: 'Constructor de rutinas con +500 ejercicios y series configurables',
+                desc: 'Constructor de rutinas con +500 ejercicios, 4 tipos de series, RIR, tempo, drag & drop, alternativas IA y fotos/videos por ejercicio.',
                 color: '#22C55E',
               },
               {
                 icon: Utensils,
                 name: 'PLAN',
-                desc: 'Nutrición, suplementos, macros y lista de compras automática',
+                desc: 'Planificador de comidas por horario, macros automáticos IA, suplementación con dosis/horarios, cardio blocks y lista de compras.',
                 color: '#0EA5E9',
               },
             ].map((mod, i) => (
@@ -1247,19 +1350,29 @@ export default function LandingPage() {
             >
               Conoce a <Text style={{ color: PREMIUM_COLORS.fireRed }}>HANK</Text>
             </Text>
-            <Text className="text-zinc-400 text-center max-w-lg px-4 mb-6 leading-relaxed">
-              Tu entrenador de IA con más de 150 herramientas especializadas. HANK puede crear tu
-              rutina completa, calcular tus macros, sugerir comidas, analizar tu progreso con fotos,
-              y mucho más — todo con comandos de texto o voz.
+            <Text className="text-zinc-400 text-center max-w-lg px-4 mb-3 leading-relaxed">
+              Tu entrenador de IA con más de 90 herramientas especializadas. Powered by Google
+              Gemini. HANK entiende el contexto completo de tu entrenamiento: sabe qué día toca, qué
+              ejercicio estás haciendo, y cuáles son tus macros objetivo.
+            </Text>
+            <Text className="text-zinc-500 text-center max-w-lg px-4 mb-6 text-sm leading-relaxed">
+              Crea rutinas completas desde cero, diseña planes nutricionales personalizados, analiza
+              tu técnica con fotos/videos, detecta alergias en ingredientes, sugiere sustituciones,
+              calcula tu 1RM, gestiona suplementos, genera listas de compras — todo con lenguaje
+              natural en español, por texto o voz.
             </Text>
             <View className="flex-row flex-wrap justify-center gap-2">
               {[
                 '"Crea una rutina Push Pull Legs"',
                 '"Analiza mi foto de progreso"',
-                '"Agrega pollo al almuerzo"',
-                '"Cambia mi serie a 5x5"',
-                '"Calcula mis macros"',
-                '"Sugiere un pre-workout"',
+                '"Agrega pollo 200g al almuerzo"',
+                '"Cambia mi serie a 5x5 con 80kg"',
+                '"Calcula mis macros para definición"',
+                '"Sugiere un pre-workout con creatina"',
+                '"Reemplaza sentadilla por prensa"',
+                '"¿Cuánta proteína necesito al día?"',
+                '"Arma un plan de comidas high protein"',
+                '"Analiza la técnica de mi video"',
               ].map((cmd, i) => (
                 <View
                   key={i}
@@ -1310,6 +1423,75 @@ export default function LandingPage() {
             ))}
           </View>
         </View>
+        {/* ================================================================== */}
+        {/* HOW IT WORKS */}
+        {/* ================================================================== */}
+        <View
+          className="mt-20 items-center"
+          style={{ maxWidth: 1000, alignSelf: 'center', width: '100%' }}
+        >
+          <Animated.View
+            entering={FadeInUp.delay(1600).duration(600)}
+            className="items-center mb-10"
+          >
+            <Text
+              className="text-red-500 font-mono tracking-[0.3em] uppercase mb-4"
+              style={{ fontSize: SCREEN_WIDTH < 640 ? 11 : 14 }}
+            >
+              3 pasos
+            </Text>
+            <Text
+              className="text-white font-bold text-center px-2"
+              style={{ fontSize: SCREEN_WIDTH < 640 ? 22 : 32 }}
+            >
+              Empieza en <Text style={{ color: PREMIUM_COLORS.fireRed }}>menos de 2 minutos</Text>
+            </Text>
+          </Animated.View>
+
+          <View
+            className="flex-row flex-wrap justify-center gap-4"
+            style={{ paddingHorizontal: 8 }}
+          >
+            {[
+              {
+                step: '01',
+                title: 'Crea tu cuenta',
+                desc: 'Registrate con email y tarjeta. Acceso inmediato a todos los módulos desde el primer segundo.',
+                icon: User,
+              },
+              {
+                step: '02',
+                title: 'Configura tu perfil',
+                desc: 'Ingresa tus medidas, objetivos y preferencias. HANK personaliza tu experiencia automáticamente.',
+                icon: Dna,
+              },
+              {
+                step: '03',
+                title: 'Entrena y registra',
+                desc: 'Pídele a HANK tu rutina, graba tus sets, trackea tu nutrición y ve tu progreso crecer día a día.',
+                icon: Flame,
+              },
+            ].map((item, i) => (
+              <Animated.View
+                key={i}
+                entering={FadeInUp.delay(1700 + i * 150).duration(500)}
+                className="bg-zinc-900/40 border border-zinc-800/40 rounded-2xl p-6 items-center"
+                style={{ width: SCREEN_WIDTH < 640 ? '100%' : 280 }}
+              >
+                <LinearGradient
+                  colors={[PREMIUM_COLORS.fireRed, PREMIUM_COLORS.fireOrange]}
+                  className="w-14 h-14 rounded-2xl items-center justify-center mb-4"
+                >
+                  <Text className="text-white text-xl font-bold font-mono">{item.step}</Text>
+                </LinearGradient>
+                <Text className="text-white font-bold text-lg mb-2">{item.title}</Text>
+                <Text className="text-zinc-400 text-sm text-center leading-relaxed">
+                  {item.desc}
+                </Text>
+              </Animated.View>
+            ))}
+          </View>
+        </View>
       </View>
 
       {/* ================================================================== */}
@@ -1349,34 +1531,112 @@ export default function LandingPage() {
           <TestimonialCard
             name="Carlos Mendoza"
             role="Powerlifter · Lima"
-            text="TRENS cambió mi forma de entrenar. HANK me armó una rutina de fuerza brutal y la cámara PRO me ayuda a revisar mi técnica en cada PR."
+            text="HANK me armó una rutina de fuerza 5/3/1 en segundos. La cámara PRO me ayuda a revisar mi técnica en cada PR y la detección automática de récords me tiene motivado al máximo. Subí 15kg en mi sentadilla en 3 meses."
             delay={100}
           />
           <TestimonialCard
             name="María Fernández"
-            role="CrossFit Athlete · Arequipa"
-            text="El plan nutricional con macros automáticos me ahorró ir al nutricionista. Y la lista de compras es oro puro."
+            role="Fitness Coach · Arequipa"
+            text="El plan nutricional con macros automáticos me ahorró S/ 200 mensuales en nutricionista. Analizo la comida con una foto y HANK me calcula todo. La lista de compras automática es oro puro para mi prep."
             delay={200}
           />
           <TestimonialCard
             name="Diego Ramírez"
-            role="Fitness Coach · Trujillo"
-            text="Uso TRENS con todos mis clientes. El módulo GYM con series configurables y el feed social los mantiene motivados."
+            role="Personal Trainer · Trujillo"
+            text="Uso TRENS con 12 clientes. El módulo GYM con series configurables y el feed social los mantiene comprometidos. Los comandos de voz me permiten ajustar rutinas mientras entreno con ellos."
             delay={300}
           />
           <TestimonialCard
             name="Ana Torres"
             role="Bodybuilder · Cusco"
-            text="Las fotos de progreso con timeline y la detección automática de PRs son increíbles. Es como tener un coach 24/7."
+            text="Las fotos de progreso con comparativas timeline son un game-changer. Puedo ver mi transformación semana a semana con datos de grasa corporal. HANK me detectó 4 PRs que ni sabía que había roto."
             delay={400}
           />
           <TestimonialCard
             name="Sebastián Luna"
             role="Motociclista · Lima"
-            text="No es solo para gym. Uso TRENS para trackear mi moto en el Garaje y mis carreras en Race. App completa."
+            text="No es solo para gym. Tengo mi KTM en el Garaje con todo su mantenimiento, trackeo mis carreras con tiempos por vuelta, y mi checklist de equipo. Todo en una app. Nadie más da esto."
             delay={500}
           />
+          <TestimonialCard
+            name="Luciana Vargas"
+            role="CrossFit · Miraflores"
+            text="La integración con Spotify es increíble. Cada video de mis sets tiene la canción que sonaba. Mis stories de Instagram nunca lucieron tan profesionales. Y HANK ajusta mis macros cuando cambio de fase."
+            delay={600}
+          />
         </ScrollView>
+      </View>
+
+      {/* ================================================================== */}
+      {/* FAQ SECTION */}
+      {/* ================================================================== */}
+      <View
+        className="bg-black"
+        style={{ paddingHorizontal: 16, paddingVertical: SCREEN_WIDTH < 768 ? 48 : 80 }}
+      >
+        <Animated.View entering={FadeInUp.duration(600)} className="items-center mb-10">
+          <Text
+            className="text-red-500 font-mono tracking-[0.3em] uppercase mb-4"
+            style={{ fontSize: SCREEN_WIDTH < 640 ? 11 : 14 }}
+          >
+            Preguntas Frecuentes
+          </Text>
+          <Text
+            className="text-white font-bold text-center px-2"
+            style={{ fontSize: SCREEN_WIDTH < 640 ? 22 : SCREEN_WIDTH < 768 ? 28 : 36 }}
+          >
+            Todo lo que necesitas saber
+          </Text>
+        </Animated.View>
+
+        <View
+          className="items-center"
+          style={{ maxWidth: 700, alignSelf: 'center', width: '100%' }}
+        >
+          {[
+            {
+              q: '¿Puedo cancelar cuando quiera?',
+              a: 'Sí. Sin penalidades, sin preguntas, sin letras chicas. Cancela desde tu perfil en cualquier momento y no se te cobra el siguiente mes.',
+            },
+            {
+              q: '¿En qué dispositivos funciona TRENS?',
+              a: 'iPhone (iOS 15+), Android (10+) y cualquier navegador moderno como PWA. Tu cuenta se sincroniza en todos tus dispositivos automáticamente.',
+            },
+            {
+              q: '¿Necesito Spotify Premium para la sincronización musical?',
+              a: 'Sí, para que HANK detecte la canción que suena durante tus sets necesitas Spotify Premium. Sin embargo, todas las demás funciones de TRENS funcionan sin Spotify.',
+            },
+            {
+              q: '¿TRENS sirve para principiantes?',
+              a: 'Absolutamente. HANK se adapta a tu nivel de experiencia. Puedes pedirle rutinas para principiantes, explicaciones de técnica, y planes nutricionales básicos. Crece contigo.',
+            },
+            {
+              q: '¿Qué métodos de pago aceptan?',
+              a: 'Visa, Mastercard y American Express. El pago se procesa de forma segura con Openpay (certificación PCI DSS). También aceptamos pagos nativos en App Store y Google Play.',
+            },
+            {
+              q: '¿Puedo usar TRENS solo para nutrición, sin hacer gym?',
+              a: 'Sí. El módulo PLAN funciona independientemente. Puedes usar HANK para planificar comidas, calcular macros, gestionar suplementos y generar listas de compras sin necesidad de usar el módulo GYM.',
+            },
+            {
+              q: '¿Qué deportes están incluidos en la suscripción?',
+              a: 'Los 4: GYM (fitness), Motociclismo, Automovilismo y Surf. Cada deporte tiene módulos dedicados exclusivos. Todo incluido en un solo precio.',
+            },
+            {
+              q: '¿HANK (IA) funciona en español?',
+              a: 'Sí. HANK entiende español e inglés perfectamente. Puedes escribirle o hablarle en cualquiera de los dos idiomas y responde en el idioma que prefieras.',
+            },
+          ].map((item, i) => (
+            <Animated.View
+              key={i}
+              entering={FadeInUp.delay(100 + i * 80).duration(500)}
+              className="w-full border-b border-zinc-800/50 py-5"
+            >
+              <Text className="text-white font-bold text-base mb-2">{item.q}</Text>
+              <Text className="text-zinc-400 text-sm leading-relaxed">{item.a}</Text>
+            </Animated.View>
+          ))}
+        </View>
       </View>
 
       {/* ================================================================== */}
@@ -1398,6 +1658,10 @@ export default function LandingPage() {
           </View>
           <Text className="text-white text-4xl md:text-5xl font-bold text-center">
             Un solo plan, <Text style={{ color: PREMIUM_COLORS.fireRed }}>todo incluido</Text>
+          </Text>
+          <Text className="text-zinc-400 text-center mt-4 max-w-lg">
+            Sin niveles confusos. Sin features bloqueadas. Pagas una vez y tienes acceso completo a
+            toda la plataforma, todos los deportes, y todas las actualizaciones futuras.
           </Text>
         </Animated.View>
 
@@ -1488,14 +1752,20 @@ export default function LandingPage() {
                 </View>
 
                 <View className="bg-gradient-to-r from-red-900/30 to-orange-900/20 border border-red-600/20 rounded-2xl p-5">
-                  <View className="flex-row items-center justify-center gap-2">
+                  <View className="flex-row items-center justify-center gap-2 mb-2">
                     <Shield size={18} color={PREMIUM_COLORS.fireRed} />
-                    <Text className="text-zinc-400 text-sm text-center">
-                      Pago seguro con Openpay
+                    <Text className="text-white text-sm font-bold">
+                      Pago 100% seguro con Openpay
                     </Text>
                   </View>
-                  <Text className="text-zinc-500 text-xs text-center mt-2">
-                    Cancela cuando quieras • Sin compromisos
+                  <Text className="text-zinc-400 text-xs text-center leading-relaxed">
+                    Certificación PCI DSS • Encriptación SSL 256-bit
+                  </Text>
+                  <View className="h-px bg-zinc-800/50 my-3" />
+                  <Text className="text-zinc-400 text-xs text-center">
+                    ✓ Cancela cuando quieras, sin penalidad{'\n'}✓ Sin letras chicas ni cargos
+                    ocultos{'\n'}✓ Acceso total desde el primer día{'\n'}✓ Actualizaciones incluidas
+                    de por vida
                   </Text>
                 </View>
               </LinearGradient>
@@ -1800,10 +2070,17 @@ export default function LandingPage() {
         <Animated.View entering={FadeInUp.duration(800)} className="items-center relative z-10">
           <Flame size={48} color={PREMIUM_COLORS.fireRed} fill={PREMIUM_COLORS.fireRed} />
           <Text className="text-white text-4xl md:text-5xl font-bold text-center mt-6 mb-4">
-            ¿Listo para entrenar?
+            Tu mejor versión empieza hoy
           </Text>
-          <Text className="text-zinc-400 text-lg text-center mb-8 max-w-xl">
-            Únete a miles de atletas que ya transformaron su entrenamiento con TRENS.
+          <Text className="text-zinc-400 text-lg text-center mb-4 max-w-xl">
+            Deja de improvisar tu entrenamiento. Con TRENS tienes un IA coach, plan nutricional
+            automático, cámara PRO, récords inteligentes y todo lo que necesitas para resultados
+            reales.
+          </Text>
+          <Text className="text-zinc-500 text-base text-center mb-8 max-w-md">
+            Más de 5,000 atletas ya entrenan con TRENS. Solo{' '}
+            <Text className="text-red-500 font-bold">{getFormattedPrice()}/mes</Text>. Cancela
+            cuando quieras.
           </Text>
 
           <TouchableOpacity onPress={scrollToPricing} activeOpacity={0.9}>
