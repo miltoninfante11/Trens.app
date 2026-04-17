@@ -2820,8 +2820,8 @@ function PlanScreen() {
         style={{
           backgroundColor: '#000000',
           borderBottomWidth: 1,
-          borderBottomColor: 'rgba(220, 38, 38, 0.3)',
-          shadowColor: '#DC2626',
+          borderBottomColor: 'rgba(34, 197, 94, 0.3)',
+          shadowColor: '#22C55E',
           shadowOffset: { width: 0, height: 4 },
           shadowOpacity: 0.15,
           shadowRadius: 12,
@@ -2831,8 +2831,8 @@ function PlanScreen() {
         <View
           className="absolute top-0 left-0 right-0 h-[2px]"
           style={{
-            backgroundColor: '#DC2626',
-            shadowColor: '#DC2626',
+            backgroundColor: '#22C55E',
+            shadowColor: '#22C55E',
             shadowOffset: { width: 0, height: 0 },
             shadowOpacity: 0.8,
             shadowRadius: 6,
@@ -2848,8 +2848,8 @@ function PlanScreen() {
               <View
                 className="w-2 h-2 rounded-full"
                 style={{
-                  backgroundColor: '#DC2626',
-                  shadowColor: '#DC2626',
+                  backgroundColor: '#22C55E',
+                  shadowColor: '#22C55E',
                   shadowOffset: { width: 0, height: 0 },
                   shadowOpacity: 1,
                   shadowRadius: 4,
@@ -2858,7 +2858,7 @@ function PlanScreen() {
               <Text
                 className="text-white text-2xl font-black tracking-tight uppercase"
                 style={{
-                  textShadowColor: 'rgba(220, 38, 38, 0.5)',
+                  textShadowColor: 'rgba(34, 197, 94, 0.5)',
                   textShadowOffset: { width: 0, height: 0 },
                   textShadowRadius: 12,
                 }}
@@ -2963,7 +2963,7 @@ function PlanScreen() {
         {/* Daily Stats Badges - Macros REALES si disponibles, target como fallback */}
         <View className="flex-row flex-wrap gap-3 mt-3">
           <View className="flex-row items-center gap-1">
-            <View className="w-1.5 h-1.5 rounded-full bg-savage-red" />
+            <View className="w-1.5 h-1.5 rounded-full bg-green-500" />
             <Text className="text-zinc-500 text-[10px] font-mono">{meals.length} COMIDAS</Text>
           </View>
           {(computedDailyMacros || mealMacros) && (
@@ -3012,7 +3012,7 @@ function PlanScreen() {
         className="flex-1 px-5"
         showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#DC2626" />
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#22C55E" />
         }
       >
         <View className="pt-6 gap-2 relative">
@@ -3021,8 +3021,8 @@ function PlanScreen() {
             <View
               className="absolute left-[18px] top-0 bottom-0 w-[2.5px] rounded-full"
               style={{
-                backgroundColor: 'rgba(220, 38, 38, 0.25)',
-                shadowColor: '#DC2626',
+                backgroundColor: 'rgba(34, 197, 94, 0.25)',
+                shadowColor: '#22C55E',
                 shadowOffset: { width: 0, height: 0 },
                 shadowOpacity: 0.4,
                 shadowRadius: 6,
@@ -3036,12 +3036,12 @@ function PlanScreen() {
               <View
                 className="w-20 h-20 rounded-2xl items-center justify-center mb-4"
                 style={{
-                  backgroundColor: 'rgba(220, 38, 38, 0.12)',
+                  backgroundColor: 'rgba(34, 197, 94, 0.12)',
                   borderWidth: 1,
-                  borderColor: 'rgba(220, 38, 38, 0.25)',
+                  borderColor: 'rgba(34, 197, 94, 0.25)',
                 }}
               >
-                <Plus size={32} color="#DC2626" />
+                <Plus size={32} color="#22C55E" />
               </View>
               <Text className="text-white font-bold text-lg mb-1">Sin comidas configuradas</Text>
               <Text className="text-zinc-400 text-sm text-center font-mono max-w-[240px]">
@@ -3186,8 +3186,8 @@ function PlanScreen() {
             backgroundColor: 'rgba(39, 39, 42, 0.4)',
             borderWidth: 1.5,
             borderStyle: 'dashed',
-            borderColor: 'rgba(220, 38, 38, 0.4)',
-            shadowColor: '#DC2626',
+            borderColor: 'rgba(34, 197, 94, 0.4)',
+            shadowColor: '#22C55E',
             shadowOffset: { width: 0, height: 0 },
             shadowOpacity: 0.15,
             shadowRadius: 24,
@@ -3196,13 +3196,11 @@ function PlanScreen() {
           <View className="items-center">
             <View
               className="w-12 h-12 rounded-xl items-center justify-center mb-2"
-              style={{ backgroundColor: 'rgba(220, 38, 38, 0.15)' }}
+              style={{ backgroundColor: 'rgba(34, 197, 94, 0.15)' }}
             >
-              <Plus size={24} color="#DC2626" />
+              <Plus size={24} color="#22C55E" />
             </View>
-            <Text className="text-savage-red font-bold tracking-widest text-sm">
-              AGREGAR COMIDA
-            </Text>
+            <Text className="text-green-500 font-bold tracking-widest text-sm">AGREGAR COMIDA</Text>
             <Text className="text-zinc-500 text-[10px] font-mono mt-1">
               Nueva comida en tu plan
             </Text>

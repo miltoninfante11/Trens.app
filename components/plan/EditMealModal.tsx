@@ -327,7 +327,7 @@ export const EditMealModal: React.FC<EditMealModalProps> = ({
                 borderTopRightRadius: 24,
                 maxHeight: '90%',
                 borderTopWidth: 2,
-                borderTopColor: 'rgba(168, 85, 247, 0.5)',
+                borderTopColor: 'rgba(34, 197, 94, 0.5)',
                 overflow: 'hidden',
               },
               animatedStyle,
@@ -341,8 +341,8 @@ export const EditMealModal: React.FC<EditMealModalProps> = ({
                 left: 0,
                 right: 0,
                 height: 3,
-                backgroundColor: '#A855F7',
-                shadowColor: '#A855F7',
+                backgroundColor: '#22C55E',
+                shadowColor: '#22C55E',
                 shadowOffset: { width: 0, height: 0 },
                 shadowOpacity: 0.8,
                 shadowRadius: 10,
@@ -363,7 +363,7 @@ export const EditMealModal: React.FC<EditMealModalProps> = ({
               <View className="flex-1 mt-2">
                 <View className="flex-row items-center gap-2">
                   <Text className="text-white font-bold text-lg">Editar Comida</Text>
-                  <Sparkles size={14} color="#A855F7" />
+                  <Sparkles size={14} color="#22C55E" />
                 </View>
                 <Text className="text-zinc-500 text-xs">
                   {formatTimeToAMPM(meal.time)} • {currentOption?.name || 'Opción Principal'}
@@ -388,8 +388,8 @@ export const EditMealModal: React.FC<EditMealModalProps> = ({
                   </Text>
                 </View>
               ) : (
-                <View className="bg-purple-500/10 border border-purple-500/20 rounded-xl p-3 mb-3">
-                  <Text className="text-purple-300 text-xs">
+                <View className="bg-green-500/10 border border-green-500/20 rounded-xl p-3 mb-3">
+                  <Text className="text-green-300 text-xs">
                     ✏️ Escribe el ingrediente con su porción. El peso en gramos es opcional.
                   </Text>
                 </View>
@@ -528,10 +528,10 @@ export const EditMealModal: React.FC<EditMealModalProps> = ({
               {/* Botón de añadir ingrediente */}
               <Pressable
                 onPress={addIngredient}
-                className="w-full py-3 border border-dashed border-zinc-600 rounded-xl mb-6 active:border-purple-500 active:bg-purple-500/5"
+                className="w-full py-3 border border-dashed border-zinc-600 rounded-xl mb-6 active:border-green-500 active:bg-green-500/5"
               >
                 <View className="flex-row items-center justify-center gap-2">
-                  <Plus size={18} color="#A855F7" />
+                  <Plus size={18} color="#22C55E" />
                   <Text className="text-zinc-400 font-medium">Añadir ingrediente</Text>
                 </View>
               </Pressable>
@@ -555,11 +555,11 @@ export const EditMealModal: React.FC<EditMealModalProps> = ({
                 onPress={handleSave}
                 disabled={isSaving}
                 className={`w-full py-4 rounded-xl ${
-                  isSaving ? 'bg-zinc-600' : 'bg-purple-500 active:bg-purple-600'
+                  isSaving ? 'bg-zinc-600' : 'bg-green-500 active:bg-green-600'
                 }`}
                 style={{
                   marginBottom: Math.max(insets.bottom, 16) + 8,
-                  shadowColor: '#A855F7',
+                  shadowColor: '#22C55E',
                   shadowOffset: { width: 0, height: 4 },
                   shadowOpacity: isSaving ? 0 : 0.3,
                   shadowRadius: 8,

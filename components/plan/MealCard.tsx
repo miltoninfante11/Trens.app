@@ -193,8 +193,8 @@ export const MealCard: React.FC<MealCardProps> = ({
         <View
           className="absolute -left-[14px] top-4 w-3.5 h-3.5 rounded-full border-2 border-zinc-900"
           style={{
-            backgroundColor: '#DC2626',
-            shadowColor: '#DC2626',
+            backgroundColor: '#22C55E',
+            shadowColor: '#22C55E',
             shadowOffset: { width: 0, height: 0 },
             shadowOpacity: 0.8,
             shadowRadius: 6,
@@ -205,7 +205,7 @@ export const MealCard: React.FC<MealCardProps> = ({
           style={{
             backgroundColor: 'rgba(39, 39, 42, 0.6)',
             borderWidth: 1,
-            borderColor: 'rgba(220, 38, 38, 0.35)',
+            borderColor: 'rgba(34, 197, 94, 0.35)',
           }}
         >
           <View className="flex-1 mr-3">
@@ -216,9 +216,9 @@ export const MealCard: React.FC<MealCardProps> = ({
           </View>
           <View
             className="px-3 py-1.5 rounded-lg"
-            style={{ backgroundColor: 'rgba(220, 38, 38, 0.2)' }}
+            style={{ backgroundColor: 'rgba(34, 197, 94, 0.2)' }}
           >
-            <Text className="text-savage-red text-xs font-bold font-mono">{displayTime}</Text>
+            <Text className="text-green-500 text-xs font-bold font-mono">{displayTime}</Text>
           </View>
         </View>
       </View>
@@ -268,7 +268,7 @@ export const MealCard: React.FC<MealCardProps> = ({
         style={{
           backgroundColor: 'rgba(24, 24, 27, 0.95)',
           borderWidth: 1,
-          borderColor: 'rgba(220, 38, 38, 0.2)',
+          borderColor: 'rgba(34, 197, 94, 0.2)',
         }}
       >
         {/* Option Header - only if multiple options */}
@@ -276,24 +276,24 @@ export const MealCard: React.FC<MealCardProps> = ({
           <View
             className="px-4 py-2.5 flex-row items-center justify-between"
             style={{
-              backgroundColor: 'rgba(220, 38, 38, 0.08)',
+              backgroundColor: 'rgba(34, 197, 94, 0.08)',
               borderBottomWidth: 1,
-              borderBottomColor: 'rgba(220, 38, 38, 0.15)',
+              borderBottomColor: 'rgba(34, 197, 94, 0.15)',
             }}
           >
             <View className="flex-row items-center gap-2">
               <View
                 className="w-5 h-5 rounded-md items-center justify-center"
-                style={{ backgroundColor: 'rgba(220, 38, 38, 0.2)' }}
+                style={{ backgroundColor: 'rgba(34, 197, 94, 0.2)' }}
               >
-                <Text className="text-savage-red text-[10px] font-black">{index + 1}</Text>
+                <Text className="text-green-500 text-[10px] font-black">{index + 1}</Text>
               </View>
               <Text className="text-zinc-300 text-[10px] font-bold tracking-[2px] uppercase">
                 OPCIÓN
               </Text>
             </View>
             <View className="flex-row items-center gap-1">
-              <View className="w-1.5 h-1.5 rounded-full bg-savage-red/50" />
+              <View className="w-1.5 h-1.5 rounded-full bg-green-500/50" />
               <Text className="text-zinc-400 text-[9px] font-mono">
                 {option.ingredients.length} items
               </Text>
@@ -315,12 +315,12 @@ export const MealCard: React.FC<MealCardProps> = ({
               <View
                 className="w-6 h-6 rounded-lg items-center justify-center"
                 style={{
-                  backgroundColor: 'rgba(220, 38, 38, 0.15)',
+                  backgroundColor: 'rgba(34, 197, 94, 0.15)',
                   borderWidth: 1,
-                  borderColor: 'rgba(220, 38, 38, 0.25)',
+                  borderColor: 'rgba(34, 197, 94, 0.25)',
                 }}
               >
-                <Text className="text-savage-red text-[10px] font-bold">{idx + 1}</Text>
+                <Text className="text-green-500 text-[10px] font-bold">{idx + 1}</Text>
               </View>
 
               {/* Ingredient Name (includes portion in new format) */}
@@ -335,9 +335,9 @@ export const MealCard: React.FC<MealCardProps> = ({
                 <View
                   className="px-3 py-1.5 rounded-lg"
                   style={{
-                    backgroundColor: 'rgba(220, 38, 38, 0.12)',
+                    backgroundColor: 'rgba(34, 197, 94, 0.12)',
                     borderWidth: 1,
-                    borderColor: 'rgba(220, 38, 38, 0.2)',
+                    borderColor: 'rgba(34, 197, 94, 0.2)',
                   }}
                 >
                   <Text className="text-white font-bold font-mono text-xs tracking-tight">
@@ -380,12 +380,12 @@ export const MealCard: React.FC<MealCardProps> = ({
               <View
                 className="w-14 h-14 rounded-2xl items-center justify-center mb-3"
                 style={{
-                  backgroundColor: 'rgba(220, 38, 38, 0.15)',
+                  backgroundColor: 'rgba(34, 197, 94, 0.15)',
                   borderWidth: 1,
-                  borderColor: 'rgba(220, 38, 38, 0.25)',
+                  borderColor: 'rgba(34, 197, 94, 0.25)',
                 }}
               >
-                <Plus size={24} color="#DC2626" />
+                <Plus size={24} color="#22C55E" />
               </View>
               <Text className="text-zinc-300 text-xs font-bold tracking-wide">
                 SIN INGREDIENTES
@@ -436,16 +436,16 @@ export const MealCard: React.FC<MealCardProps> = ({
           backgroundColor: 'rgba(39, 39, 42, 0.4)',
           borderWidth: 1.5,
           borderStyle: 'dashed',
-          borderColor: 'rgba(220, 38, 38, 0.35)',
+          borderColor: 'rgba(34, 197, 94, 0.35)',
         }}
       >
         <View
           className="w-12 h-12 rounded-full items-center justify-center mb-2"
-          style={{ backgroundColor: 'rgba(220, 38, 38, 0.15)' }}
+          style={{ backgroundColor: 'rgba(34, 197, 94, 0.15)' }}
         >
-          <Plus size={22} color="#DC2626" />
+          <Plus size={22} color="#22C55E" />
         </View>
-        <Text className="text-savage-red text-[10px] font-bold text-center tracking-wider">
+        <Text className="text-green-500 text-[10px] font-bold text-center tracking-wider">
           AÑADIR PLATILLO
         </Text>
       </View>
@@ -464,8 +464,8 @@ export const MealCard: React.FC<MealCardProps> = ({
       <View
         className="absolute -left-[14px] top-6 w-3.5 h-3.5 rounded-full border-2 border-zinc-900 z-10"
         style={{
-          backgroundColor: '#DC2626',
-          shadowColor: '#DC2626',
+          backgroundColor: '#22C55E',
+          shadowColor: '#22C55E',
           shadowOffset: { width: 0, height: 0 },
           shadowOpacity: 0.9,
           shadowRadius: 8,
@@ -477,8 +477,8 @@ export const MealCard: React.FC<MealCardProps> = ({
         style={{
           backgroundColor: 'rgba(24, 24, 27, 0.95)',
           borderWidth: 1,
-          borderColor: 'rgba(220, 38, 38, 0.25)',
-          shadowColor: '#DC2626',
+          borderColor: 'rgba(34, 197, 94, 0.25)',
+          shadowColor: '#22C55E',
           shadowOffset: { width: 0, height: 4 },
           shadowOpacity: 0.15,
           shadowRadius: 20,
@@ -491,7 +491,7 @@ export const MealCard: React.FC<MealCardProps> = ({
           style={{
             backgroundColor: 'rgba(39, 39, 42, 0.6)',
             borderBottomWidth: 1,
-            borderBottomColor: 'rgba(220, 38, 38, 0.2)',
+            borderBottomColor: 'rgba(34, 197, 94, 0.2)',
           }}
         >
           <View className="flex-row justify-between items-start">
@@ -499,7 +499,7 @@ export const MealCard: React.FC<MealCardProps> = ({
               <Text
                 className="font-black tracking-wider text-lg uppercase text-white"
                 style={{
-                  textShadowColor: 'rgba(220, 38, 38, 0.3)',
+                  textShadowColor: 'rgba(34, 197, 94, 0.3)',
                   textShadowOffset: { width: 0, height: 0 },
                   textShadowRadius: 8,
                 }}
@@ -539,13 +539,13 @@ export const MealCard: React.FC<MealCardProps> = ({
               onPress={() => onTimeChange(meal.id)}
               className="flex-row items-center gap-2 px-3 py-2 rounded-xl active:scale-95"
               style={{
-                backgroundColor: 'rgba(220, 38, 38, 0.15)',
+                backgroundColor: 'rgba(34, 197, 94, 0.15)',
                 borderWidth: 1,
-                borderColor: 'rgba(220, 38, 38, 0.35)',
+                borderColor: 'rgba(34, 197, 94, 0.35)',
               }}
             >
-              <Clock size={12} color="#DC2626" />
-              <Text className="text-savage-red text-xs font-mono font-bold">{displayTime}</Text>
+              <Clock size={12} color="#22C55E" />
+              <Text className="text-green-500 text-xs font-mono font-bold">{displayTime}</Text>
             </Pressable>
           </View>
         </View>
@@ -579,10 +579,10 @@ export const MealCard: React.FC<MealCardProps> = ({
             disabled={activeIndex === 0}
             className={`p-2 rounded-lg ${activeIndex === 0 ? 'opacity-20' : 'opacity-100'}`}
             style={{
-              backgroundColor: activeIndex === 0 ? 'transparent' : 'rgba(220, 38, 38, 0.1)',
+              backgroundColor: activeIndex === 0 ? 'transparent' : 'rgba(34, 197, 94, 0.1)',
             }}
           >
-            <ChevronLeft size={18} color="#DC2626" />
+            <ChevronLeft size={18} color="#22C55E" />
           </Pressable>
 
           {/* Dots - Savage Red Style */}
@@ -592,10 +592,10 @@ export const MealCard: React.FC<MealCardProps> = ({
                 <View
                   className="rounded-full transition-all"
                   style={{
-                    backgroundColor: idx === activeIndex ? '#DC2626' : 'rgba(255, 255, 255, 0.1)',
+                    backgroundColor: idx === activeIndex ? '#22C55E' : 'rgba(255, 255, 255, 0.1)',
                     width: idx === activeIndex ? 20 : 6,
                     height: 6,
-                    shadowColor: idx === activeIndex ? '#DC2626' : 'transparent',
+                    shadowColor: idx === activeIndex ? '#22C55E' : 'transparent',
                     shadowOffset: { width: 0, height: 0 },
                     shadowOpacity: 0.8,
                     shadowRadius: 4,
@@ -607,7 +607,7 @@ export const MealCard: React.FC<MealCardProps> = ({
               <Pressable onPress={handleAddOption} className="p-1">
                 <View
                   className="w-1.5 h-1.5 rounded-full"
-                  style={{ backgroundColor: 'rgba(220, 38, 38, 0.3)' }}
+                  style={{ backgroundColor: 'rgba(34, 197, 94, 0.3)' }}
                 />
               </Pressable>
             )}
@@ -620,10 +620,10 @@ export const MealCard: React.FC<MealCardProps> = ({
             className={`p-2 rounded-lg ${activeIndex === meal.options.length - 1 ? 'opacity-20' : 'opacity-100'}`}
             style={{
               backgroundColor:
-                activeIndex === meal.options.length - 1 ? 'transparent' : 'rgba(220, 38, 38, 0.1)',
+                activeIndex === meal.options.length - 1 ? 'transparent' : 'rgba(34, 197, 94, 0.1)',
             }}
           >
-            <ChevronRight size={18} color="#DC2626" />
+            <ChevronRight size={18} color="#22C55E" />
           </Pressable>
         </View>
 

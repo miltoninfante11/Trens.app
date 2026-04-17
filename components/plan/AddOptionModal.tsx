@@ -211,7 +211,7 @@ export const AddOptionModal: React.FC<AddOptionModalProps> = ({
                 borderTopRightRadius: 24,
                 maxHeight: '90%',
                 borderTopWidth: 2,
-                borderTopColor: 'rgba(168, 85, 247, 0.5)',
+                borderTopColor: 'rgba(34, 197, 94, 0.5)',
                 overflow: 'hidden',
               },
             ]}
@@ -224,8 +224,8 @@ export const AddOptionModal: React.FC<AddOptionModalProps> = ({
                 left: 0,
                 right: 0,
                 height: 3,
-                backgroundColor: '#A855F7',
-                shadowColor: '#A855F7',
+                backgroundColor: '#22C55E',
+                shadowColor: '#22C55E',
                 shadowOffset: { width: 0, height: 0 },
                 shadowOpacity: 0.8,
                 shadowRadius: 10,
@@ -242,13 +242,13 @@ export const AddOptionModal: React.FC<AddOptionModalProps> = ({
             <View className="flex-row justify-between items-center px-4 pb-4 border-b border-zinc-800/50">
               <View className="flex-1">
                 <View className="flex-row items-center gap-2">
-                  <Sparkles size={16} color="#A855F7" />
+                  <Sparkles size={16} color="#22C55E" />
                   <Text className="text-white font-bold text-lg">Añadir Platillo</Text>
                 </View>
                 <Text className="text-zinc-500 text-xs mt-1">{mealName}</Text>
                 {targetMacros && (
                   <View className="flex-row gap-2 mt-1">
-                    <Text className="text-savage-red text-xs font-mono">
+                    <Text className="text-green-500 text-xs font-mono">
                       {targetMacros.protein}P
                     </Text>
                     <Text className="text-yellow-500 text-xs font-mono">{targetMacros.carbs}C</Text>
@@ -266,8 +266,8 @@ export const AddOptionModal: React.FC<AddOptionModalProps> = ({
               <Text className="text-zinc-400 text-xs font-bold mb-2 uppercase">Ingredientes</Text>
 
               {/* Info: cantidades automáticas según macros */}
-              <View className="bg-purple-500/10 border border-purple-500/20 rounded-xl p-3 mb-3">
-                <Text className="text-purple-300 text-xs">
+              <View className="bg-green-500/10 border border-green-500/20 rounded-xl p-3 mb-3">
+                <Text className="text-green-300 text-xs">
                   🤖 Solo agrega los ingredientes — Hank calculará automáticamente las cantidades
                   según los macros de esta comida
                 </Text>
@@ -299,10 +299,10 @@ export const AddOptionModal: React.FC<AddOptionModalProps> = ({
               {/* Add Ingredient Button */}
               <Pressable
                 onPress={addIngredient}
-                className="w-full py-3 border border-dashed border-zinc-600 rounded-xl mb-6 active:border-purple-500 active:bg-purple-500/5"
+                className="w-full py-3 border border-dashed border-zinc-600 rounded-xl mb-6 active:border-green-500 active:bg-green-500/5"
               >
                 <View className="flex-row items-center justify-center gap-2">
-                  <Plus size={18} color="#A855F7" />
+                  <Plus size={18} color="#22C55E" />
                   <Text className="text-zinc-400 font-medium">Añadir ingrediente</Text>
                 </View>
               </Pressable>
@@ -327,11 +327,11 @@ export const AddOptionModal: React.FC<AddOptionModalProps> = ({
                 onPress={handleSave}
                 disabled={isSaving}
                 className={`w-full py-4 rounded-xl ${
-                  isSaving ? 'bg-zinc-600' : 'bg-savage-red active:bg-red-700'
+                  isSaving ? 'bg-zinc-600' : 'bg-green-500 active:bg-green-600'
                 }`}
                 style={{
                   marginBottom: Math.max(insets.bottom, 16) + 8,
-                  shadowColor: '#DC2626',
+                  shadowColor: '#22C55E',
                   shadowOffset: { width: 0, height: 4 },
                   shadowOpacity: isSaving ? 0 : 0.4,
                   shadowRadius: 8,
