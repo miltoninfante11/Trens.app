@@ -32,7 +32,10 @@ import {
   Palette,
   Layers,
   Star,
+  Video,
+  Globe,
 } from 'lucide-react-native';
+import * as DocumentPicker from 'expo-document-picker';
 import cloudflareR2 from '../../../services/cloudflare/r2';
 
 // ============================================================================
@@ -43,8 +46,15 @@ interface AssetSlot {
   id: string;
   label: string;
   description: string;
-  category: 'icons' | 'splash' | 'screenshots_ios' | 'screenshots_android' | 'marketing';
+  category:
+    | 'icons'
+    | 'splash'
+    | 'screenshots_ios'
+    | 'screenshots_android'
+    | 'marketing'
+    | 'landing';
   requiredSize?: string;
+  mediaType?: 'image' | 'video';
   storageKey: string; // R2 key path
   currentUrl: string | null;
 }
@@ -52,6 +62,7 @@ interface AssetSlot {
 type AssetCategory = AssetSlot['category'];
 
 const CATEGORY_INFO: Record<AssetCategory, { label: string; icon: any; color: string }> = {
+  landing: { label: 'LANDING WEB', icon: Globe, color: '#F43F5E' },
   icons: { label: 'ICONOS', icon: Palette, color: '#DC2626' },
   splash: { label: 'SPLASH SCREEN', icon: Layers, color: '#F97316' },
   screenshots_ios: { label: 'SCREENSHOTS iOS', icon: Smartphone, color: '#3B82F6' },
@@ -64,6 +75,17 @@ const CATEGORY_INFO: Record<AssetCategory, { label: string; icon: any; color: st
 // ============================================================================
 
 const ASSET_SLOTS: AssetSlot[] = [
+  // Landing Web
+  {
+    id: 'landing_demo_video',
+    label: 'Video Demo Landing',
+    description:
+      'Grabación de pantalla mostrando la App (MP4, vertical 9:16). Se reproduce en loop dentro del mockup de teléfono en la landing page.',
+    category: 'landing',
+    mediaType: 'video',
+    storageKey: 'app-assets/landing/demo-video.mp4',
+    currentUrl: null,
+  },
   // Icons
   {
     id: 'icon_1024',
@@ -241,7 +263,7 @@ export default function AdminAssetsScreen() {
   const insets = useSafeAreaInsets();
   const [assets, setAssets] = useState<Record<string, string | null>>({});
   const [uploading, setUploading] = useState<string | null>(null);
-  const [selectedCategory, setSelectedCategory] = useState<AssetCategory>('icons');
+  const [selectedCategory, setSelectedCategory] = useState<AssetCategory>('landing');
   const [refreshKey, setRefreshKey] = useState(0);
 
   // Load existing assets from R2
@@ -266,6 +288,35 @@ export default function AdminAssetsScreen() {
   // Pick and upload image
   const handleUpload = useCallback(async (slot: AssetSlot) => {
     try {
+      // Video upload uses DocumentPicker
+      if (slot.mediaType === 'video') {
+        const result = await DocumentPicker.getDocumentAsync({
+          type: 'video/*',
+          copyToCacheDirectory: true,
+        });
+
+        if (result.canceled || !result.assets?.[0]) return;
+
+        setUploading(slot.id);
+        const file = result.assets[0];
+
+        const uploadResult = await cloudflareR2.uploadFile(
+          file.uri,
+          slot.storageKey,
+          file.mimeType || 'video/mp4'
+        );
+
+        if (uploadResult?.url) {
+          const url = uploadResult.url;
+          setAssets((prev) => ({ ...prev, [slot.id]: url }));
+          Alert.alert('✅ Video subido', `${slot.label} actualizado correctamente`);
+        } else {
+          Alert.alert('Error', 'No se pudo subir el video');
+        }
+        return;
+      }
+
+      // Image upload
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images'],
         allowsEditing: true,
@@ -305,7 +356,7 @@ export default function AdminAssetsScreen() {
         Alert.alert('Error', 'No se pudo subir la imagen');
       }
     } catch (err: any) {
-      Alert.alert('Error', err.message || 'Error al subir imagen');
+      Alert.alert('Error', err.message || 'Error al subir');
     } finally {
       setUploading(null);
     }
@@ -411,7 +462,27 @@ export default function AdminAssetsScreen() {
                 className="bg-zinc-900/80 border border-zinc-800 rounded-2xl overflow-hidden"
               >
                 {/* Preview */}
-                {hasImage ? (
+                {hasImage && slot.mediaType === 'video' ? (
+                  <View className="bg-zinc-950 items-center justify-center" style={{ height: 200 }}>
+                    {Platform.OS === 'web' ? (
+                      <video
+                        src={`${hasImage}?t=${refreshKey}`}
+                        controls
+                        style={{
+                          width: '100%',
+                          height: 200,
+                          objectFit: 'contain',
+                          backgroundColor: '#000',
+                        }}
+                      />
+                    ) : (
+                      <View className="items-center justify-center" style={{ height: 200 }}>
+                        <Video size={32} color="#DC2626" />
+                        <Text className="text-zinc-400 text-xs mt-2">Video subido ✅</Text>
+                      </View>
+                    )}
+                  </View>
+                ) : hasImage ? (
                   <View className="bg-zinc-950 items-center justify-center" style={{ height: 200 }}>
                     <Image
                       source={{ uri: `${hasImage}?t=${refreshKey}` }}
@@ -424,8 +495,17 @@ export default function AdminAssetsScreen() {
                     className="bg-zinc-950 items-center justify-center border-b border-zinc-800"
                     style={{ height: 120 }}
                   >
-                    <ImageIcon size={32} color="#3F3F46" />
-                    <Text className="text-zinc-700 text-xs mt-2">Sin imagen</Text>
+                    {slot.mediaType === 'video' ? (
+                      <>
+                        <Video size={32} color="#3F3F46" />
+                        <Text className="text-zinc-700 text-xs mt-2">Sin video</Text>
+                      </>
+                    ) : (
+                      <>
+                        <ImageIcon size={32} color="#3F3F46" />
+                        <Text className="text-zinc-700 text-xs mt-2">Sin imagen</Text>
+                      </>
+                    )}
                   </View>
                 )}
 
@@ -503,6 +583,13 @@ export default function AdminAssetsScreen() {
               done={['android_phone_1', 'android_phone_2'].every((id) => !!assets[id])}
             />
             <ChecklistItem label="Feature Graphic Google Play" done={!!assets['feature_graphic']} />
+            <View className="mt-3 pt-3 border-t border-zinc-800">
+              <Text className="text-zinc-400 text-xs font-bold mb-2">🌐 LANDING WEB</Text>
+              <ChecklistItem
+                label="Video Demo Landing (MP4)"
+                done={!!assets['landing_demo_video']}
+              />
+            </View>
           </View>
         </View>
       </ScrollView>
