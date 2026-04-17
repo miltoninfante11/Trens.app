@@ -54,17 +54,17 @@ const PeriodSelector: React.FC<{
             onSelect(p.key);
           }}
           className={`flex-1 py-3 rounded-xl items-center ${
-            selected === p.key ? 'border-savage-red' : 'border-zinc-800'
+            selected === p.key ? 'border-green-500' : 'border-zinc-800'
           }`}
           style={{
-            backgroundColor: selected === p.key ? 'rgba(220, 38, 38, 0.15)' : '#0A0A0A',
+            backgroundColor: selected === p.key ? 'rgba(34, 197, 94, 0.15)' : '#0A0A0A',
             borderWidth: 1,
-            borderColor: selected === p.key ? '#DC2626' : '#27272A',
+            borderColor: selected === p.key ? '#22C55E' : '#27272A',
           }}
         >
           <Text
             className={`text-xs font-bold tracking-wider ${
-              selected === p.key ? 'text-savage-red' : 'text-zinc-500'
+              selected === p.key ? 'text-green-500' : 'text-zinc-500'
             }`}
           >
             {p.label}
@@ -126,9 +126,9 @@ const ShoppingItem: React.FC<{
         {/* Quantity */}
         <View
           className="px-3 py-1 rounded-lg"
-          style={{ backgroundColor: 'rgba(220, 38, 38, 0.1)' }}
+          style={{ backgroundColor: 'rgba(34, 197, 94, 0.1)' }}
         >
-          <Text className="text-savage-red text-xs font-mono font-bold">{item.quantity}</Text>
+          <Text className="text-green-500 text-xs font-mono font-bold">{item.quantity}</Text>
         </View>
       </Pressable>
     </Animated.View>
@@ -154,7 +154,7 @@ const ShoppingCategoryCard: React.FC<{
       style={{
         backgroundColor: '#0A0A0A',
         borderWidth: 1,
-        borderColor: 'rgba(220, 38, 38, 0.1)',
+        borderColor: 'rgba(34, 197, 94, 0.1)',
       }}
     >
       {/* Header */}
@@ -165,9 +165,9 @@ const ShoppingCategoryCard: React.FC<{
         }}
         className="flex-row items-center justify-between p-4"
         style={{
-          backgroundColor: 'rgba(220, 38, 38, 0.05)',
+          backgroundColor: 'rgba(34, 197, 94, 0.05)',
           borderBottomWidth: isExpanded ? 1 : 0,
-          borderBottomColor: 'rgba(220, 38, 38, 0.1)',
+          borderBottomColor: 'rgba(34, 197, 94, 0.1)',
         }}
       >
         <View className="flex-row items-center gap-3">
@@ -187,7 +187,7 @@ const ShoppingCategoryCard: React.FC<{
               className="h-full rounded-full"
               style={{
                 width: `${progress * 100}%`,
-                backgroundColor: progress === 1 ? '#22C55E' : '#DC2626',
+                backgroundColor: progress === 1 ? '#22C55E' : '#22C55E',
               }}
             />
           </View>
@@ -327,7 +327,7 @@ export const ShoppingListModal: React.FC<ShoppingListModalProps> = ({
               borderTopRightRadius: 24,
               height: '90%',
               borderTopWidth: 2,
-              borderTopColor: 'rgba(220, 38, 38, 0.5)',
+              borderTopColor: 'rgba(34, 197, 94, 0.5)',
               overflow: 'hidden',
             },
           ]}
@@ -340,8 +340,8 @@ export const ShoppingListModal: React.FC<ShoppingListModalProps> = ({
               left: 0,
               right: 0,
               height: 3,
-              backgroundColor: '#DC2626',
-              shadowColor: '#DC2626',
+              backgroundColor: '#22C55E',
+              shadowColor: '#22C55E',
               shadowOffset: { width: 0, height: 0 },
               shadowOpacity: 0.8,
               shadowRadius: 10,
@@ -363,9 +363,9 @@ export const ShoppingListModal: React.FC<ShoppingListModalProps> = ({
             <View className="flex-row items-center px-4 pb-4 gap-3">
               <View
                 className="w-10 h-10 rounded-xl items-center justify-center"
-                style={{ backgroundColor: 'rgba(220, 38, 38, 0.15)' }}
+                style={{ backgroundColor: 'rgba(34, 197, 94, 0.15)' }}
               >
-                <ShoppingCart size={20} color="#DC2626" />
+                <ShoppingCart size={20} color="#22C55E" />
               </View>
               <View className="flex-1">
                 <Text className="text-white font-bold text-lg">Lista de Compras</Text>
@@ -386,7 +386,7 @@ export const ShoppingListModal: React.FC<ShoppingListModalProps> = ({
                     className="h-full rounded-full"
                     style={{
                       width: `${totalProgress * 100}%`,
-                      backgroundColor: totalProgress === 1 ? '#22C55E' : '#DC2626',
+                      backgroundColor: totalProgress === 1 ? '#22C55E' : '#22C55E',
                     }}
                   />
                 </View>
@@ -431,7 +431,7 @@ export const ShoppingListModal: React.FC<ShoppingListModalProps> = ({
               style={{
                 backgroundColor: '#0A0A0A',
                 borderTopWidth: 1,
-                borderTopColor: 'rgba(220, 38, 38, 0.15)',
+                borderTopColor: 'rgba(34, 197, 94, 0.15)',
                 paddingBottom: Math.max(insets.bottom, 16) + 8,
               }}
             >
