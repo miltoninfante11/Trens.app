@@ -282,6 +282,7 @@ CREATE TABLE IF NOT EXISTS public.meal_options (
   carbs_g DECIMAL(6,2),
   fat_g DECIMAL(6,2),
   ingredients JSONB DEFAULT '[]',
+  notes TEXT,
   is_selected BOOLEAN DEFAULT false,
   position INTEGER DEFAULT 0,
   created_at TIMESTAMPTZ DEFAULT NOW()

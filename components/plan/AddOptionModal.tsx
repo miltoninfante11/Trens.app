@@ -20,11 +20,7 @@ import {
 import Animated, { useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from '../../lib/haptics';
-import { Plus, Trash2, AlertTriangle, CheckCircle, Sparkles } from 'lucide-react-native';
-import {
-  analyzeIngredientsSmart,
-  IngredientAnalysis,
-} from '../../services/hank/ingredientAnalyzer';
+import { Plus, Trash2, Sparkles } from 'lucide-react-native';
 import { calculateMealWithUserMacros } from '../../services/hank/nutrition';
 
 // ============================================================================
@@ -55,7 +51,12 @@ interface AddOptionModalProps {
     fat: number;
   };
   onClose: () => void;
-  onSave: (mealId: string, optionName: string, ingredients: Ingredient[]) => Promise<void>;
+  onSave: (
+    mealId: string,
+    optionName: string,
+    ingredients: Ingredient[],
+    notes?: string
+  ) => Promise<void>;
   onCalculateMacros?: (ingredients: Ingredient[]) => Promise<Ingredient[]>;
 }
 
@@ -76,8 +77,7 @@ export const AddOptionModal: React.FC<AddOptionModalProps> = ({
     { id: `new-${Date.now()}`, name: '', quantity: '', portion: '' },
   ]);
   const [isSaving, setIsSaving] = useState(false);
-  const [analysis, setAnalysis] = useState<IngredientAnalysis | null>(null);
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [notes, setNotes] = useState('');
 
   // ===== ANIMACIONES FLUIDAS =====
   const translateY = useSharedValue(0);
@@ -114,38 +114,13 @@ export const AddOptionModal: React.FC<AddOptionModalProps> = ({
     if (visible) {
       translateY.value = 0;
       setIngredients([{ id: `new-${Date.now()}`, name: '', quantity: '', portion: '' }]);
-      setAnalysis(null);
+      setNotes('');
       // Haptic feedback cuando abre
       setTimeout(() => {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       }, 300);
     }
   }, [visible]);
-
-  // Analizar ingredientes automáticamente (siempre activo)
-  useEffect(() => {
-    const validIngredients = ingredients.filter((ing) => ing.name.trim().length >= 3);
-    if (validIngredients.length === 0) {
-      setAnalysis(null);
-      return;
-    }
-
-    const timeoutId = setTimeout(async () => {
-      setIsAnalyzing(true);
-      try {
-        const result = await analyzeIngredientsSmart(validIngredients, {
-          targetMacros: targetMacros,
-        });
-        setAnalysis(result);
-      } catch (error) {
-        console.error('Error analyzing:', error);
-      } finally {
-        setIsAnalyzing(false);
-      }
-    }, 600);
-
-    return () => clearTimeout(timeoutId);
-  }, [ingredients, targetMacros]);
 
   const addIngredient = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -209,7 +184,7 @@ export const AddOptionModal: React.FC<AddOptionModalProps> = ({
       }
 
       const name = `Opción ${Date.now().toString().slice(-4)}`;
-      await onSave(mealId, name, finalIngredients);
+      await onSave(mealId, name, finalIngredients, notes.trim() || undefined);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       onClose();
     } catch (error) {
@@ -287,93 +262,6 @@ export const AddOptionModal: React.FC<AddOptionModalProps> = ({
             </View>
 
             <ScrollView className="p-4" showsVerticalScrollIndicator={false}>
-              {/* Analysis Alert - Siempre visible cuando hay análisis */}
-              {analysis && (
-                <View
-                  className={`p-3 rounded-xl mb-4 border ${
-                    analysis.isBalanced
-                      ? 'bg-green-900/20 border-green-500/30'
-                      : analysis.hasUnhealthyOnly
-                        ? 'bg-red-900/20 border-red-500/30'
-                        : 'bg-yellow-900/20 border-yellow-500/30'
-                  }`}
-                >
-                  <View className="flex-row items-center gap-2">
-                    {isAnalyzing ? (
-                      <ActivityIndicator size="small" color="#A855F7" />
-                    ) : analysis.isBalanced ? (
-                      <CheckCircle size={16} color="#22C55E" />
-                    ) : (
-                      <AlertTriangle
-                        size={16}
-                        color={analysis.hasUnhealthyOnly ? '#EF4444' : '#EAB308'}
-                      />
-                    )}
-                    <Text
-                      className={`font-bold text-sm ${
-                        analysis.isBalanced
-                          ? 'text-green-400'
-                          : analysis.hasUnhealthyOnly
-                            ? 'text-red-400'
-                            : 'text-yellow-400'
-                      }`}
-                    >
-                      {isAnalyzing
-                        ? 'Analizando...'
-                        : analysis.isBalanced
-                          ? 'Comida balanceada'
-                          : analysis.hasUnhealthyOnly
-                            ? 'Revisar ingredientes'
-                            : 'Falta balance'}
-                    </Text>
-                  </View>
-
-                  {/* Macro fit message */}
-                  {analysis.macroFitMessage && (
-                    <Text className="text-zinc-400 text-xs mt-1">
-                      🎯 {analysis.macroFitMessage}
-                    </Text>
-                  )}
-
-                  {/* Macro indicators en línea */}
-                  {!analysis.isBalanced && !isAnalyzing && (
-                    <View className="flex-row gap-3 mt-2">
-                      <View className="flex-row items-center gap-1">
-                        <View
-                          className={`w-2 h-2 rounded-full ${
-                            analysis.hasProtein ? 'bg-green-500' : 'bg-red-500'
-                          }`}
-                        />
-                        <Text className="text-zinc-500 text-xs">P</Text>
-                      </View>
-                      <View className="flex-row items-center gap-1">
-                        <View
-                          className={`w-2 h-2 rounded-full ${
-                            analysis.hasCarbs ? 'bg-green-500' : 'bg-yellow-500'
-                          }`}
-                        />
-                        <Text className="text-zinc-500 text-xs">C</Text>
-                      </View>
-                      <View className="flex-row items-center gap-1">
-                        <View
-                          className={`w-2 h-2 rounded-full ${
-                            analysis.hasFat ? 'bg-green-500' : 'bg-zinc-600'
-                          }`}
-                        />
-                        <Text className="text-zinc-500 text-xs">G</Text>
-                      </View>
-                    </View>
-                  )}
-
-                  {/* Sugerencia (máximo 1) */}
-                  {analysis.suggestions.length > 0 && !analysis.isBalanced && (
-                    <Text className="text-yellow-400/70 text-xs mt-1">
-                      → {analysis.suggestions[0]}
-                    </Text>
-                  )}
-                </View>
-              )}
-
               {/* Ingredients - Solo nombre, sin campos de cantidad */}
               <Text className="text-zinc-400 text-xs font-bold mb-2 uppercase">Ingredientes</Text>
 
@@ -405,7 +293,6 @@ export const AddOptionModal: React.FC<AddOptionModalProps> = ({
                     placeholderTextColor="#666"
                     className="bg-transparent border-b border-zinc-700 text-white py-2"
                   />
-                  {/* Sin campos de gramos/porciones — se calculan según macros de la comida principal */}
                 </View>
               ))}
 
@@ -419,6 +306,21 @@ export const AddOptionModal: React.FC<AddOptionModalProps> = ({
                   <Text className="text-zinc-400 font-medium">Añadir ingrediente</Text>
                 </View>
               </Pressable>
+
+              {/* Notas */}
+              <Text className="text-zinc-400 text-xs font-bold mb-2 uppercase">
+                Notas (opcional)
+              </Text>
+              <TextInput
+                value={notes}
+                onChangeText={setNotes}
+                placeholder="Recomendaciones, ingredientes extras, preparación..."
+                placeholderTextColor="#555"
+                multiline
+                numberOfLines={3}
+                className="bg-zinc-900/80 border border-zinc-800 rounded-xl p-3 text-white text-sm mb-6"
+                style={{ minHeight: 70, textAlignVertical: 'top' }}
+              />
 
               {/* Save Button */}
               <Pressable

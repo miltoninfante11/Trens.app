@@ -23,20 +23,7 @@ import Animated, { useSharedValue, useAnimatedStyle, withSpring } from 'react-na
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from '../../lib/haptics';
 import { Alert } from '../../lib/alert';
-import {
-  X,
-  Plus,
-  Trash2,
-  AlertTriangle,
-  CheckCircle,
-  Sparkles,
-  Clock,
-  Scale,
-} from 'lucide-react-native';
-import {
-  analyzeIngredientsSmart,
-  IngredientAnalysis,
-} from '../../services/hank/ingredientAnalyzer';
+import { X, Plus, Trash2, Sparkles, Clock, Scale } from 'lucide-react-native';
 
 // ============================================================================
 // TYPES
@@ -60,7 +47,7 @@ interface AddMealModalProps {
   visible: boolean;
   targetMacros?: TargetMacros;
   onClose: () => void;
-  onSave: (ingredients: Ingredient[], time: string) => void;
+  onSave: (ingredients: Ingredient[], time: string, notes?: string) => void;
 }
 
 // ============================================================================
@@ -90,9 +77,8 @@ export const AddMealModal: React.FC<AddMealModalProps> = ({
   const [ingredients, setIngredients] = useState<
     { name: string; weightGrams: string; skipGrams: boolean; weightType: 'cocido' | 'crudo' | '' }[]
   >([{ name: '', weightGrams: '', skipGrams: false, weightType: '' }]);
-  const [analysis, setAnalysis] = useState<IngredientAnalysis | null>(null);
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [notes, setNotes] = useState('');
 
   // Animated value para el desplazamiento del panel
   const translateY = useSharedValue(0);
@@ -155,40 +141,9 @@ export const AddMealModal: React.FC<AddMealModalProps> = ({
       setSelectedMinute(adjM);
       setSelectedPeriod(adjH >= 12 ? 'PM' : 'AM');
       setIngredients([{ name: '', weightGrams: '', skipGrams: false, weightType: '' }]);
-      setAnalysis(null);
+      setNotes('');
     }
   }, [visible]);
-
-  // Analizar ingredientes automáticamente (siempre activo)
-  useEffect(() => {
-    const validIngredients = ingredients
-      .filter((ing) => ing.name.trim().length >= 3)
-      .map((ing) => ({
-        name: ing.name,
-        quantity: ing.weightGrams ? `${ing.weightGrams}g` : '',
-        portion: '',
-      }));
-    if (validIngredients.length === 0) {
-      setAnalysis(null);
-      return;
-    }
-
-    const timeoutId = setTimeout(async () => {
-      setIsAnalyzing(true);
-      try {
-        const result = await analyzeIngredientsSmart(validIngredients, {
-          targetMacros: targetMacros,
-        });
-        setAnalysis(result);
-      } catch (error) {
-        console.error('Error analyzing:', error);
-      } finally {
-        setIsAnalyzing(false);
-      }
-    }, 600);
-
-    return () => clearTimeout(timeoutId);
-  }, [ingredients, targetMacros]);
 
   const addIngredient = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -293,11 +248,12 @@ export const AddMealModal: React.FC<AddMealModalProps> = ({
       }));
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      onSave(finalIngredients, getTime24h());
+      onSave(finalIngredients, getTime24h(), notes.trim() || undefined);
       setIngredients([{ name: '', weightGrams: '', skipGrams: false, weightType: '' }]);
       setSelectedHour(12);
       setSelectedMinute(0);
       setSelectedPeriod('PM');
+      setNotes('');
       onClose();
     } catch (error) {
       console.error('Error saving:', error);
@@ -367,93 +323,6 @@ export const AddMealModal: React.FC<AddMealModalProps> = ({
             </View>
 
             <ScrollView className="p-4" showsVerticalScrollIndicator={false}>
-              {/* Analysis Alert - Siempre visible cuando hay análisis */}
-              {analysis && (
-                <View
-                  className={`p-3 rounded-xl mb-4 border ${
-                    analysis.isBalanced
-                      ? 'bg-green-900/20 border-green-500/30'
-                      : analysis.hasUnhealthyOnly
-                        ? 'bg-red-900/20 border-red-500/30'
-                        : 'bg-yellow-900/20 border-yellow-500/30'
-                  }`}
-                >
-                  <View className="flex-row items-center gap-2">
-                    {isAnalyzing ? (
-                      <ActivityIndicator size="small" color="#A855F7" />
-                    ) : analysis.isBalanced ? (
-                      <CheckCircle size={16} color="#22C55E" />
-                    ) : (
-                      <AlertTriangle
-                        size={16}
-                        color={analysis.hasUnhealthyOnly ? '#EF4444' : '#EAB308'}
-                      />
-                    )}
-                    <Text
-                      className={`font-bold text-sm ${
-                        analysis.isBalanced
-                          ? 'text-green-400'
-                          : analysis.hasUnhealthyOnly
-                            ? 'text-red-400'
-                            : 'text-yellow-400'
-                      }`}
-                    >
-                      {isAnalyzing
-                        ? 'Analizando...'
-                        : analysis.isBalanced
-                          ? 'Comida balanceada'
-                          : analysis.hasUnhealthyOnly
-                            ? 'Revisar ingredientes'
-                            : 'Falta balance'}
-                    </Text>
-                  </View>
-
-                  {/* Macro fit message */}
-                  {analysis.macroFitMessage && (
-                    <Text className="text-zinc-400 text-xs mt-1">
-                      🎯 {analysis.macroFitMessage}
-                    </Text>
-                  )}
-
-                  {/* Macro indicators en línea */}
-                  {!analysis.isBalanced && !isAnalyzing && (
-                    <View className="flex-row gap-3 mt-2">
-                      <View className="flex-row items-center gap-1">
-                        <View
-                          className={`w-2 h-2 rounded-full ${
-                            analysis.hasProtein ? 'bg-green-500' : 'bg-red-500'
-                          }`}
-                        />
-                        <Text className="text-zinc-500 text-xs">P</Text>
-                      </View>
-                      <View className="flex-row items-center gap-1">
-                        <View
-                          className={`w-2 h-2 rounded-full ${
-                            analysis.hasCarbs ? 'bg-green-500' : 'bg-yellow-500'
-                          }`}
-                        />
-                        <Text className="text-zinc-500 text-xs">C</Text>
-                      </View>
-                      <View className="flex-row items-center gap-1">
-                        <View
-                          className={`w-2 h-2 rounded-full ${
-                            analysis.hasFat ? 'bg-green-500' : 'bg-zinc-600'
-                          }`}
-                        />
-                        <Text className="text-zinc-500 text-xs">G</Text>
-                      </View>
-                    </View>
-                  )}
-
-                  {/* Sugerencia (máximo 1) */}
-                  {analysis.suggestions.length > 0 && !analysis.isBalanced && (
-                    <Text className="text-yellow-400/70 text-xs mt-1">
-                      → {analysis.suggestions[0]}
-                    </Text>
-                  )}
-                </View>
-              )}
-
               {/* Time Picker Visual */}
               <View className="mb-4">
                 <View className="flex-row items-center gap-2 mb-3">
@@ -656,6 +525,21 @@ export const AddMealModal: React.FC<AddMealModalProps> = ({
                   <Text className="text-zinc-400 font-medium">Añadir ingrediente</Text>
                 </View>
               </Pressable>
+
+              {/* Notas */}
+              <Text className="text-zinc-400 text-xs font-bold mb-2 uppercase">
+                Notas (opcional)
+              </Text>
+              <TextInput
+                value={notes}
+                onChangeText={setNotes}
+                placeholder="Recomendaciones, ingredientes extras, preparación..."
+                placeholderTextColor="#555"
+                multiline
+                numberOfLines={3}
+                className="bg-zinc-900/80 border border-zinc-800 rounded-xl p-3 text-white text-sm mb-6"
+                style={{ minHeight: 70, textAlignVertical: 'top' }}
+              />
 
               <Pressable
                 onPress={handleSave}

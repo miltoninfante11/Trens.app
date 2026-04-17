@@ -88,16 +88,8 @@ function TabIcon({
 }
 
 // Componente para el icono PRO con indicadores dinámicos
-function ProTabIcon({
-  focused,
-  onTabPress,
-  onPhotoPress,
-}: {
-  focused: boolean;
-  onTabPress: () => void;
-  onPhotoPress: () => void;
-}) {
-  const { isRecording, recordingTime } = useProRecording();
+function ProTabIcon({ focused }: { focused: boolean }) {
+  const { isRecording, recordingTime, captureMode, setCaptureMode } = useProRecording();
 
   const pulseScale = useSharedValue(1);
 
@@ -127,7 +119,7 @@ function ProTabIcon({
   };
 
   return (
-    <View style={{ alignItems: 'center', overflow: 'visible' }}>
+    <View style={{ alignItems: 'center', overflow: 'visible' }} pointerEvents="box-none">
       {/* Recording time indicator */}
       {isRecording && (
         <View style={{ position: 'absolute', bottom: 78, alignItems: 'center', zIndex: 100 }}>
@@ -160,68 +152,109 @@ function ProTabIcon({
         </View>
       )}
 
-      {/* Botón de FOTO — icono de cámara encima del botón de grabar (solo en PRO, no grabando) */}
+      {/* Mode pills — IMAGEN (izq) y VIDEO (der) — centro alineado con borde superior del tab bar */}
       {focused && !isRecording && (
-        <Pressable
-          onPress={onPhotoPress}
+        <>
+          {/* Pill IMAGEN — izquierda */}
+          <Pressable
+            onPress={(e) => {
+              e.stopPropagation();
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setCaptureMode('photo');
+            }}
+            style={{
+              position: 'absolute',
+              bottom: 55,
+              right: 24,
+              alignItems: 'center',
+              justifyContent: 'center',
+              paddingLeft: 14,
+              paddingRight: 32,
+              paddingVertical: 7,
+              borderRadius: 14,
+              backgroundColor:
+                captureMode === 'photo' ? 'rgba(220, 38, 38, 0.95)' : 'rgba(39, 39, 42, 0.95)',
+              borderWidth: 1,
+              borderColor: captureMode === 'photo' ? '#DC2626' : '#52525b',
+            }}
+          >
+            <Text
+              style={{
+                color: captureMode === 'photo' ? '#FFFFFF' : '#A1A1AA',
+                fontSize: 10,
+                fontWeight: '800',
+                letterSpacing: 1.5,
+              }}
+            >
+              IMAGEN
+            </Text>
+          </Pressable>
+
+          {/* Pill VIDEO — derecha */}
+          <Pressable
+            onPress={(e) => {
+              e.stopPropagation();
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setCaptureMode('video');
+            }}
+            style={{
+              position: 'absolute',
+              bottom: 55,
+              left: 24,
+              alignItems: 'center',
+              justifyContent: 'center',
+              paddingLeft: 32,
+              paddingRight: 14,
+              paddingVertical: 7,
+              borderRadius: 14,
+              backgroundColor:
+                captureMode === 'video' ? 'rgba(220, 38, 38, 0.95)' : 'rgba(39, 39, 42, 0.95)',
+              borderWidth: 1,
+              borderColor: captureMode === 'video' ? '#DC2626' : '#52525b',
+            }}
+          >
+            <Text
+              style={{
+                color: captureMode === 'video' ? '#FFFFFF' : '#A1A1AA',
+                fontSize: 10,
+                fontWeight: '800',
+                letterSpacing: 1.5,
+              }}
+            >
+              VIDEO
+            </Text>
+          </Pressable>
+        </>
+      )}
+
+      {/* Botón principal — visual solamente, el press lo maneja tabBarButton */}
+      <Animated.View style={[buttonStyle]}>
+        <View
           style={{
-            position: 'absolute',
-            bottom: 96,
+            padding: focused ? 4 : 16,
+            borderRadius: 999,
+            backgroundColor: focused ? '#FFFFFF' : ED_HARDY.zinc800,
+            marginBottom: 20,
             alignItems: 'center',
             justifyContent: 'center',
-            zIndex: 110,
-            width: 36,
-            height: 36,
-            borderRadius: 18,
-            backgroundColor: 'rgba(10, 0, 0, 0.9)',
-            borderWidth: 1.5,
-            borderColor: '#F97316',
             ...(Platform.OS !== 'web'
               ? {
-                  shadowColor: '#F97316',
+                  shadowColor: isRecording
+                    ? ED_HARDY.neonRed
+                    : focused
+                      ? ED_HARDY.neonRed
+                      : 'transparent',
                   shadowOffset: { width: 0, height: 0 },
-                  shadowOpacity: 0.8,
-                  shadowRadius: 8,
-                  elevation: 10,
+                  shadowOpacity: isRecording ? 1 : focused ? 0.8 : 0,
+                  shadowRadius: isRecording ? 20 : 15,
+                  elevation: isRecording ? 20 : focused ? 15 : 0,
                 }
               : {}),
           }}
         >
-          <Camera color="#FFFFFF" size={18} strokeWidth={2.5} />
-        </Pressable>
-      )}
-
-      {/* Botón principal de grabar — Pressable unificado web + nativo */}
-      <Pressable onPress={onTabPress}>
-        <Animated.View style={[buttonStyle]}>
-          <View
-            style={{
-              // Círculo blanco exterior (siempre visible en PRO)
-              padding: focused ? 4 : 16,
-              borderRadius: 999,
-              backgroundColor: focused ? '#FFFFFF' : ED_HARDY.zinc800,
-              marginBottom: 20,
-              alignItems: 'center',
-              justifyContent: 'center',
-              ...(Platform.OS !== 'web'
-                ? {
-                    shadowColor: isRecording
-                      ? ED_HARDY.neonRed
-                      : focused
-                        ? ED_HARDY.neonRed
-                        : 'transparent',
-                    shadowOffset: { width: 0, height: 0 },
-                    shadowOpacity: isRecording ? 1 : focused ? 0.8 : 0,
-                    shadowRadius: isRecording ? 20 : 15,
-                    elevation: isRecording ? 20 : focused ? 15 : 0,
-                  }
-                : {}),
-            }}
-          >
-            {focused ? (
-              // Dentro de PRO: círculo rojo (idle) o cuadrado rojo (grabando)
+          {focused ? (
+            captureMode === 'video' ? (
               isRecording ? (
-                // GRABANDO → cuadrado rojo (stop)
                 <View
                   style={{
                     width: 28,
@@ -232,7 +265,6 @@ function ProTabIcon({
                   }}
                 />
               ) : (
-                // IDLE → círculo rojo grande (start)
                 <View
                   style={{
                     width: 44,
@@ -244,12 +276,25 @@ function ProTabIcon({
                 />
               )
             ) : (
-              // Fuera de PRO: icono crosshair
-              <Crosshair color="#FFFFFF" size={28} strokeWidth={2.5} />
-            )}
-          </View>
-        </Animated.View>
-      </Pressable>
+              <View
+                style={{
+                  width: 44,
+                  height: 44,
+                  borderRadius: 22,
+                  backgroundColor: '#FFFFFF',
+                  margin: 2,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <Camera color={ED_HARDY.black} size={22} strokeWidth={2.5} />
+              </View>
+            )
+          ) : (
+            <Crosshair color="#FFFFFF" size={28} strokeWidth={2.5} />
+          )}
+        </View>
+      </Animated.View>
     </View>
   );
 }
@@ -272,7 +317,7 @@ export default function TabsLayout() {
   const pathname = usePathname();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { isRecording, startRecording, stopRecording, takePhoto } = useProRecording();
+  const { isRecording, startRecording, stopRecording, takePhoto, captureMode } = useProRecording();
   const defaultModuleApplied = useRef(false);
 
   // -------------------------------------------------------------------------
@@ -563,31 +608,29 @@ export default function TabsLayout() {
             name="pro/index"
             options={{
               title: '',
-              tabBarIcon: ({ focused }) => (
-                <ProTabIcon
-                  focused={focused}
-                  onTabPress={() => {
+              tabBarIcon: ({ focused }) => <ProTabIcon focused={focused} />,
+              // Pressable unificado — maneja navegación Y captura/grabación
+              tabBarButton: (props: any) => (
+                <Pressable
+                  onPress={() => {
                     const isProActive = pathname?.includes('/pro');
-                    if (isProActive) {
-                      if (isRecording) {
-                        stopRecording();
-                      } else {
-                        startRecording();
-                      }
-                    } else {
+                    if (!isProActive) {
                       router.push('/pro');
+                      return;
+                    }
+                    // Ya en PRO — ejecutar acción según modo
+                    if (captureMode === 'photo') {
+                      takePhoto();
+                    } else if (isRecording) {
+                      stopRecording();
+                    } else {
+                      startRecording();
                     }
                   }}
-                  onPhotoPress={() => {
-                    takePhoto();
-                  }}
-                />
-              ),
-              // View simple en ambas plataformas — el click lo maneja el Pressable interno de ProTabIcon
-              tabBarButton: (props: any) => (
-                <View style={[props.style, { overflow: 'visible' }]} accessibilityRole="button">
+                  style={[props.style, { overflow: 'visible' }]}
+                >
                   {props.children}
-                </View>
+                </Pressable>
               ),
             }}
           />

@@ -3381,11 +3381,10 @@ function GymScreen() {
     silent: boolean = false,
     sessionIdx: number | null = null
   ) => {
-    // Si no hay usuario, mostrar modal de estructura
+    // Si no hay usuario, esperar a que se autentique (no abrir modal automáticamente)
     if (!user) {
       setExercises([]);
       setViewMode('FOCUS');
-      setStructureModalOpen(true);
       setLoading(false);
       return;
     }

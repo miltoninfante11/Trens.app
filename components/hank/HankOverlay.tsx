@@ -47,6 +47,7 @@ import {
   Music,
   SkipForward,
   RotateCcw,
+  Wrench,
 } from 'lucide-react-native';
 import { usePathname } from 'expo-router';
 import { useHank } from '../../context/HankContext';
@@ -54,7 +55,7 @@ import { useVoiceInput } from '../../hooks/useVoiceInput';
 import { supabase } from '../../lib/supabase';
 import { useSaveGuard } from '../../context/SaveGuardContext';
 import { useSport } from '../../context/SportContext';
-import { calculateFabPositions } from '../../constants/floatingTools';
+import { calculateFabPositions, FAB_RIGHT_PADDING } from '../../constants/floatingTools';
 import { HankTargetHighlight } from './HankTargetHighlight';
 import { HankOnboarding, type OnboardingData } from './HankOnboarding';
 import { setHankChatOpen } from '../../lib/hankChatState';
@@ -463,6 +464,19 @@ const HankFAB: React.FC<{
     })
   );
 
+  // HANK chat button animated style (slot above last tool: index 4 + 2 = slot 6)
+  const hankToolButtonStyle = useAnimatedStyle(() => {
+    const spacing = 68;
+    const targetY = -(spacing * (HANK_TOOLS.length + 2));
+    return {
+      opacity: toolsFanProgress.value,
+      transform: [
+        { translateY: interpolate(toolsFanProgress.value, [0, 1], [0, targetY]) },
+        { scale: interpolate(toolsFanProgress.value, [0, 0.5, 1], [0.3, 0.8, 1]) },
+      ],
+    };
+  });
+
   // -------------------------------------------------------------------------
   // SPOTIFY CLONE - Botón clonado en slot 0 del fan
   // -------------------------------------------------------------------------
@@ -645,17 +659,6 @@ const HankFAB: React.FC<{
         longPressActive.current = false;
         gestureHandled.current = false;
 
-        // Start long press timer
-        longPressTimer.current = setTimeout(() => {
-          if (!gestureHandled.current) {
-            longPressActive.current = true;
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-            onLongPressStartRef.current();
-            gestureHandled.current = true;
-            fabDragScale.value = withSequence(withTiming(0.8, { duration: 100 }), withSpring(1));
-          }
-        }, LONG_PRESS_DURATION);
-
         fabDragScale.value = withTiming(0.92, { duration: 100 });
       },
 
@@ -691,14 +694,7 @@ const HankFAB: React.FC<{
         fabDragX.value = withSpring(0);
         fabDragY.value = withSpring(0);
 
-        // If already handled (long press), end voice
-        if (gestureHandled.current) {
-          if (longPressActive.current) {
-            longPressActive.current = false;
-            onLongPressEndRef.current();
-          }
-          return;
-        }
+        if (gestureHandled.current) return;
 
         // Swipe UP → open/toggle tools
         if (dy < -SWIPE_THRESHOLD && Math.abs(dx) < SWIPE_THRESHOLD) {
@@ -714,25 +710,17 @@ const HankFAB: React.FC<{
           return;
         }
 
-        // Tap → open chat (or close tools if open)
+        // Tap → toggle tools
         if (Math.abs(dx) < 10 && Math.abs(dy) < 10 && !longPressActive.current) {
           if (toolsOpenRef.current) {
             closeTools();
           } else {
-            onPressRef.current();
+            openTools();
           }
         }
       },
 
       onPanResponderTerminate: () => {
-        if (longPressTimer.current) {
-          clearTimeout(longPressTimer.current);
-          longPressTimer.current = null;
-        }
-        if (longPressActive.current) {
-          longPressActive.current = false;
-          onLongPressEndRef.current();
-        }
         fabDragScale.value = withSpring(1);
         fabDragX.value = withSpring(0);
         fabDragY.value = withSpring(0);
@@ -762,7 +750,7 @@ const HankFAB: React.FC<{
         right: rightOffset,
         zIndex: 1000,
         width: 76,
-        height: toolsOpen ? 560 : 60,
+        height: toolsOpen ? 630 : 60,
         alignItems: 'center',
         justifyContent: 'flex-end',
       }}
@@ -976,6 +964,58 @@ const HankFAB: React.FC<{
           </Animated.View>
         ))}
 
+      {/* HANK CHAT - Botón más alto del fan */}
+      {toolsOpen && (
+        <Animated.View
+          style={[
+            {
+              position: 'absolute',
+              bottom: 6,
+              left: 6,
+              zIndex: 1001,
+            },
+            hankToolButtonStyle,
+          ]}
+        >
+          <Pressable
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+              closeTools();
+              setTimeout(() => onPressRef.current(), 250);
+            }}
+            style={{
+              width: 52,
+              height: 52,
+              borderRadius: 26,
+              backgroundColor: '#0a0a0a',
+              alignItems: 'center',
+              justifyContent: 'center',
+              borderWidth: 1.5,
+              borderColor: '#F9731640',
+              shadowColor: '#F97316',
+              shadowOffset: { width: 0, height: 0 },
+              shadowOpacity: 0.4,
+              shadowRadius: 8,
+              elevation: 8,
+            }}
+          >
+            <Bot size={18} color="#F97316" />
+          </Pressable>
+          <Text
+            style={{
+              color: '#71717a',
+              fontSize: 8,
+              fontWeight: '700',
+              textAlign: 'center',
+              marginTop: 2,
+              letterSpacing: 0.5,
+            }}
+          >
+            HANK
+          </Text>
+        </Animated.View>
+      )}
+
       {/* FAB + Pulse rings wrapped with flyingStyle */}
       <Animated.View style={flyingStyle}>
         {/* Pulse ring effect when listening - ED HARDY FIRE RINGS */}
@@ -1130,7 +1170,7 @@ const HankFAB: React.FC<{
             {isListening ? (
               <Mic size={28} color="#FFFFFF" />
             ) : (
-              <Bot
+              <Wrench
                 size={28}
                 color={isWorking || isSuccess || isProcessing ? '#FFFFFF' : '#F97316'}
               />
@@ -1818,9 +1858,149 @@ export const HankOverlay: React.FC = () => {
     };
   }, [isOpen]);
 
-  // Ocultar en PRO
-  const isHiddenInFeed =
-    pathname?.includes('pro') || pathname === '/pro/index' || pathname === '/pro';
+  // Detectar si estamos en PRO
+  const isProScreen = pathname?.includes('pro') || pathname === '/pro/index' || pathname === '/pro';
+
+  // Spotify state para el FAB en PRO (debe estar antes de cualquier early return)
+  const [proSpotifyData, setProSpotifyData] = useState<SpotifyFabData>(spotifyFabState.current);
+  const [proSpotifyGesture, setProSpotifyGesture] = useState<'none' | 'next' | 'restart' | 'hank'>(
+    'none'
+  );
+
+  useEffect(() => {
+    return spotifyFabState.onChange((data) => setProSpotifyData(data));
+  }, []);
+
+  const proSpotifyGlow = useSharedValue(0);
+  useEffect(() => {
+    if (proSpotifyData.isPlaying) {
+      proSpotifyGlow.value = withRepeat(
+        withSequence(
+          withTiming(1, { duration: 1500, easing: Easing.inOut(Easing.ease) }),
+          withTiming(0, { duration: 1500, easing: Easing.inOut(Easing.ease) })
+        ),
+        -1,
+        false
+      );
+    } else {
+      proSpotifyGlow.value = withTiming(0, { duration: 300 });
+    }
+  }, [proSpotifyData.isPlaying, proSpotifyGlow]);
+
+  const proSpotifyGlowStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(proSpotifyGlow.value, [0, 1], [0, 0.6]),
+    transform: [{ scale: interpolate(proSpotifyGlow.value, [0, 1], [1, 1.4]) }],
+  }));
+
+  const proSpotifyDragX = useSharedValue(0);
+  const proSpotifyDragY = useSharedValue(0);
+  const proSpotifyDragScale = useSharedValue(1);
+
+  const proSpotifyDragStyle = useAnimatedStyle(() => ({
+    transform: [
+      { translateX: proSpotifyDragX.value },
+      { translateY: proSpotifyDragY.value },
+      { scale: proSpotifyDragScale.value },
+    ],
+  }));
+
+  const proSpotifyStartPos = useRef({ x: 0, y: 0 });
+  const proSpotifyLongPress = useRef(false);
+  const proSpotifyGestureHandled = useRef(false);
+  const proSpotifyLongPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const PRO_SPOTIFY_SWIPE_THRESHOLD = 50;
+
+  const proSpotifyPanResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: (evt) => {
+        proSpotifyStartPos.current = { x: evt.nativeEvent.pageX, y: evt.nativeEvent.pageY };
+        proSpotifyLongPress.current = false;
+        proSpotifyGestureHandled.current = false;
+        setProSpotifyGesture('none');
+        proSpotifyLongPressTimer.current = setTimeout(() => {
+          if (!proSpotifyGestureHandled.current) {
+            proSpotifyLongPress.current = true;
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+            spotifyFabActions.emit('play_pause');
+            proSpotifyGestureHandled.current = true;
+            proSpotifyDragScale.value = withSequence(
+              withTiming(0.8, { duration: 100 }),
+              withSpring(1)
+            );
+          }
+        }, 500);
+        proSpotifyDragScale.value = withTiming(0.95, { duration: 100 });
+      },
+      onPanResponderMove: (evt) => {
+        const dx = evt.nativeEvent.pageX - proSpotifyStartPos.current.x;
+        const dy = evt.nativeEvent.pageY - proSpotifyStartPos.current.y;
+        if (Math.abs(dx) > 20 || Math.abs(dy) > 20) {
+          if (proSpotifyLongPressTimer.current) {
+            clearTimeout(proSpotifyLongPressTimer.current);
+            proSpotifyLongPressTimer.current = null;
+          }
+        }
+        proSpotifyDragX.value = Math.max(-60, Math.min(60, dx * 0.5));
+        proSpotifyDragY.value = Math.max(-60, Math.min(60, dy * 0.5));
+        if (dy < -PRO_SPOTIFY_SWIPE_THRESHOLD && Math.abs(dx) < PRO_SPOTIFY_SWIPE_THRESHOLD) {
+          setProSpotifyGesture('next');
+        } else if (
+          dx < -PRO_SPOTIFY_SWIPE_THRESHOLD &&
+          Math.abs(dy) < PRO_SPOTIFY_SWIPE_THRESHOLD
+        ) {
+          setProSpotifyGesture('restart');
+        } else if (dy > PRO_SPOTIFY_SWIPE_THRESHOLD && Math.abs(dx) < PRO_SPOTIFY_SWIPE_THRESHOLD) {
+          setProSpotifyGesture('hank');
+        } else {
+          setProSpotifyGesture('none');
+        }
+      },
+      onPanResponderRelease: (evt) => {
+        if (proSpotifyLongPressTimer.current) {
+          clearTimeout(proSpotifyLongPressTimer.current);
+          proSpotifyLongPressTimer.current = null;
+        }
+        const dx = evt.nativeEvent.pageX - proSpotifyStartPos.current.x;
+        const dy = evt.nativeEvent.pageY - proSpotifyStartPos.current.y;
+        proSpotifyDragScale.value = withSpring(1);
+        proSpotifyDragX.value = withSpring(0);
+        proSpotifyDragY.value = withSpring(0);
+        setProSpotifyGesture('none');
+        if (proSpotifyGestureHandled.current) return;
+        if (dy < -PRO_SPOTIFY_SWIPE_THRESHOLD && Math.abs(dx) < PRO_SPOTIFY_SWIPE_THRESHOLD) {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          spotifyFabActions.emit('next');
+          return;
+        }
+        if (dx < -PRO_SPOTIFY_SWIPE_THRESHOLD && Math.abs(dy) < PRO_SPOTIFY_SWIPE_THRESHOLD) {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          spotifyFabActions.emit('restart');
+          return;
+        }
+        if (dy > PRO_SPOTIFY_SWIPE_THRESHOLD && Math.abs(dx) < PRO_SPOTIFY_SWIPE_THRESHOLD) {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+          spotifyFabActions.emit('hank_insight');
+          return;
+        }
+        if (Math.abs(dx) < 10 && Math.abs(dy) < 10 && !proSpotifyLongPress.current) {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+          spotifyFabActions.emit('open_modal');
+        }
+      },
+      onPanResponderTerminate: () => {
+        if (proSpotifyLongPressTimer.current) {
+          clearTimeout(proSpotifyLongPressTimer.current);
+          proSpotifyLongPressTimer.current = null;
+        }
+        proSpotifyDragScale.value = withSpring(1);
+        proSpotifyDragX.value = withSpring(0);
+        proSpotifyDragY.value = withSpring(0);
+        setProSpotifyGesture('none');
+      },
+    })
+  ).current;
 
   // Animated value para cierre por gesto
   const translateY = useSharedValue(0);
@@ -2748,9 +2928,151 @@ export const HankOverlay: React.FC = () => {
   // RENDER
   // -------------------------------------------------------------------------
 
-  // No renderizar en Feed
-  if (isHiddenInFeed) {
-    return null;
+  // En PRO: solo mostrar el botón Spotify FAB (con gestos completos)
+  if (isProScreen) {
+    if (!proSpotifyData.isConnected) return null;
+    return (
+      <View
+        style={{
+          position: 'absolute',
+          bottom: calculateFabPositions(insets.bottom).spotify - 40,
+          right: calculateFabPositions(insets.bottom).right,
+          zIndex: 1000,
+          width: 76,
+          height: 76,
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+        pointerEvents="box-none"
+      >
+        <View
+          style={{
+            position: 'relative',
+            alignItems: 'center',
+          }}
+        >
+          {/* Glow */}
+          {proSpotifyData.isPlaying && (
+            <Animated.View
+              style={[
+                {
+                  position: 'absolute',
+                  width: 52,
+                  height: 52,
+                  borderRadius: 26,
+                  backgroundColor: '#1DB954',
+                },
+                proSpotifyGlowStyle,
+              ]}
+            />
+          )}
+          <Animated.View style={proSpotifyDragStyle} {...proSpotifyPanResponder.panHandlers}>
+            <View
+              style={{
+                width: 52,
+                height: 52,
+                borderRadius: 26,
+                backgroundColor: '#1DB954',
+                alignItems: 'center',
+                justifyContent: 'center',
+                shadowColor: '#1DB954',
+                shadowOffset: { width: 0, height: 0 },
+                shadowOpacity: 0.4,
+                shadowRadius: 8,
+                elevation: 8,
+              }}
+            >
+              {proSpotifyData.albumArtUrl ? (
+                <View style={{ width: 38, height: 38, borderRadius: 19, overflow: 'hidden' }}>
+                  <Image
+                    key={proSpotifyData.albumArtUrl}
+                    source={{ uri: proSpotifyData.albumArtUrl }}
+                    style={{ width: 38, height: 38 }}
+                    contentFit="cover"
+                  />
+                </View>
+              ) : (
+                <Music size={18} color="#000" />
+              )}
+            </View>
+          </Animated.View>
+          {/* Indicadores de gesto */}
+          {proSpotifyGesture === 'next' && (
+            <View
+              style={{
+                position: 'absolute',
+                top: -30,
+                left: -20,
+                right: -20,
+                alignItems: 'center',
+              }}
+            >
+              <View
+                style={{
+                  backgroundColor: '#1DB954',
+                  paddingHorizontal: 8,
+                  paddingVertical: 4,
+                  borderRadius: 12,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                }}
+              >
+                <SkipForward size={12} color="#000" />
+                <Text style={{ color: '#000', fontSize: 10, fontWeight: 'bold', marginLeft: 3 }}>
+                  Next
+                </Text>
+              </View>
+            </View>
+          )}
+          {proSpotifyGesture === 'restart' && (
+            <View style={{ position: 'absolute', left: -75, top: 10, alignItems: 'center' }}>
+              <View
+                style={{
+                  backgroundColor: '#1DB954',
+                  paddingHorizontal: 8,
+                  paddingVertical: 4,
+                  borderRadius: 12,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                }}
+              >
+                <RotateCcw size={12} color="#000" />
+                <Text style={{ color: '#000', fontSize: 10, fontWeight: 'bold', marginLeft: 3 }}>
+                  Restart
+                </Text>
+              </View>
+            </View>
+          )}
+          {proSpotifyGesture === 'hank' && (
+            <View
+              style={{
+                position: 'absolute',
+                bottom: -25,
+                left: -10,
+                right: -10,
+                alignItems: 'center',
+              }}
+            >
+              <View
+                style={{
+                  backgroundColor: '#DC2626',
+                  paddingHorizontal: 8,
+                  paddingVertical: 4,
+                  borderRadius: 12,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                }}
+              >
+                <Bot size={12} color="#FFF" />
+                <Text style={{ color: '#FFF', fontSize: 10, fontWeight: 'bold', marginLeft: 3 }}>
+                  HANK
+                </Text>
+              </View>
+            </View>
+          )}
+        </View>
+      </View>
+    );
   }
 
   return (

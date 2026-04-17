@@ -204,17 +204,17 @@ function ProScreenContent() {
     opacity: pulseOpacity.value,
   }));
 
-  // Audio Setup
+  // Audio Setup - No interrumpir música al entrar, solo configurar para mix
   useEffect(() => {
     const setupAudio = async () => {
       try {
         await Audio.setAudioModeAsync({
-          allowsRecordingIOS: true,
+          allowsRecordingIOS: false,
           playsInSilentModeIOS: true,
           staysActiveInBackground: false,
-          interruptionModeIOS: 2,
-          shouldDuckAndroid: false,
-          interruptionModeAndroid: 2,
+          interruptionModeIOS: 1, // MixWithOthers - no para la música
+          shouldDuckAndroid: true,
+          interruptionModeAndroid: 1, // DuckOthers
           playThroughEarpieceAndroid: false,
         });
       } catch (error) {
@@ -253,11 +253,11 @@ function ProScreenContent() {
       const constraints: MediaStreamConstraints = {
         video: {
           facingMode: webFacing,
-          width: { ideal: 3840 },
-          height: { ideal: 2160 },
-          frameRate: { ideal: 60 },
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+          frameRate: { ideal: 30 },
         },
-        audio: true,
+        audio: false,
       };
 
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
@@ -288,6 +288,10 @@ function ProScreenContent() {
   }, [webFacing]);
 
   const cleanupWebCamera = useCallback(() => {
+    if (webAudioStreamRef.current) {
+      webAudioStreamRef.current.getTracks().forEach((track) => track.stop());
+      webAudioStreamRef.current = null;
+    }
     if (webStreamRef.current) {
       webStreamRef.current.getTracks().forEach((track) => track.stop());
       webStreamRef.current = null;
@@ -329,7 +333,9 @@ function ProScreenContent() {
   // WEB RECORDING HANDLERS
   // -------------------------------------------------------------------------
 
-  const webStartRecording = () => {
+  const webAudioStreamRef = useRef<MediaStream | null>(null);
+
+  const webStartRecording = async () => {
     if (!webStreamRef.current || isRecording) return;
 
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
@@ -337,6 +343,9 @@ function ProScreenContent() {
     setIsRecording(true);
     setRecordingTime(0);
     recordingTimeRef.current = 0;
+
+    // No pedimos audio del micrófono para no interrumpir la música
+    // El video se graba sin audio del mic — la música de Spotify se captura como metadata
 
     // Capturar Spotify metadata
     if (spotifyConnected && spotifyPremium) {

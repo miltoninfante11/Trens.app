@@ -3,11 +3,14 @@ import React, { createContext, useContext, useState, useRef, useCallback, ReactN
 // ============================================================================
 // TIPOS
 // ============================================================================
+type CaptureMode = 'photo' | 'video';
+
 interface ProRecordingContextValue {
   isRecording: boolean;
   recordingTime: number;
   hasSpotify: boolean;
   exerciseName: string | null;
+  captureMode: CaptureMode;
 
   // Métodos que serán implementados por PRO screen
   startRecording: () => void;
@@ -21,6 +24,7 @@ interface ProRecordingContextValue {
   setRecordingState: (isRecording: boolean, time: number) => void;
   setSpotifyState: (hasSpotify: boolean) => void;
   setExerciseState: (name: string | null) => void;
+  setCaptureMode: (mode: CaptureMode) => void;
 }
 
 // ============================================================================
@@ -36,6 +40,7 @@ export function ProRecordingProvider({ children }: { children: ReactNode }) {
   const [recordingTime, setRecordingTime] = useState(0);
   const [hasSpotify, setHasSpotify] = useState(false);
   const [exerciseName, setExerciseName] = useState<string | null>(null);
+  const [captureMode, setCaptureMode] = useState<CaptureMode>('photo');
 
   const handlersRef = useRef<{ start: () => void; stop: () => void; photo: () => void } | null>(
     null
@@ -86,6 +91,7 @@ export function ProRecordingProvider({ children }: { children: ReactNode }) {
         recordingTime,
         hasSpotify,
         exerciseName,
+        captureMode,
         startRecording,
         stopRecording,
         takePhoto,
@@ -93,6 +99,7 @@ export function ProRecordingProvider({ children }: { children: ReactNode }) {
         setRecordingState,
         setSpotifyState,
         setExerciseState,
+        setCaptureMode,
       }}
     >
       {children}

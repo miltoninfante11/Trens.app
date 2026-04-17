@@ -652,6 +652,7 @@ export function ProMediaEditor({
         video.muted = true;
         video.playsInline = true;
         video.preload = 'auto';
+        video.setAttribute('webkit-playsinline', 'true');
 
         video.onloadedmetadata = () => {
           const vW = video.videoWidth;
@@ -722,7 +723,7 @@ export function ProMediaEditor({
           const stream = canvas.captureStream(30);
           const recorder = new MediaRecorder(stream, {
             mimeType: chosenMime,
-            videoBitsPerSecond: 8_000_000, // 8 Mbps for high quality
+            videoBitsPerSecond: 8_000_000,
           });
           const chunks: Blob[] = [];
           recorder.ondataavailable = (e) => {
@@ -740,7 +741,6 @@ export function ProMediaEditor({
           const durMs = videoDurationMs;
           const startSec = (videoTrimStart / 100) * (durMs / 1000);
           const endSec = (videoTrimEnd / 100) * (durMs / 1000);
-          video.currentTime = startSec;
 
           const drawFrame = () => {
             ctx.drawImage(video, sx, sy, sw, sh, 0, 0, outW, outH);
@@ -769,19 +769,31 @@ export function ProMediaEditor({
             ctx.textBaseline = 'alphabetic';
           };
 
+          // Use setInterval for consistent frame capture on mobile PWA
+          // (requestAnimationFrame gets throttled on mobile browsers)
+          video.currentTime = startSec;
           video.onseeked = () => {
             recorder.start();
             video.play();
-            const renderLoop = () => {
+            const frameInterval = setInterval(() => {
               if (video.paused || video.ended || video.currentTime >= endSec) {
+                clearInterval(frameInterval);
                 recorder.stop();
                 video.pause();
                 return;
               }
               drawFrame();
-              requestAnimationFrame(renderLoop);
-            };
-            requestAnimationFrame(renderLoop);
+            }, 1000 / 30); // 30 fps
+
+            // Safety: stop after expected duration + 2s buffer
+            const safetyMs = (endSec - startSec) * 1000 + 2000;
+            setTimeout(() => {
+              if (recorder.state === 'recording') {
+                clearInterval(frameInterval);
+                recorder.stop();
+                video.pause();
+              }
+            }, safetyMs);
           };
         };
         video.onerror = () => reject('Video load failed');
@@ -848,10 +860,14 @@ export function ProMediaEditor({
           const a = document.createElement('a');
           a.href = downloadUrl;
           a.download = fileName;
+          a.style.display = 'none';
+          a.setAttribute('target', '_self');
           document.body.appendChild(a);
           a.click();
-          document.body.removeChild(a);
-          setTimeout(() => URL.revokeObjectURL(downloadUrl), 5000);
+          requestAnimationFrame(() => {
+            document.body.removeChild(a);
+          });
+          setTimeout(() => URL.revokeObjectURL(downloadUrl), 10000);
         }
       } else {
         // Native: use expo-sharing
@@ -912,10 +928,15 @@ export function ProMediaEditor({
         const a = document.createElement('a');
         a.href = downloadUrl;
         a.download = fileName;
+        a.style.display = 'none';
+        a.setAttribute('target', '_self');
         document.body.appendChild(a);
         a.click();
-        document.body.removeChild(a);
-        setTimeout(() => URL.revokeObjectURL(downloadUrl), 5000);
+        // Limpiar inmediatamente para evitar navegación accidental
+        requestAnimationFrame(() => {
+          document.body.removeChild(a);
+        });
+        setTimeout(() => URL.revokeObjectURL(downloadUrl), 10000);
       } else {
         const { status } = await MediaLibrary.requestPermissionsAsync();
         if (status === 'granted') {

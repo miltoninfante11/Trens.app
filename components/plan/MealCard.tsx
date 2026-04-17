@@ -37,6 +37,7 @@ interface MealOption {
   id: string;
   name: string;
   ingredients: Ingredient[];
+  notes?: string;
 }
 
 interface Meal {
@@ -390,6 +391,20 @@ export const MealCard: React.FC<MealCardProps> = ({
                 SIN INGREDIENTES
               </Text>
               <Text className="text-zinc-500 text-[10px] mt-1">Toca para configurar</Text>
+            </View>
+          )}
+
+          {/* Notes - if present */}
+          {option.notes && (
+            <View
+              className="mt-2 px-3 py-2 rounded-lg"
+              style={{
+                backgroundColor: 'rgba(234, 179, 8, 0.08)',
+                borderWidth: 1,
+                borderColor: 'rgba(234, 179, 8, 0.2)',
+              }}
+            >
+              <Text className="text-yellow-300 text-[11px] leading-4">📝 {option.notes}</Text>
             </View>
           )}
         </View>

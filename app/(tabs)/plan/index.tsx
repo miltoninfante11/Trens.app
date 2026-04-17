@@ -67,6 +67,7 @@ interface MealOption {
   id: string;
   name: string;
   ingredients: Ingredient[];
+  notes?: string;
 }
 
 interface Meal {
@@ -536,12 +537,14 @@ function PlanScreen() {
           is_completed, 
           position,
           selected_option,
+          notes,
           meal_options (
             id,
             name,
             ingredients,
             position,
-            is_selected
+            is_selected,
+            notes
           )
         `
         )
@@ -655,6 +658,7 @@ function PlanScreen() {
             options.push({
               id: `main-${meal.id}`,
               name: 'Principal',
+              notes: meal.notes || undefined,
               ingredients: jsonIngredients.map((ing: any, idx: number) => {
                 // Normalizar nutritionInfo: soportar formato anidado y top-level
                 const nutrition = ing.nutritionInfo
@@ -689,6 +693,7 @@ function PlanScreen() {
               options.push({
                 id: opt.id,
                 name: opt.name || 'Alternativa',
+                notes: opt.notes || undefined,
                 ingredients: (opt.ingredients || []).map((ing: any, idx: number) => {
                   // Normalizar nutritionInfo: soportar formato anidado y top-level
                   const nutrition = ing.nutritionInfo
@@ -1847,6 +1852,7 @@ function PlanScreen() {
     mealId: string,
     optionId: string, // 'main-{id}' para principal, UUID real para alternativas
     ingredients: Ingredient[],
+    notes?: string,
     _editModes?: string[]
   ) => {
     isInternalUpdate.current = true;
@@ -1889,7 +1895,10 @@ function PlanScreen() {
 
         const { error } = await supabase
           .from('meal_options')
-          .update({ ingredients: ingredientsToSave })
+          .update({
+            ingredients: ingredientsToSave,
+            ...(notes !== undefined ? { notes: notes || null } : {}),
+          })
           .eq('id', optionId);
 
         if (error) throw error;
@@ -1964,7 +1973,10 @@ function PlanScreen() {
 
         const { error } = await supabase
           .from('meals')
-          .update({ ingredients: ingredientsToSave })
+          .update({
+            ingredients: ingredientsToSave,
+            ...(notes !== undefined ? { notes: notes || null } : {}),
+          })
           .eq('id', mealId);
 
         if (error) throw error;
@@ -2085,7 +2097,8 @@ function PlanScreen() {
       skipGrams?: boolean;
       weightType?: 'cocido' | 'crudo';
     }[],
-    time: string
+    time: string,
+    notes?: string
   ) => {
     isInternalUpdate.current = true;
     // Guard: Verificar si puede guardar
@@ -2168,6 +2181,7 @@ function PlanScreen() {
         })),
         position: newPosition,
         is_completed: false,
+        ...(notes ? { notes } : {}),
       });
 
       if (mealError) {
@@ -2314,7 +2328,8 @@ function PlanScreen() {
   const handleSaveOption = async (
     mealId: string,
     optionName: string,
-    ingredients: Ingredient[]
+    ingredients: Ingredient[],
+    notes?: string
   ) => {
     isInternalUpdate.current = true;
     // Guard: Verificar si puede guardar
@@ -2346,6 +2361,7 @@ function PlanScreen() {
         ingredients: ingredientsJsonb,
         position: newOptionIndex,
         is_selected: false,
+        ...(notes ? { notes } : {}),
       });
 
       if (optionError) throw optionError;
