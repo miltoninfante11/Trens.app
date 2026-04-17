@@ -46,16 +46,17 @@ import {
   Dna,
   Video,
   ShoppingCart,
-  Warehouse,
-  Flag,
-  Waves,
   Smartphone,
   Globe,
   BarChart3,
-  Instagram,
-  Mic,
   BellRing,
-  Layers,
+  Clock,
+  Target,
+  Repeat,
+  Calendar,
+  ListChecks,
+  Zap,
+  Timer,
 } from 'lucide-react-native';
 import Animated, {
   useSharedValue,
@@ -853,13 +854,13 @@ export default function LandingPage() {
           className="items-center mb-8 max-w-3xl"
         >
           <Text className="text-white text-3xl md:text-5xl font-bold text-center leading-tight">
-            Tu entrenador, nutricionista y cámara{' '}
-            <Text style={{ color: PREMIUM_COLORS.fireRed }}>en una sola app</Text>
+            Organiza tu entrenamiento{' '}
+            <Text style={{ color: PREMIUM_COLORS.fireRed }}>al mínimo detalle</Text>
           </Text>
           <Text className="text-zinc-400 text-lg md:text-xl text-center mt-6 max-w-2xl leading-relaxed">
-            HANK, tu IA con +90 herramientas, crea tu rutina, calcula tus macros, analiza tu técnica
-            en video, trackea récords automáticos y sincroniza tu música — todo mientras entrenas.
-            Para GYM, Motociclismo, Automovilismo y Surf.
+            Rutinas con cada serie configurable, plan nutricional por horario, stack de suplementos
+            ilimitado, múltiples cardios, 2 entrenamientos al día, récords automáticos, cámara PRO y
+            feed motivacional. Todo conectado en una sola plataforma.
           </Text>
         </Animated.View>
 
@@ -949,12 +950,224 @@ export default function LandingPage() {
       </View>
 
       {/* ================================================================== */}
-      {/* FEATURES SECTION - PREMIUM */}
+      {/* PHONE MOCKUP + FEED MOTIVACIONAL */}
       {/* ================================================================== */}
+      <View
+        className="bg-black relative overflow-hidden"
+        style={{ paddingHorizontal: 16, paddingVertical: SCREEN_WIDTH < 768 ? 48 : 80 }}
+      >
+        <GlowOrb color={PREMIUM_COLORS.fireRed} size={400} top="30%" left="60%" delay={500} />
 
-      {/* ================================================================== */}
-      {/* EL PROBLEMA — VALUE COMPARISON */}
-      {/* ================================================================== */}
+        <Animated.View entering={FadeInUp.duration(600)} className="items-center mb-10">
+          <View className="flex-row items-center gap-3 mb-4">
+            <Play size={20} color={PREMIUM_COLORS.fireRed} />
+            <Text
+              className="text-red-500 font-mono tracking-[0.3em] uppercase"
+              style={{ fontSize: SCREEN_WIDTH < 640 ? 11 : 14 }}
+            >
+              Feed motivacional
+            </Text>
+          </View>
+          <Text
+            className="text-white font-bold text-center max-w-2xl px-2"
+            style={{ fontSize: SCREEN_WIDTH < 640 ? 22 : SCREEN_WIDTH < 768 ? 32 : 40 }}
+          >
+            Motivación <Text style={{ color: PREMIUM_COLORS.fireRed }}>constante</Text> de la
+            comunidad
+          </Text>
+          <Text className="text-zinc-400 text-center mt-4 max-w-lg px-4">
+            Abre TRENS y lo primero que ves es el Feed: videos reales de atletas entrenando. Likes,
+            comentarios y saves. Tu dosis diaria de motivación antes de cada sesión.
+          </Text>
+        </Animated.View>
+
+        <Animated.View
+          entering={FadeInUp.delay(300).duration(800).springify()}
+          className="items-center"
+        >
+          {/* Phone Frame */}
+          <View
+            style={{
+              width: SCREEN_WIDTH < 640 ? 260 : 300,
+              height: SCREEN_WIDTH < 640 ? 520 : 600,
+              borderRadius: 40,
+              borderWidth: 3,
+              borderColor: 'rgba(255,255,255,0.1)',
+              backgroundColor: '#0A0A0A',
+              overflow: 'hidden',
+              position: 'relative',
+              shadowColor: PREMIUM_COLORS.fireRed,
+              shadowOffset: { width: 0, height: 20 },
+              shadowOpacity: 0.3,
+              shadowRadius: 40,
+            }}
+          >
+            {/* Notch */}
+            <View
+              style={{
+                width: 120,
+                height: 28,
+                backgroundColor: '#000',
+                borderBottomLeftRadius: 20,
+                borderBottomRightRadius: 20,
+                alignSelf: 'center',
+                zIndex: 10,
+              }}
+            />
+
+            {/* Status bar */}
+            <View className="flex-row items-center justify-between px-6 py-1">
+              <Text className="text-white text-xs font-bold">9:41</Text>
+              <View className="flex-row items-center gap-1">
+                <View className="w-4 h-2 rounded-sm bg-white" />
+              </View>
+            </View>
+
+            {/* App header */}
+            <View className="px-4 py-3 flex-row items-center justify-between">
+              <View className="flex-row items-center gap-2">
+                <LinearGradient
+                  colors={[PREMIUM_COLORS.fireRed, PREMIUM_COLORS.fireOrange]}
+                  className="w-7 h-7 rounded-lg items-center justify-center"
+                >
+                  <Dumbbell size={14} color="white" />
+                </LinearGradient>
+                <Text className="text-white font-bold text-sm">FEED</Text>
+              </View>
+              <Camera size={18} color="#71717A" />
+            </View>
+
+            {/* Feed Cards */}
+            <ScrollView className="flex-1 px-3" showsVerticalScrollIndicator={false}>
+              {/* Video Card 1 */}
+              <View className="bg-zinc-900 rounded-2xl mb-3 overflow-hidden">
+                <LinearGradient
+                  colors={['#1a0808', '#0d0d0d', '#150505']}
+                  style={{ height: 160 }}
+                  className="items-center justify-center"
+                >
+                  <View className="items-center">
+                    <Play size={32} color="white" fill="white" />
+                    <Text className="text-white text-xs font-bold mt-2">BENCH PRESS</Text>
+                    <Text className="text-red-500 text-xs font-mono mt-1">120 KG × 5</Text>
+                  </View>
+                </LinearGradient>
+                <View className="p-3">
+                  <View className="flex-row items-center gap-2 mb-1">
+                    <View className="w-5 h-5 rounded-full bg-red-600" />
+                    <Text className="text-white text-xs font-bold">carlos_fit</Text>
+                    <Text className="text-zinc-600 text-xs">· PR 🏆</Text>
+                  </View>
+                  <View className="flex-row items-center gap-3 mt-2">
+                    <View className="flex-row items-center gap-1">
+                      <Heart size={12} color="#DC2626" fill="#DC2626" />
+                      <Text className="text-zinc-400 text-xs">247</Text>
+                    </View>
+                    <View className="flex-row items-center gap-1">
+                      <Video size={12} color="#71717A" />
+                      <Text className="text-zinc-400 text-xs">1.2K</Text>
+                    </View>
+                  </View>
+                </View>
+              </View>
+
+              {/* Video Card 2 */}
+              <View className="bg-zinc-900 rounded-2xl mb-3 overflow-hidden">
+                <LinearGradient
+                  colors={['#0d0d0d', '#150808', '#0d0d0d']}
+                  style={{ height: 120 }}
+                  className="items-center justify-center"
+                >
+                  <View className="items-center">
+                    <Play size={24} color="white" fill="white" />
+                    <Text className="text-white text-xs font-bold mt-1">SQUAT</Text>
+                    <Text className="text-red-500 text-xs font-mono">180 KG × 3</Text>
+                  </View>
+                </LinearGradient>
+                <View className="p-3">
+                  <View className="flex-row items-center gap-2">
+                    <View className="w-5 h-5 rounded-full bg-orange-600" />
+                    <Text className="text-white text-xs font-bold">ana_power</Text>
+                  </View>
+                  <View className="flex-row items-center gap-3 mt-2">
+                    <View className="flex-row items-center gap-1">
+                      <Heart size={12} color="#DC2626" fill="#DC2626" />
+                      <Text className="text-zinc-400 text-xs">389</Text>
+                    </View>
+                    <View className="flex-row items-center gap-1">
+                      <Music size={10} color="#1DB954" />
+                      <Text className="text-zinc-500 text-xs">Spotify</Text>
+                    </View>
+                  </View>
+                </View>
+              </View>
+
+              {/* Video Card 3 */}
+              <View className="bg-zinc-900 rounded-2xl mb-3 overflow-hidden">
+                <LinearGradient
+                  colors={['#0d100d', '#0d0d0d']}
+                  style={{ height: 100 }}
+                  className="items-center justify-center"
+                >
+                  <View className="items-center">
+                    <Play size={20} color="white" fill="white" />
+                    <Text className="text-white text-xs font-bold mt-1">DEADLIFT</Text>
+                    <Text className="text-red-500 text-xs font-mono">200 KG × 1</Text>
+                  </View>
+                </LinearGradient>
+                <View className="p-2.5">
+                  <View className="flex-row items-center gap-2">
+                    <View className="w-5 h-5 rounded-full bg-yellow-600" />
+                    <Text className="text-white text-xs font-bold">diego_coach</Text>
+                    <Text className="text-zinc-600 text-xs">· 1RM 🔥</Text>
+                  </View>
+                </View>
+              </View>
+            </ScrollView>
+
+            {/* Bottom Tab Bar */}
+            <View className="flex-row items-center justify-around py-3 border-t border-zinc-800/50 bg-black/80">
+              <View className="items-center">
+                <Play size={18} color={PREMIUM_COLORS.fireRed} fill={PREMIUM_COLORS.fireRed} />
+                <Text style={{ fontSize: 8 }} className="text-red-500 mt-0.5">
+                  FEED
+                </Text>
+              </View>
+              <View className="items-center">
+                <Dna size={18} color="#71717A" />
+                <Text style={{ fontSize: 8 }} className="text-zinc-600 mt-0.5">
+                  ADN
+                </Text>
+              </View>
+              <View className="items-center">
+                <Camera size={18} color="#71717A" />
+                <Text style={{ fontSize: 8 }} className="text-zinc-600 mt-0.5">
+                  PRO
+                </Text>
+              </View>
+              <View className="items-center">
+                <Dumbbell size={18} color="#71717A" />
+                <Text style={{ fontSize: 8 }} className="text-zinc-600 mt-0.5">
+                  GYM
+                </Text>
+              </View>
+              <View className="items-center">
+                <Utensils size={18} color="#71717A" />
+                <Text style={{ fontSize: 8 }} className="text-zinc-600 mt-0.5">
+                  PLAN
+                </Text>
+              </View>
+            </View>
+          </View>
+        </Animated.View>
+
+        <Animated.View entering={FadeInUp.delay(600).duration(600)} className="items-center mt-8">
+          <Text className="text-zinc-500 text-sm text-center max-w-md px-4">
+            Cada video del feed incluye ejercicio, peso, repeticiones y la canción de Spotify que
+            sonaba. Pura información de valor.
+          </Text>
+        </Animated.View>
+      </View>
       <View
         className="bg-black relative overflow-hidden"
         style={{ paddingHorizontal: 16, paddingVertical: SCREEN_WIDTH < 768 ? 48 : 80 }}
@@ -1041,7 +1254,7 @@ export default function LandingPage() {
       </View>
 
       {/* ================================================================== */}
-      {/* FEATURES GRID - PREMIUM */}
+      {/* FEATURES GRID - UTILITY FOCUSED */}
       {/* ================================================================== */}
       <View
         className="bg-black relative overflow-hidden"
@@ -1062,7 +1275,7 @@ export default function LandingPage() {
               className="text-red-500 font-mono tracking-[0.3em] uppercase"
               style={{ fontSize: SCREEN_WIDTH < 640 ? 11 : 14 }}
             >
-              Características
+              Herramientas
             </Text>
             <Sparkles size={20} color={PREMIUM_COLORS.fireRed} />
           </View>
@@ -1070,8 +1283,12 @@ export default function LandingPage() {
             className="text-white font-bold text-center max-w-2xl leading-tight px-2"
             style={{ fontSize: SCREEN_WIDTH < 640 ? 22 : SCREEN_WIDTH < 768 ? 32 : 40 }}
           >
-            Todo lo que necesitas para{' '}
-            <Text style={{ color: PREMIUM_COLORS.fireRed }}>dominar</Text> tu entrenamiento
+            Configura <Text style={{ color: PREMIUM_COLORS.fireRed }}>cada detalle</Text> de tu
+            entrenamiento
+          </Text>
+          <Text className="text-zinc-400 text-center mt-4 max-w-xl px-4">
+            Desde el calentamiento hasta el último suplemento del día. TRENS te da control total
+            sobre cada variable de tu rendimiento.
           </Text>
         </Animated.View>
 
@@ -1080,307 +1297,306 @@ export default function LandingPage() {
           style={{ maxWidth: 1300, alignSelf: 'center', gap: 12, paddingHorizontal: 4 }}
         >
           <PremiumFeatureCard
-            icon={Brain}
-            title="HANK — IA Entrenador"
-            description='Díle "Crea una rutina Push Pull Legs" o "Calcula mis macros" y HANK lo hace instantáneamente. +90 herramientas powered by Gemini: arma rutinas, ajusta nutrición, analiza tu técnica en video, sugiere ejercicios alternativos y responde cualquier duda — por texto o voz.'
+            icon={Dumbbell}
+            title="Rutinas a Tu Medida"
+            description="Constructor con +500 ejercicios, días rotacionales automáticos, 4 tipos de series (calentamiento, aproximación, efectiva, fallo). Configura peso, reps, RIR, tempo y descanso en cada serie. Hasta 2 entrenamientos por día. Drag & drop para reorganizar."
             delay={100}
             index={0}
           />
           <PremiumFeatureCard
-            icon={Camera}
-            title="Cámara PRO 9:16"
-            description="Graba cada set en formato vertical profesional como TikTok. Flash, cámara frontal/trasera, compresión inteligente. Cada video queda vinculado al ejercicio, peso y repeticiones exactas. HANK puede analizar tu técnica y darte feedback."
+            icon={Utensils}
+            title="Plan Nutricional Completo"
+            description="Planifica cada comida por horario con ingredientes detallados y gramos exactos. Múltiples opciones por comida para variar tu dieta. Macros calculados automáticamente por inteligencia artificial. Ajuste dinámico según tu objetivo: volumen, definición o mantenimiento."
             delay={150}
             index={1}
           />
           <PremiumFeatureCard
-            icon={Dna}
-            title="ADN Atlético"
-            description="Tu perfil de atleta con TrensID Card compartible, medidas corporales (peso, grasa, masa muscular), récords personales auto-detectados, macros objetivo, fotos de progreso con comparativas, badges y stats de volumen semanal. Tu historial completo."
+            icon={Pill}
+            title="Stack de Suplementos Ilimitado"
+            description="Agrega cualquier suplemento: pastillas, polvo, líquido, inyectables. Configura múltiples horarios y dosis específicas por día. Pre-workout, intra-workout, post-workout, antes de dormir — todo organizado en tu timeline diario integrado con tu plan."
             delay={200}
             index={2}
           />
           <PremiumFeatureCard
-            icon={Dumbbell}
-            title="Rutinas GYM"
-            description="Constructor de rutinas con +500 ejercicios, días rotacionales automáticos, 4 tipos de series (calentamiento, aproximación, efectiva, fallo). Configura peso, reps, RIR, tempo y descanso. Agrega fotos/videos por ejercicio. Drag & drop para reorganizar."
+            icon={Timer}
+            title="Cardio Blocks"
+            description="Agrega varios bloques de cardio separados a tu día: HIIT, steady-state, caminata, bicicleta. Cada uno con duración, intensidad y notas. Combínalos con tus entrenamientos de fuerza para un control total de tu volumen de trabajo."
             delay={250}
             index={3}
           />
           <PremiumFeatureCard
-            icon={Utensils}
-            title="Plan Nutricional IA"
-            description="Planifica cada comida por horario con ingredientes detallados. La IA Gemini calcula calorías, proteína, carbs y grasa automáticamente. Múltiples opciones por comida, sugerencias de sustitución, detección de alérgenos y ajuste dinámico según tus objetivos."
+            icon={Camera}
+            title="Cámara PRO 9:16"
+            description="Graba cada set en formato vertical profesional. Flash, cámara frontal/trasera, compresión inteligente. Cada video queda vinculado al ejercicio, peso y repeticiones exactas. Tu técnica documentada en tu bóveda personal para revisarla cuando quieras."
             delay={300}
             index={4}
           />
           <PremiumFeatureCard
-            icon={Pill}
-            title="Stack de Suplementos"
-            description="Gestiona tu suplementación completa con horarios múltiples y dosis específicas: pastillas, polvo, líquido, inyectables. Pre/intra/post workout integrado en tu timeline. HANK puede sugerirte el stack ideal para tu objetivo."
+            icon={Trophy}
+            title="Récords Automáticos"
+            description="TRENS detecta automáticamente cuando superas tu mejor marca: PR dominante, peso máximo, 1RM estimado y máx reps. Cada récord registrado con video, fecha y datos exactos. Historial completo de progresión por ejercicio."
             delay={350}
             index={5}
           />
           <PremiumFeatureCard
-            icon={Trophy}
-            title="Récords Automáticos"
-            description="TRENS detecta automáticamente cuando superas tu mejor marca: PR dominante, peso máximo, 1RM estimado y máx reps. Cada récord queda registrado con video, fecha y datos exactos. Ve tu historial de progreso por ejercicio."
+            icon={Dna}
+            title="ADN Atlético"
+            description="Tu perfil completo: medidas corporales (peso, grasa, masa muscular), récords personales, macros objetivo, fotos de progreso con comparativas en timeline, badges y stats de volumen semanal. TrensID Card compartible."
             delay={400}
             index={6}
           />
           <PremiumFeatureCard
-            icon={Music}
-            title="Spotify Sync"
-            description="Conecta tu Spotify Premium y la canción que suena durante tu set se sincroniza automáticamente con tu video: nombre del track, artista, carátula y posición exacta. Control de reproducción integrado."
+            icon={TrendingUp}
+            title="Progreso Visual"
+            description="Sube fotos de progreso y compáralas en timeline con slider lado a lado. Ve tu transformación mes a mes con datos de peso, grasa corporal y masa muscular. Cada foto se vincula a tus métricas de ese momento."
             delay={450}
             index={7}
           />
           <PremiumFeatureCard
-            icon={Video}
-            title="Feed Social"
-            description="Publica tus mejores sets en el feed de la comunidad TRENS. Likes, comentarios, saves y shares con deep links. Filtra por ejercicio, ve lo que entrenan otros atletas e importa contenido desde Instagram Reels."
+            icon={BarChart3}
+            title="Macros Inteligentes"
+            description="Calorías, proteína, carbs y grasa calculados automáticamente según tu peso, altura, edad, nivel de actividad y objetivo. Se ajustan en tiempo real cuando modificas tu plan de comidas. Dashboard visual con anillos de progreso diario."
             delay={500}
             index={8}
           />
           <PremiumFeatureCard
-            icon={TrendingUp}
-            title="Progreso Visual"
-            description="Sube fotos de progreso y compáralas en timeline con slider lado a lado. HANK analiza tu composición corporal por foto. Ve tu transformación mes a mes con datos de peso, grasa corporal y masa muscular."
+            icon={ShoppingCart}
+            title="Lista de Compras"
+            description="Se genera automáticamente desde tus comidas planificadas. Agrupa todos los ingredientes de la semana por categoría. Lleva al supermercado exactamente lo que necesitas. Sin desperdiciar, sin olvidar nada."
             delay={550}
             index={9}
           />
           <PremiumFeatureCard
-            icon={ShoppingCart}
-            title="Lista de Compras"
-            description="Se genera automáticamente desde tus comidas planificadas. Agrega todos los ingredientes de la semana, agrupa por categoría y lleva al super exactamente lo que necesitas. Sin desperdiciar, sin olvidar nada."
+            icon={Music}
+            title="Spotify Sync"
+            description="Conecta tu Spotify Premium y la canción que suena durante tu set se sincroniza automáticamente con tu video: nombre del track, artista, carátula y posición exacta. Control de reproducción integrado en la app."
             delay={600}
             index={10}
           />
           <PremiumFeatureCard
-            icon={BarChart3}
-            title="Macros Inteligentes"
-            description="Calorías, proteína, carbs y grasa calculados automáticamente según tu peso, altura, edad, nivel de actividad y objetivo (volumen, definición, mantenimiento). Se ajustan en tiempo real cuando modificas tu plan de comidas."
-            delay={650}
-            index={11}
-          />
-          <PremiumFeatureCard
-            icon={Instagram}
-            title="Instagram Connect"
-            description="Vincula tu Instagram para importar Reels al feed de TRENS, cross-postear tus videos de entrenamiento, y mostrar tu perfil social directamente en tu TrensID Card pública. Hashtags automáticos."
-            delay={700}
-            index={12}
-          />
-          <PremiumFeatureCard
             icon={BellRing}
             title="Notificaciones Smart"
-            description="Recordatorios automáticos de entrenamiento, alertas de suplementos programadas a la hora exacta, avisos de comidas y notificaciones de actividad social. 100% personalizables, nunca spam."
-            delay={750}
-            index={13}
-          />
-          <PremiumFeatureCard
-            icon={Mic}
-            title="Comandos de Voz"
-            description='Manos en la barra, voz en HANK. Di "agrega 10kg al press" o "pon un snack a las 4pm" y HANK ejecuta el cambio en tiempo real. Ideal para medio entrenamiento sin tocar el celular.'
-            delay={800}
-            index={14}
-          />
-          <PremiumFeatureCard
-            icon={Layers}
-            title="Multi-Deporte"
-            description="Más allá del GYM: MOTO y AUTO tienen Garaje (inventario de vehículos, mantenimiento, costos) y Race (eventos, tiempos, checklists). SURF tiene Tabla (quiver de tablas y equipo) y Spot (sesiones con olas, viento, marea)."
-            delay={850}
-            index={15}
+            description="Recordatorios automáticos de entrenamiento, alertas de suplementos programadas a la hora exacta, avisos de comidas y notificaciones de la comunidad. 100% personalizables para que nunca se te pase nada."
+            delay={650}
+            index={11}
           />
         </View>
 
         {/* ================================================================== */}
-        {/* MULTI-SPORT SECTION */}
+        {/* PARA QUIÉN ES TRENS */}
         {/* ================================================================== */}
         <View
-          className="mt-16 items-center"
+          className="mt-20 items-center"
           style={{ maxWidth: 1000, alignSelf: 'center', width: '100%' }}
         >
-          <Animated.View entering={FadeInUp.delay(900).duration(600)} className="items-center mb-8">
+          <Animated.View
+            entering={FadeInUp.delay(700).duration(600)}
+            className="items-center mb-10"
+          >
+            <Text
+              className="text-red-500 font-mono tracking-[0.3em] uppercase mb-4"
+              style={{ fontSize: SCREEN_WIDTH < 640 ? 11 : 14 }}
+            >
+              ¿Para quién es?
+            </Text>
             <Text
               className="text-white font-bold text-center px-2"
-              style={{ fontSize: SCREEN_WIDTH < 640 ? 20 : 28 }}
+              style={{ fontSize: SCREEN_WIDTH < 640 ? 22 : SCREEN_WIDTH < 768 ? 28 : 36 }}
             >
-              Una app, <Text style={{ color: PREMIUM_COLORS.fireOrange }}>4 deportes</Text>
-            </Text>
-            <Text className="text-zinc-400 text-center mt-3 max-w-lg px-4">
-              TRENS se adapta a tu deporte. Cada disciplina tiene módulos exclusivos.
+              Si quieres <Text style={{ color: PREMIUM_COLORS.fireRed }}>resultados reales</Text>,
+              necesitas un sistema real
             </Text>
           </Animated.View>
 
           <View
-            className="flex-row flex-wrap justify-center gap-3"
+            className="flex-row flex-wrap justify-center gap-4"
             style={{ paddingHorizontal: 8 }}
           >
-            {[
-              {
-                icon: Dumbbell,
-                name: 'FITNESS',
-                color: '#DC2626',
-                desc: 'GYM + PLAN + SUPLEMENTOS',
-              },
-              {
-                icon: Warehouse,
-                name: 'MOTO',
-                color: '#F97316',
-                desc: 'GARAJE + RACE + CHECKLISTS',
-              },
-              { icon: Flag, name: 'AUTO', color: '#EAB308', desc: 'GARAJE + RACE + TIEMPOS' },
-              { icon: Waves, name: 'SURF', color: '#0EA5E9', desc: 'TABLA + SPOT + SESIONES' },
-            ].map((sport, i) => (
-              <Animated.View
-                key={sport.name}
-                entering={FadeInUp.delay(1000 + i * 100).duration(500)}
-                className="bg-zinc-900/50 border border-zinc-800/50 rounded-2xl p-4 items-center"
-                style={{ width: SCREEN_WIDTH < 640 ? '45%' : 200 }}
-              >
-                <View
-                  className="w-12 h-12 rounded-xl items-center justify-center mb-2"
-                  style={{ backgroundColor: `${sport.color}20` }}
+            {/* Card 1: Quiere ordenarse */}
+            <Animated.View
+              entering={FadeInUp.delay(800).duration(600)}
+              className="bg-zinc-900/40 border border-zinc-800/40 rounded-2xl p-6"
+              style={{ width: SCREEN_WIDTH < 640 ? '100%' : 460, maxWidth: 460 }}
+            >
+              <View className="flex-row items-center gap-3 mb-4">
+                <LinearGradient
+                  colors={[PREMIUM_COLORS.fireRed, PREMIUM_COLORS.fireOrange]}
+                  className="w-12 h-12 rounded-2xl items-center justify-center"
                 >
-                  <sport.icon size={24} color={sport.color} />
-                </View>
-                <Text className="text-white font-bold text-sm">{sport.name}</Text>
-                <Text className="text-zinc-500 text-xs mt-1">{sport.desc}</Text>
-              </Animated.View>
-            ))}
+                  <Target size={24} color="white" />
+                </LinearGradient>
+                <Text className="text-white font-bold text-lg">Quieres ordenarte</Text>
+              </View>
+              <Text className="text-zinc-400 text-sm leading-relaxed mb-4">
+                Entrenas pero no tienes estructura. Un día haces pecho, otro improvias pierna. Comes
+                lo que hay. No sabes qué suplementos tomar ni cuándo. No llevas registro de nada.
+              </Text>
+              <View className="gap-2">
+                {[
+                  'Rutina armada por días con rotación automática',
+                  'Plan de comidas con horarios y macros calculados',
+                  'Stack de suplementos con alertas de horario',
+                  'Lista de compras generada de tu plan',
+                  'Fotos de progreso para ver tu transformación',
+                ].map((item, i) => (
+                  <View key={i} className="flex-row items-center gap-2">
+                    <Check size={14} color={PREMIUM_COLORS.fireRed} />
+                    <Text className="text-zinc-300 text-sm">{item}</Text>
+                  </View>
+                ))}
+              </View>
+            </Animated.View>
+
+            {/* Card 2: Atleta competitivo */}
+            <Animated.View
+              entering={FadeInUp.delay(900).duration(600)}
+              className="bg-zinc-900/40 border border-red-600/20 rounded-2xl p-6"
+              style={{ width: SCREEN_WIDTH < 640 ? '100%' : 460, maxWidth: 460 }}
+            >
+              <View className="flex-row items-center gap-3 mb-4">
+                <LinearGradient
+                  colors={[PREMIUM_COLORS.fireRed, '#B91C1C']}
+                  className="w-12 h-12 rounded-2xl items-center justify-center"
+                >
+                  <Flame size={24} color="white" />
+                </LinearGradient>
+                <Text className="text-white font-bold text-lg">Atleta competitivo</Text>
+              </View>
+              <Text className="text-zinc-400 text-sm leading-relaxed mb-4">
+                Necesitas control absoluto sobre cada variable: peso, reps, RIR, tempo, descanso.
+                Dos sesiones al día, cardio específico, suplementación precisa al minuto.
+              </Text>
+              <View className="gap-2">
+                {[
+                  '2 entrenamientos al día con series detalladas',
+                  'RIR, tempo (excéntrica-concéntrica), descanso configurable',
+                  'Múltiples cardios con intensidad y duración',
+                  'Récords automáticos con 1RM estimado',
+                  'Cámara PRO para análisis de técnica',
+                  'Videos de cada PR registrados automáticamente',
+                ].map((item, i) => (
+                  <View key={i} className="flex-row items-center gap-2">
+                    <Check size={14} color={PREMIUM_COLORS.fireRed} />
+                    <Text className="text-zinc-300 text-sm">{item}</Text>
+                  </View>
+                ))}
+              </View>
+            </Animated.View>
           </View>
         </View>
 
         {/* ================================================================== */}
-        {/* 5 MÓDULOS SECTION */}
+        {/* DEEP DIVE: NIVEL DE DETALLE */}
         {/* ================================================================== */}
         <View
-          className="mt-16 items-center"
-          style={{ maxWidth: 1100, alignSelf: 'center', width: '100%' }}
+          className="mt-20 items-center"
+          style={{ maxWidth: 1000, alignSelf: 'center', width: '100%' }}
         >
           <Animated.View
-            entering={FadeInUp.delay(1100).duration(600)}
-            className="items-center mb-8"
+            entering={FadeInUp.delay(1000).duration(600)}
+            className="items-center mb-10"
           >
             <Text
-              className="text-white font-bold text-center px-2"
-              style={{ fontSize: SCREEN_WIDTH < 640 ? 20 : 28 }}
+              className="text-red-500 font-mono tracking-[0.3em] uppercase mb-4"
+              style={{ fontSize: SCREEN_WIDTH < 640 ? 11 : 14 }}
             >
-              5 módulos <Text style={{ color: PREMIUM_COLORS.fireRed }}>interconectados</Text>
+              Nivel de detalle
+            </Text>
+            <Text
+              className="text-white font-bold text-center px-2"
+              style={{ fontSize: SCREEN_WIDTH < 640 ? 22 : SCREEN_WIDTH < 768 ? 28 : 36 }}
+            >
+              Cada serie, cada comida, cada suplemento —{' '}
+              <Text style={{ color: PREMIUM_COLORS.fireRed }}>configurable</Text>
             </Text>
           </Animated.View>
 
           <View className="flex-row flex-wrap justify-center gap-3 px-4">
             {[
               {
-                icon: Play,
-                name: 'FEED',
-                desc: 'Tu red social de fitness. Videos de la comunidad, likes, comentarios, saves y shares con deep links. Importa Reels de Instagram.',
+                icon: Dumbbell,
+                title: 'POR SERIE',
+                items: [
+                  'Peso en kg/lb',
+                  'Repeticiones',
+                  'RIR (Reps In Reserve)',
+                  'Tempo (ecc-bot-con-top)',
+                  'Tiempo de descanso',
+                  'Tipo: calentamiento / efectiva / fallo',
+                ],
                 color: '#DC2626',
               },
               {
-                icon: Dna,
-                name: 'ADN',
-                desc: 'Tu perfil atlético completo. TrensID Card, medidas corporales, récords con video, fotos de progreso con comparativas, macros y badges.',
+                icon: Utensils,
+                title: 'POR COMIDA',
+                items: [
+                  'Horario específico',
+                  'Ingredientes con gramos',
+                  'Macros automáticos (kcal/P/C/G)',
+                  'Múltiples opciones por slot',
+                  'Sugerencias de sustitución',
+                  'Detección de alérgenos',
+                ],
                 color: '#F97316',
               },
               {
-                icon: Camera,
-                name: 'PRO',
-                desc: 'Cámara profesional 9:16 con flash, frontal/trasera, Spotify sync, editor de video, publicación al feed e Instagram.',
+                icon: Pill,
+                title: 'POR SUPLEMENTO',
+                items: [
+                  'Tipo: pastilla / polvo / líquido',
+                  'Dosis específica',
+                  'Múltiples horarios al día',
+                  'Notas de uso',
+                  'Timeline integrado',
+                  'Alertas programables',
+                ],
                 color: '#FBBF24',
               },
-              {
-                icon: Dumbbell,
-                name: 'GYM',
-                desc: 'Constructor de rutinas con +500 ejercicios, 4 tipos de series, RIR, tempo, drag & drop, alternativas IA y fotos/videos por ejercicio.',
-                color: '#22C55E',
-              },
-              {
-                icon: Utensils,
-                name: 'PLAN',
-                desc: 'Planificador de comidas por horario, macros automáticos IA, suplementación con dosis/horarios, cardio blocks y lista de compras.',
-                color: '#0EA5E9',
-              },
-            ].map((mod, i) => (
+            ].map((block, i) => (
               <Animated.View
-                key={mod.name}
-                entering={FadeInUp.delay(1200 + i * 100).duration(500)}
-                className="bg-zinc-900/40 border border-zinc-800/40 rounded-2xl p-4"
-                style={{ width: SCREEN_WIDTH < 640 ? '100%' : 200 }}
+                key={i}
+                entering={FadeInUp.delay(1100 + i * 100).duration(500)}
+                className="bg-zinc-900/40 border border-zinc-800/40 rounded-2xl p-5"
+                style={{ width: SCREEN_WIDTH < 640 ? '100%' : 300 }}
               >
-                <View className="flex-row items-center gap-3 mb-2">
+                <View className="flex-row items-center gap-3 mb-4">
                   <View
                     className="w-10 h-10 rounded-xl items-center justify-center"
-                    style={{ backgroundColor: `${mod.color}20` }}
+                    style={{ backgroundColor: `${block.color}20` }}
                   >
-                    <mod.icon size={20} color={mod.color} />
+                    <block.icon size={20} color={block.color} />
                   </View>
-                  <Text className="text-white font-bold">{mod.name}</Text>
+                  <Text className="text-white font-bold font-mono text-sm">{block.title}</Text>
                 </View>
-                <Text className="text-zinc-400 text-xs leading-relaxed">{mod.desc}</Text>
+                <View className="gap-2">
+                  {block.items.map((item, j) => (
+                    <View key={j} className="flex-row items-center gap-2">
+                      <View
+                        className="w-1.5 h-1.5 rounded-full"
+                        style={{ backgroundColor: block.color }}
+                      />
+                      <Text className="text-zinc-400 text-xs">{item}</Text>
+                    </View>
+                  ))}
+                </View>
               </Animated.View>
             ))}
           </View>
-        </View>
 
-        {/* ================================================================== */}
-        {/* HANK AI SECTION */}
-        {/* ================================================================== */}
-        <View
-          className="mt-16 items-center"
-          style={{ maxWidth: 800, alignSelf: 'center', width: '100%' }}
-        >
-          <Animated.View entering={FadeInUp.delay(1400).duration(600)} className="items-center">
-            <LinearGradient
-              colors={[PREMIUM_COLORS.fireRed, PREMIUM_COLORS.fireOrange]}
-              className="w-16 h-16 rounded-2xl items-center justify-center mb-4"
-              style={{
-                shadowColor: PREMIUM_COLORS.fireRed,
-                shadowOffset: { width: 0, height: 6 },
-                shadowOpacity: 0.4,
-                shadowRadius: 12,
-              }}
-            >
-              <Brain size={32} color="white" />
-            </LinearGradient>
-            <Text
-              className="text-white font-bold text-center mb-3"
-              style={{ fontSize: SCREEN_WIDTH < 640 ? 22 : 32 }}
-            >
-              Conoce a <Text style={{ color: PREMIUM_COLORS.fireRed }}>HANK</Text>
-            </Text>
-            <Text className="text-zinc-400 text-center max-w-lg px-4 mb-3 leading-relaxed">
-              Tu entrenador de IA con más de 90 herramientas especializadas. Powered by Google
-              Gemini. HANK entiende el contexto completo de tu entrenamiento: sabe qué día toca, qué
-              ejercicio estás haciendo, y cuáles son tus macros objetivo.
-            </Text>
-            <Text className="text-zinc-500 text-center max-w-lg px-4 mb-6 text-sm leading-relaxed">
-              Crea rutinas completas desde cero, diseña planes nutricionales personalizados, analiza
-              tu técnica con fotos/videos, detecta alergias en ingredientes, sugiere sustituciones,
-              calcula tu 1RM, gestiona suplementos, genera listas de compras — todo con lenguaje
-              natural en español, por texto o voz.
-            </Text>
-            <View className="flex-row flex-wrap justify-center gap-2">
-              {[
-                '"Crea una rutina Push Pull Legs"',
-                '"Analiza mi foto de progreso"',
-                '"Agrega pollo 200g al almuerzo"',
-                '"Cambia mi serie a 5x5 con 80kg"',
-                '"Calcula mis macros para definición"',
-                '"Sugiere un pre-workout con creatina"',
-                '"Reemplaza sentadilla por prensa"',
-                '"¿Cuánta proteína necesito al día?"',
-                '"Arma un plan de comidas high protein"',
-                '"Analiza la técnica de mi video"',
-              ].map((cmd, i) => (
-                <View
-                  key={i}
-                  className="bg-zinc-800/50 border border-zinc-700/30 rounded-full px-3 py-1.5"
-                >
-                  <Text className="text-zinc-300 text-xs font-mono">{cmd}</Text>
-                </View>
-              ))}
+          {/* IA mention — single, subtle */}
+          <Animated.View
+            entering={FadeInUp.delay(1400).duration(600)}
+            className="mt-8 items-center"
+          >
+            <View className="bg-zinc-900/30 border border-zinc-800/30 rounded-2xl px-6 py-4 flex-row items-center gap-4 max-w-lg">
+              <Brain size={24} color={PREMIUM_COLORS.fireRed} />
+              <View className="flex-1">
+                <Text className="text-white font-bold text-sm">Asistente IA integrado</Text>
+                <Text className="text-zinc-500 text-xs mt-1">
+                  HANK puede crear rutinas, calcular macros, sugerir ejercicios y ajustar tu plan —
+                  por texto o voz.
+                </Text>
+              </View>
             </View>
           </Animated.View>
         </View>
@@ -1461,14 +1677,14 @@ export default function LandingPage() {
               },
               {
                 step: '02',
-                title: 'Configura tu perfil',
-                desc: 'Ingresa tus medidas, objetivos y preferencias. HANK personaliza tu experiencia automáticamente.',
+                title: 'Arma tu plan',
+                desc: 'Configura tu rutina por días, tu plan de comidas por horario, tu stack de suplementos y tus cardios. Todo queda guardado y listo.',
                 icon: Dna,
               },
               {
                 step: '03',
                 title: 'Entrena y registra',
-                desc: 'Pídele a HANK tu rutina, graba tus sets, trackea tu nutrición y ve tu progreso crecer día a día.',
+                desc: 'Graba tus sets, trackea tu nutrición, recibe alertas de suplementos, ve tu progreso crecer día a día y rompe récords.',
                 icon: Flame,
               },
             ].map((item, i) => (
@@ -1531,38 +1747,32 @@ export default function LandingPage() {
           <TestimonialCard
             name="Carlos Mendoza"
             role="Powerlifter · Lima"
-            text="HANK me armó una rutina de fuerza 5/3/1 en segundos. La cámara PRO me ayuda a revisar mi técnica en cada PR y la detección automática de récords me tiene motivado al máximo. Subí 15kg en mi sentadilla en 3 meses."
+            text="Tengo cada serie de mi rutina configurada al detalle: peso, reps, RIR, tempo. La detección automática de récords me tiene motivado al máximo. Subí 15kg en mi sentadilla en 3 meses gracias a trackear todo."
             delay={100}
           />
           <TestimonialCard
             name="María Fernández"
             role="Fitness Coach · Arequipa"
-            text="El plan nutricional con macros automáticos me ahorró S/ 200 mensuales en nutricionista. Analizo la comida con una foto y HANK me calcula todo. La lista de compras automática es oro puro para mi prep."
+            text="El plan nutricional con macros automáticos me ahorró S/ 200 mensuales en nutricionista. Configuro cada comida con gramos exactos y la lista de compras se genera sola. Oro puro para mi prep."
             delay={200}
           />
           <TestimonialCard
             name="Diego Ramírez"
             role="Personal Trainer · Trujillo"
-            text="Uso TRENS con 12 clientes. El módulo GYM con series configurables y el feed social los mantiene comprometidos. Los comandos de voz me permiten ajustar rutinas mientras entreno con ellos."
+            text="Uso TRENS con 12 clientes. 2 entrenamientos al día, cardios separados, suplementación con horarios. El nivel de detalle que tiene esta app no lo he visto en ninguna otra. Y el feed los mantiene motivados."
             delay={300}
           />
           <TestimonialCard
             name="Ana Torres"
             role="Bodybuilder · Cusco"
-            text="Las fotos de progreso con comparativas timeline son un game-changer. Puedo ver mi transformación semana a semana con datos de grasa corporal. HANK me detectó 4 PRs que ni sabía que había roto."
+            text="Las fotos de progreso con comparativas timeline son un game-changer. Puedo ver mi transformación semana a semana con datos de grasa corporal. 4 PRs detectados automáticamente que ni sabía que había roto."
             delay={400}
           />
           <TestimonialCard
-            name="Sebastián Luna"
-            role="Motociclista · Lima"
-            text="No es solo para gym. Tengo mi KTM en el Garaje con todo su mantenimiento, trackeo mis carreras con tiempos por vuelta, y mi checklist de equipo. Todo en una app. Nadie más da esto."
+            name="Rodrigo Chávez"
+            role="Atleta Natural · Lima"
+            text="Mi stack de suplementos es extenso: creatina, proteína, omega-3, multivitamínico, ZMA... TRENS me organiza todo con horarios y dosis. Cada pastilla, cada polvo, todo en su timeline. Nunca me olvidé de nada."
             delay={500}
-          />
-          <TestimonialCard
-            name="Luciana Vargas"
-            role="CrossFit · Miraflores"
-            text="La integración con Spotify es increíble. Cada video de mis sets tiene la canción que sonaba. Mis stories de Instagram nunca lucieron tan profesionales. Y HANK ajusta mis macros cuando cambio de fase."
-            delay={600}
           />
         </ScrollView>
       </View>
@@ -1603,12 +1813,16 @@ export default function LandingPage() {
               a: 'iPhone (iOS 15+), Android (10+) y cualquier navegador moderno como PWA. Tu cuenta se sincroniza en todos tus dispositivos automáticamente.',
             },
             {
-              q: '¿Necesito Spotify Premium para la sincronización musical?',
-              a: 'Sí, para que HANK detecte la canción que suena durante tus sets necesitas Spotify Premium. Sin embargo, todas las demás funciones de TRENS funcionan sin Spotify.',
+              q: '¿Puedo poner 2 entrenamientos en un solo día?',
+              a: 'Sí. Puedes configurar sesiones de mañana y tarde con ejercicios independientes. Además puedes agregar múltiples bloques de cardio separados al mismo día.',
             },
             {
               q: '¿TRENS sirve para principiantes?',
-              a: 'Absolutamente. HANK se adapta a tu nivel de experiencia. Puedes pedirle rutinas para principiantes, explicaciones de técnica, y planes nutricionales básicos. Crece contigo.',
+              a: 'Absolutamente. Puedes empezar con rutinas simples e ir agregando complejidad. El sistema de días rotacionales y la configuración por serie te ayudan a llevar orden desde el primer día.',
+            },
+            {
+              q: '¿Qué tan detallado puedo configurar cada serie?',
+              a: 'Cada serie tiene: peso, repeticiones, tipo (calentamiento, aproximación, efectiva, fallo), RIR, tempo (eccéntrica-fondo-concéntrica-top) y tiempo de descanso. Control total.',
             },
             {
               q: '¿Qué métodos de pago aceptan?',
@@ -1616,15 +1830,11 @@ export default function LandingPage() {
             },
             {
               q: '¿Puedo usar TRENS solo para nutrición, sin hacer gym?',
-              a: 'Sí. El módulo PLAN funciona independientemente. Puedes usar HANK para planificar comidas, calcular macros, gestionar suplementos y generar listas de compras sin necesidad de usar el módulo GYM.',
+              a: 'Sí. El módulo PLAN funciona independientemente. Puedes planificar comidas, calcular macros, gestionar suplementos y generar listas de compras sin necesidad de usar el módulo GYM.',
             },
             {
-              q: '¿Qué deportes están incluidos en la suscripción?',
-              a: 'Los 4: GYM (fitness), Motociclismo, Automovilismo y Surf. Cada deporte tiene módulos dedicados exclusivos. Todo incluido en un solo precio.',
-            },
-            {
-              q: '¿HANK (IA) funciona en español?',
-              a: 'Sí. HANK entiende español e inglés perfectamente. Puedes escribirle o hablarle en cualquiera de los dos idiomas y responde en el idioma que prefieras.',
+              q: '¿La lista de compras se genera automáticamente?',
+              a: 'Sí. A partir de todas las comidas e ingredientes de tu plan semanal, TRENS genera una lista de compras agrupada por categoría. Solo la abres en el supermercado y listo.',
             },
           ].map((item, i) => (
             <Animated.View
@@ -1661,7 +1871,7 @@ export default function LandingPage() {
           </Text>
           <Text className="text-zinc-400 text-center mt-4 max-w-lg">
             Sin niveles confusos. Sin features bloqueadas. Pagas una vez y tienes acceso completo a
-            toda la plataforma, todos los deportes, y todas las actualizaciones futuras.
+            todas las herramientas, todos los módulos, y todas las actualizaciones futuras.
           </Text>
         </Animated.View>
 
@@ -2073,14 +2283,12 @@ export default function LandingPage() {
             Tu mejor versión empieza hoy
           </Text>
           <Text className="text-zinc-400 text-lg text-center mb-4 max-w-xl">
-            Deja de improvisar tu entrenamiento. Con TRENS tienes un IA coach, plan nutricional
-            automático, cámara PRO, récords inteligentes y todo lo que necesitas para resultados
-            reales.
+            Deja de improvisar. Con TRENS ordenas tu rutina, tu nutrición, tus suplementos, tus
+            cardios y tu progreso en una sola plataforma. Cada detalle bajo control.
           </Text>
           <Text className="text-zinc-500 text-base text-center mb-8 max-w-md">
-            Más de 5,000 atletas ya entrenan con TRENS. Solo{' '}
-            <Text className="text-red-500 font-bold">{getFormattedPrice()}/mes</Text>. Cancela
-            cuando quieras.
+            Solo <Text className="text-red-500 font-bold">{getFormattedPrice()}/mes</Text>. Cancela
+            cuando quieras. Sin compromiso.
           </Text>
 
           <TouchableOpacity onPress={scrollToPricing} activeOpacity={0.9}>
