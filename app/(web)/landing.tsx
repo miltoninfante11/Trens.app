@@ -963,7 +963,7 @@ export default function LandingPage() {
           <Text className="text-zinc-400 text-lg md:text-xl text-center mt-6 max-w-2xl leading-relaxed">
             Rutinas con cada serie configurable, plan nutricional por horario, stack de suplementos
             ilimitado, múltiples cardios, 2 entrenamientos al día, cámara PRO con Spotify integrado
-            y feed motivacional. Todo conectado en una sola plataforma.
+            y feed extremo. Todo conectado en una sola plataforma.
           </Text>
         </Animated.View>
 

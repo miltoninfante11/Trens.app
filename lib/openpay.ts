@@ -410,7 +410,7 @@ export function getPlanDetails(): PlanDetails {
       'Plan nutricional por horario con macros automáticos',
       'Stack de suplementos ilimitado con horarios y dosis',
       'Cámara PRO 9:16 con Spotify integrado',
-      'Feed motivacional con likes y comentarios',
+      'Feed extremo: videos de pura intensidad y testosterona',
       'Fotos de progreso con comparativas timeline',
       'Lista de compras generada desde tu plan',
       'Sincronización musical con Spotify',
