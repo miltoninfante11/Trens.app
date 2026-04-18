@@ -545,7 +545,7 @@ const TestimonialCard = ({
 // ============================================================================
 // PHONE VIDEO DEMO - Screen recording player
 // ============================================================================
-const LANDING_VIDEO_URL = 'https://media.trens.app/app-assets/landing/demo-video.mp4';
+const LANDING_VIDEO_URL = `https://media.trens.app/app-assets/landing/demo-video.mp4?v=${Date.now()}`;
 
 const PhoneVideoDemo = () => {
   const phoneW = SCREEN_WIDTH < 640 ? 270 : 310;

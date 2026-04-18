@@ -315,6 +315,7 @@ export default function AdminAssetsScreen() {
           if (uploadResult?.url) {
             const url = uploadResult.url;
             setAssets((prev) => ({ ...prev, [slot.id]: url }));
+            setRefreshKey((k) => k + 1);
             Alert.alert('✅ Video subido', `${slot.label} actualizado correctamente`);
           } else {
             Alert.alert('Error', uploadResult?.error || 'No se pudo subir el video');
@@ -330,6 +331,7 @@ export default function AdminAssetsScreen() {
           if (uploadResult?.url) {
             const url = uploadResult.url;
             setAssets((prev) => ({ ...prev, [slot.id]: url }));
+            setRefreshKey((k) => k + 1);
             Alert.alert('✅ Video subido', `${slot.label} actualizado correctamente`);
           } else {
             Alert.alert('Error', uploadResult?.error || 'No se pudo subir el video');
