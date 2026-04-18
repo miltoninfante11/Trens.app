@@ -602,21 +602,8 @@ const PhoneVideoDemo = () => {
             shadowRadius: 40,
           }}
         >
-          {/* Notch */}
-          <View
-            style={{
-              width: 120,
-              height: 28,
-              backgroundColor: '#000',
-              borderBottomLeftRadius: 20,
-              borderBottomRightRadius: 20,
-              alignSelf: 'center',
-              zIndex: 10,
-            }}
-          />
-
           {/* Video content */}
-          <View className="flex-1" style={{ marginTop: -14 }}>
+          <View className="flex-1">
             {Platform.OS === 'web' ? (
               <video
                 src={LANDING_VIDEO_URL}
