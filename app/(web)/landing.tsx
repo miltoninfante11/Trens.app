@@ -21,7 +21,6 @@ import { LinearGradient } from 'expo-linear-gradient';
 import {
   Dumbbell,
   Camera,
-  Trophy,
   Music,
   Utensils,
   Pill,
@@ -713,7 +712,9 @@ export default function LandingPage() {
   const scrollToPricing = () => {
     if (Platform.OS === 'web') {
       const element = document.getElementById('pricing-section');
-      element?.scrollIntoView({ behavior: 'smooth' });
+      if (element) {
+        element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
     }
   };
 
@@ -961,8 +962,8 @@ export default function LandingPage() {
           </Text>
           <Text className="text-zinc-400 text-lg md:text-xl text-center mt-6 max-w-2xl leading-relaxed">
             Rutinas con cada serie configurable, plan nutricional por horario, stack de suplementos
-            ilimitado, múltiples cardios, 2 entrenamientos al día, récords automáticos, cámara PRO y
-            feed motivacional. Todo conectado en una sola plataforma.
+            ilimitado, múltiples cardios, 2 entrenamientos al día, cámara PRO con Spotify integrado
+            y feed motivacional. Todo conectado en una sola plataforma.
           </Text>
         </Animated.View>
 
@@ -1214,17 +1215,11 @@ export default function LandingPage() {
           <PremiumFeatureCard
             icon={Camera}
             title="Cámara PRO 9:16"
-            description="Graba cada set en formato vertical profesional. Flash, cámara frontal/trasera, compresión inteligente. Cada video queda vinculado al ejercicio, peso y repeticiones exactas. Tu técnica documentada en tu bóveda personal para revisarla cuando quieras."
+            description="Graba cada set en formato vertical profesional 9:16. Flash, cámara frontal/trasera, compresión inteligente. Graba sin detener tu música — si tienes Spotify conectado, controla la reproducción directamente desde PRO sin salir de la grabación."
             delay={300}
             index={4}
           />
-          <PremiumFeatureCard
-            icon={Trophy}
-            title="Récords Automáticos"
-            description="TRENS detecta automáticamente cuando superas tu mejor marca: PR dominante, peso máximo, 1RM estimado y máx reps. Cada récord registrado con video, fecha y datos exactos. Historial completo de progresión por ejercicio."
-            delay={350}
-            index={5}
-          />
+
           <PremiumFeatureCard
             icon={Dna}
             title="ADN Atlético"
@@ -1358,9 +1353,9 @@ export default function LandingPage() {
                   '2 entrenamientos al día con series detalladas',
                   'RIR, tempo (excéntrica-concéntrica), descanso configurable',
                   'Múltiples cardios con intensidad y duración',
-                  'Récords automáticos con 1RM estimado',
-                  'Cámara PRO para análisis de técnica',
-                  'Videos de cada PR registrados automáticamente',
+                  'Cámara PRO 9:16 con Spotify integrado',
+                  'Graba sin detener tu música',
+                  'Control de reproducción desde la grabación',
                 ].map((item, i) => (
                   <View key={i} className="flex-row items-center gap-2">
                     <Check size={14} color={PREMIUM_COLORS.fireRed} />
@@ -1739,7 +1734,7 @@ export default function LandingPage() {
       {/* ================================================================== */}
       {/* PRICING SECTION - PREMIUM */}
       {/* ================================================================== */}
-      <View id="pricing-section" className="px-6 py-24 bg-black relative overflow-hidden">
+      <View nativeID="pricing-section" className="px-4 md:px-6 py-24 bg-black relative overflow-hidden">
         {/* Background Effects */}
         <GlowOrb color={PREMIUM_COLORS.fireRed} size={500} top="50%" left="50%" delay={0} />
 
@@ -1764,12 +1759,13 @@ export default function LandingPage() {
 
         <View
           className="flex-row flex-wrap justify-center gap-8"
-          style={{ maxWidth: 1100, alignSelf: 'center' }}
+          style={{ maxWidth: 1100, alignSelf: 'center', width: '100%', paddingHorizontal: 4 }}
         >
           {/* Plan Card - Premium Design */}
           <Animated.View
             entering={SlideInLeft.delay(200).duration(800).springify()}
-            className="flex-1 min-w-[340px] max-w-[420px]"
+            className="flex-1 max-w-[420px]"
+            style={{ minWidth: SCREEN_WIDTH < 640 ? '100%' : 340 }}
           >
             <View className="relative">
               {/* Glow effect behind card */}
@@ -1872,7 +1868,8 @@ export default function LandingPage() {
           {/* Form Card - Premium Design */}
           <Animated.View
             entering={SlideInRight.delay(400).duration(800).springify()}
-            className="flex-1 min-w-[340px] max-w-[480px]"
+            className="flex-1 max-w-[480px]"
+            style={{ minWidth: SCREEN_WIDTH < 640 ? '100%' : 340 }}
           >
             <View className="bg-zinc-900/40 backdrop-blur-2xl border border-zinc-800/50 rounded-[32px] p-8 relative overflow-hidden">
               {/* Subtle inner gradient */}
