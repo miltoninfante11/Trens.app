@@ -1734,7 +1734,10 @@ export default function LandingPage() {
       {/* ================================================================== */}
       {/* PRICING SECTION - PREMIUM */}
       {/* ================================================================== */}
-      <View nativeID="pricing-section" className="px-4 md:px-6 py-24 bg-black relative overflow-hidden">
+      <View
+        nativeID="pricing-section"
+        className="px-4 md:px-6 py-24 bg-black relative overflow-hidden"
+      >
         {/* Background Effects */}
         <GlowOrb color={PREMIUM_COLORS.fireRed} size={500} top="50%" left="50%" delay={0} />
 
@@ -1758,14 +1761,23 @@ export default function LandingPage() {
         </Animated.View>
 
         <View
-          className="flex-row flex-wrap justify-center gap-8"
-          style={{ maxWidth: 1100, alignSelf: 'center', width: '100%', paddingHorizontal: 4 }}
+          className="flex-row flex-wrap justify-center"
+          style={{
+            maxWidth: 1100,
+            alignSelf: 'center',
+            width: '100%',
+            paddingHorizontal: SCREEN_WIDTH < 640 ? 8 : 16,
+            gap: SCREEN_WIDTH < 640 ? 16 : 32,
+          }}
         >
           {/* Plan Card - Premium Design */}
           <Animated.View
             entering={SlideInLeft.delay(200).duration(800).springify()}
-            className="flex-1 max-w-[420px]"
-            style={{ minWidth: SCREEN_WIDTH < 640 ? '100%' : 340 }}
+            style={{
+              width: SCREEN_WIDTH < 768 ? '100%' : undefined,
+              flex: SCREEN_WIDTH < 768 ? undefined : 1,
+              maxWidth: SCREEN_WIDTH < 768 ? '100%' : 420,
+            }}
           >
             <View className="relative">
               {/* Glow effect behind card */}
@@ -1785,7 +1797,8 @@ export default function LandingPage() {
 
               <LinearGradient
                 colors={['#1a0808', '#0d0d0d']}
-                className="rounded-[32px] p-8 border-2 border-red-600/50 relative overflow-hidden"
+                className="rounded-[32px] border-2 border-red-600/50 relative overflow-hidden"
+                style={{ padding: SCREEN_WIDTH < 640 ? 20 : 32 }}
               >
                 {/* Premium badge */}
                 <View className="absolute top-0 right-0">
@@ -1868,10 +1881,16 @@ export default function LandingPage() {
           {/* Form Card - Premium Design */}
           <Animated.View
             entering={SlideInRight.delay(400).duration(800).springify()}
-            className="flex-1 max-w-[480px]"
-            style={{ minWidth: SCREEN_WIDTH < 640 ? '100%' : 340 }}
+            style={{
+              width: SCREEN_WIDTH < 768 ? '100%' : undefined,
+              flex: SCREEN_WIDTH < 768 ? undefined : 1,
+              maxWidth: SCREEN_WIDTH < 768 ? '100%' : 480,
+            }}
           >
-            <View className="bg-zinc-900/40 backdrop-blur-2xl border border-zinc-800/50 rounded-[32px] p-8 relative overflow-hidden">
+            <View
+              className="bg-zinc-900/40 backdrop-blur-2xl border border-zinc-800/50 rounded-[32px] relative overflow-hidden"
+              style={{ padding: SCREEN_WIDTH < 640 ? 20 : 32 }}
+            >
               {/* Subtle inner gradient */}
               <LinearGradient
                 colors={['rgba(255, 255, 255, 0.02)', 'transparent']}
