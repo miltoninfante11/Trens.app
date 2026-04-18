@@ -299,19 +299,41 @@ export default function AdminAssetsScreen() {
 
         setUploading(slot.id);
         const file = result.assets[0];
+        const contentType = file.mimeType || 'video/mp4';
 
-        const uploadResult = await cloudflareR2.uploadFile(
-          file.uri,
-          slot.storageKey,
-          file.mimeType || 'video/mp4'
-        );
+        // En web, expo-document-picker expone el File nativo en .file
+        // Usar eso directamente para evitar problemas con URIs
+        if (Platform.OS === 'web' && (file as any).file) {
+          const nativeFile = (file as any).file as File;
+          const blob = new Blob([nativeFile], { type: contentType });
+          const uploadResult = await cloudflareR2.uploadFromBlob(
+            blob,
+            slot.storageKey,
+            contentType
+          );
 
-        if (uploadResult?.url) {
-          const url = uploadResult.url;
-          setAssets((prev) => ({ ...prev, [slot.id]: url }));
-          Alert.alert('✅ Video subido', `${slot.label} actualizado correctamente`);
+          if (uploadResult?.url) {
+            const url = uploadResult.url;
+            setAssets((prev) => ({ ...prev, [slot.id]: url }));
+            Alert.alert('✅ Video subido', `${slot.label} actualizado correctamente`);
+          } else {
+            Alert.alert('Error', uploadResult?.error || 'No se pudo subir el video');
+          }
         } else {
-          Alert.alert('Error', 'No se pudo subir el video');
+          // En móvil, usar uploadFile con el URI
+          const uploadResult = await cloudflareR2.uploadFile(
+            file.uri,
+            slot.storageKey,
+            contentType
+          );
+
+          if (uploadResult?.url) {
+            const url = uploadResult.url;
+            setAssets((prev) => ({ ...prev, [slot.id]: url }));
+            Alert.alert('✅ Video subido', `${slot.label} actualizado correctamente`);
+          } else {
+            Alert.alert('Error', uploadResult?.error || 'No se pudo subir el video');
+          }
         }
         return;
       }
