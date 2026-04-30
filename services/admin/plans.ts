@@ -129,3 +129,50 @@ export async function getUserCurrentPlan(userId: string): Promise<{
 
   return data.plan || null;
 }
+
+export type ClonePlanType = 'training' | 'nutrition';
+
+export interface ClonePlanResult {
+  success: boolean;
+  planType: ClonePlanType;
+  copied: {
+    trainingExercises?: number;
+    frequency?: number;
+    mealStacks?: number;
+    meals?: number;
+    mealOptions?: number;
+    supplements?: number;
+  };
+}
+
+/**
+ * Clonar plan (entrenamiento o nutrición) desde otro usuario
+ * Usa función PostgreSQL SECURITY DEFINER para bypasear RLS
+ */
+export async function clonePlanFromUser(
+  targetUserId: string,
+  sourceUserId: string,
+  planType: ClonePlanType
+): Promise<ClonePlanResult> {
+  const {
+    data: { user: currentUser },
+  } = await supabase.auth.getUser();
+
+  if (!currentUser) throw new Error('No autenticado');
+
+  const { data, error } = await supabase.rpc('admin_clone_user_plan', {
+    p_admin_user_id: currentUser.id,
+    p_source_user_id: sourceUserId,
+    p_target_user_id: targetUserId,
+    p_plan_type: planType,
+  });
+
+  if (error) throw new Error(error.message);
+  if (!data?.success) throw new Error(data?.error || 'Error desconocido');
+
+  return {
+    success: true,
+    planType,
+    copied: data.copied || {},
+  };
+}

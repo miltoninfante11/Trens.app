@@ -4,7 +4,7 @@
 // Tokeniza con OpenPay client-side y guarda vía edge function.
 // ============================================================================
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -27,6 +27,7 @@ import {
   getCardBrand,
 } from '../../lib/openpay';
 import { saveCard } from '../../services/cards';
+import { getDeviceSessionId } from '../../lib/openpayDeviceSession';
 
 // ============================================================================
 // TIPOS
@@ -48,6 +49,11 @@ export default function AddCardForm({ onCardAdded, onCancel }: AddCardFormProps)
   const [expiry, setExpiry] = useState('');
   const [cvv, setCvv] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+
+  // Pre-cargar device_session_id al montar (warm-up del script antifraude en web)
+  useEffect(() => {
+    getDeviceSessionId().catch(() => {});
+  }, []);
 
   // Refs para avanzar entre inputs
   const holderRef = useRef<TextInput>(null);
@@ -134,6 +140,9 @@ export default function AddCardForm({ onCardAdded, onCancel }: AddCardFormProps)
 
     setIsSaving(true);
     try {
+      // 0. Generar device_session_id (antifraude OpenPay)
+      const deviceSessionId = await getDeviceSessionId();
+
       // 1. Tokenizar con OpenPay (client-side, llave pública)
       const token = await createCardToken({
         card_number: cleanNumber,
@@ -144,7 +153,7 @@ export default function AddCardForm({ onCardAdded, onCancel }: AddCardFormProps)
       });
 
       // 2. Guardar tarjeta vía edge function (server-side, llave privada)
-      await saveCard(token.id);
+      await saveCard(token.id, deviceSessionId);
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       Alert.alert('Tarjeta agregada', 'Tu tarjeta ha sido guardada exitosamente.');

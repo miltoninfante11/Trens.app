@@ -6,6 +6,7 @@
 type Listener = () => void;
 
 const listeners: Record<string, Set<Listener>> = {
+  shop: new Set(),
   gym_structure: new Set(),
   meals: new Set(),
   stack: new Set(),
@@ -16,7 +17,7 @@ const listeners: Record<string, Set<Listener>> = {
 // inmediata cuando alguien se suscriba (ej: gym_structure al navegar al tab)
 const pending: Record<string, boolean> = {};
 
-export type HankToolType = 'gym_structure' | 'meals' | 'stack' | 'notes';
+export type HankToolType = 'shop' | 'gym_structure' | 'meals' | 'stack' | 'notes';
 
 export const hankToolsEvent = {
   /** Suscribirse a un evento de herramienta */

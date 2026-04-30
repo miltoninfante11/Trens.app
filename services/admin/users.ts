@@ -16,7 +16,7 @@ export interface AdminUser {
   avatar_url?: string;
   created_at: string;
   training_frequency?: number;
-  role: 'free' | 'pro' | 'admin' | 'ceo';
+  role: 'free' | 'pro' | 'team' | 'admin' | 'ceo';
   is_elite?: boolean;
   pro_expires_at?: string;
   subscription?: {
@@ -32,6 +32,7 @@ export interface AdminUser {
 export interface AdminStats {
   total: number;
   pro: number;
+  team: number;
   free: number;
   admin: number;
   withSubscription: number;
@@ -62,7 +63,7 @@ export interface CreateUserData {
   password: string;
   fullName?: string;
   phone?: string;
-  role?: 'free' | 'pro' | 'admin';
+  role?: 'free' | 'pro' | 'team' | 'admin';
   grantPro?: boolean;
   proExpiresAt?: string;
   sendWelcomeEmail?: boolean;
@@ -122,7 +123,7 @@ export async function getUser(userId: string): Promise<AdminUser & { openpay?: a
  */
 export async function updateUserRole(
   userId: string,
-  role: 'free' | 'pro' | 'admin',
+  role: 'free' | 'pro' | 'team' | 'admin',
   proExpiresAt?: string
 ): Promise<void> {
   const { data, error } = await supabase.functions.invoke('admin-users', {
@@ -136,7 +137,10 @@ export async function updateUserRole(
 /**
  * Otorgar PRO manualmente (sin pago)
  */
-export async function grantPro(userId: string, expiresAt?: string): Promise<{ expiresAt: string }> {
+export async function grantPro(
+  userId: string,
+  expiresAt?: string
+): Promise<{ expiresAt: string; role: 'pro' | 'team' }> {
   const { data, error } = await supabase.functions.invoke('admin-users', {
     body: { action: 'grant-pro', userId, proExpiresAt: expiresAt },
   });
@@ -144,7 +148,7 @@ export async function grantPro(userId: string, expiresAt?: string): Promise<{ ex
   if (error) throw new Error(error.message);
   if (!data.success) throw new Error(data.error);
 
-  return { expiresAt: data.expiresAt };
+  return { expiresAt: data.expiresAt, role: data.role };
 }
 
 /**

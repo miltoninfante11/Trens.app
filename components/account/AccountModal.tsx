@@ -122,7 +122,7 @@ export default function AccountModal({
   profile,
   onProfileSaved,
 }: AccountModalProps) {
-  const { user, isPro } = useUserRoleContext();
+  const { user, isPro, isTeam } = useUserRoleContext();
   const subscriptionCtx = useSubscriptionSafe();
 
   // Platform detection
@@ -191,6 +191,10 @@ export default function AccountModal({
   const [deletingCardId, setDeletingCardId] = useState<string | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [settingDefaultId, setSettingDefaultId] = useState<string | null>(null);
+
+  // Team → Pro subscription
+  const [subscribingCardId, setSubscribingCardId] = useState<string | null>(null);
+  const [teamShowAddForm, setTeamShowAddForm] = useState(false);
 
   // Password
 
@@ -279,12 +283,16 @@ export default function AccountModal({
 
   // Load data when entering sections
   useEffect(() => {
-    if (section === 'subscription') fetchSubscription();
+    if (section === 'subscription') {
+      fetchSubscription();
+      // Si es TEAM cargar tarjetas para permitir activar suscripción inline
+      if (isTeam) fetchCards();
+    }
     if (section === 'cards') {
       fetchCards();
       fetchSubscription(); // Need subscription info for card management rules
     }
-  }, [section, fetchSubscription, fetchCards]);
+  }, [section, fetchSubscription, fetchCards, isTeam]);
 
   // -------------------------------------------------------------------------
   // PROFILE ACTIONS
@@ -515,6 +523,68 @@ export default function AccountModal({
     setShowAddForm(false);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     fetchCards();
+  };
+
+  // -------------------------------------------------------------------------
+  // TEAM → ACTIVAR SUSCRIPCIÓN PRO con tarjeta guardada
+  // -------------------------------------------------------------------------
+  const handleSubscribeWithCard = async (card: CustomerCard) => {
+    if (!user || subscribingCardId) return;
+
+    Alert.alert(
+      'Activar suscripción',
+      `Se cobrará S/ 59.90 mensuales a la tarjeta •••• ${card.last4}. ¿Continuar?`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Activar',
+          onPress: async () => {
+            setSubscribingCardId(card.openpay_card_id);
+            try {
+              const { createSubscription } = await import('../../lib/openpay');
+              const result = await createSubscription({
+                cardId: card.openpay_card_id,
+                customer: {
+                  name: profile?.display_name || user.email || 'Atleta',
+                  email: user.email || '',
+                  phone_number: '999999999',
+                },
+                userId: user.id,
+                saveCard: false,
+              });
+
+              if (!result.success) {
+                throw new Error(result.error || 'Error al activar suscripción');
+              }
+
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+              Alert.alert(
+                '¡Suscripción activa!',
+                'Tu acceso PRO ahora se renueva automáticamente cada mes.'
+              );
+              await fetchSubscription();
+              // El trigger de DB pasa el rol a 'pro' — recargar el modal con onProfileSaved
+              onProfileSaved();
+            } catch (err: any) {
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+              Alert.alert('Error', err.message || 'No se pudo activar la suscripción.');
+            } finally {
+              setSubscribingCardId(null);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleTeamCardAdded = () => {
+    setTeamShowAddForm(false);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    fetchCards();
+    Alert.alert(
+      'Tarjeta agregada',
+      'Ahora pulsa "Suscribirme con esta tarjeta" para activar tu PRO mensual.'
+    );
   };
 
   // -------------------------------------------------------------------------
@@ -765,14 +835,27 @@ export default function AccountModal({
         <Text className="text-white text-xl font-bold">{profile?.display_name || 'Atleta'}</Text>
         <Text className="text-zinc-500 text-sm mt-1">{user?.email || ''}</Text>
         <View className="flex-row items-center gap-2 mt-2">
-          {isPro && (
+          {isTeam ? (
+            <View
+              className="flex-row items-center gap-1 px-3 py-1 rounded-full"
+              style={{ backgroundColor: '#A855F720', borderWidth: 1, borderColor: '#A855F740' }}
+            >
+              <Crown size={12} color="#A855F7" />
+              <Text
+                className="text-xs font-bold uppercase tracking-widest"
+                style={{ color: '#A855F7' }}
+              >
+                TEAM
+              </Text>
+            </View>
+          ) : isPro ? (
             <View className="flex-row items-center gap-1 px-3 py-1 bg-orange-500/20 rounded-full border border-orange-500/40">
               <Crown size={12} color="#F97316" />
               <Text className="text-orange-400 text-xs font-bold uppercase tracking-widest">
                 PRO
               </Text>
             </View>
-          )}
+          ) : null}
           {isElite && (
             <View
               className="flex-row items-center gap-1 px-3 py-1 rounded-full"
@@ -802,21 +885,23 @@ export default function AccountModal({
 
         {/* Suscripción */}
         <MenuItem
-          icon={<Crown size={20} color={isPro ? '#F97316' : '#71717A'} />}
+          icon={<Crown size={20} color={isTeam ? '#A855F7' : isPro ? '#F97316' : '#71717A'} />}
           label="Suscripción"
           sublabel={
-            isPro
-              ? hasIAPSubscription
-                ? isIOS
-                  ? 'PRO via App Store'
-                  : 'PRO via Google Play'
-                : hasOpenpaySubscription
-                  ? 'PRO via OpenPay'
-                  : 'TRENS PRO activa'
-              : 'Plan gratuito'
+            isTeam
+              ? 'Acceso TEAM (otorgado)'
+              : isPro
+                ? hasIAPSubscription
+                  ? isIOS
+                    ? 'PRO via App Store'
+                    : 'PRO via Google Play'
+                  : hasOpenpaySubscription
+                    ? 'PRO via OpenPay'
+                    : 'TRENS PRO activa'
+                : 'Plan gratuito'
           }
           onPress={() => goTo('subscription')}
-          badge={isPro ? 'PRO' : undefined}
+          badge={isTeam ? 'TEAM' : isPro ? 'PRO' : undefined}
         />
 
         {/* Métodos de Pago */}
@@ -1246,6 +1331,127 @@ export default function AccountModal({
                     </Text>
                   </View>
                 )}
+              </View>
+            ) : isTeam ? (
+              /* ============ TEAM (manual grant) — OFRECE SUSCRIPCIÓN ============ */
+              <View>
+                <View
+                  className="rounded-2xl p-5 border mb-4"
+                  style={{
+                    backgroundColor: '#A855F715',
+                    borderColor: '#A855F740',
+                  }}
+                >
+                  <View className="flex-row items-center justify-between mb-3">
+                    <View className="flex-row items-center gap-2">
+                      <Crown size={22} color="#A855F7" />
+                      <Text className="text-white text-lg font-bold">TRENS TEAM</Text>
+                    </View>
+                    <View
+                      className="px-3 py-1 rounded-full"
+                      style={{
+                        backgroundColor: '#A855F730',
+                        borderWidth: 1,
+                        borderColor: '#A855F760',
+                      }}
+                    >
+                      <Text
+                        className="text-xs font-bold uppercase tracking-widest"
+                        style={{ color: '#A855F7' }}
+                      >
+                        ACTIVO
+                      </Text>
+                    </View>
+                  </View>
+                  <Text className="text-zinc-300 text-sm leading-5">
+                    Tienes acceso TEAM otorgado por el equipo TRENS. Activa tu suscripción mensual
+                    para asegurar tu acceso PRO con renovación automática.
+                  </Text>
+                </View>
+
+                {renderFeaturesCard()}
+
+                {/* Subscribe inline */}
+                <View className="mt-4 mb-2">
+                  <Text className="text-xs text-zinc-500 uppercase tracking-widest mb-3 font-bold">
+                    ACTIVAR SUSCRIPCIÓN PRO — S/ 59.90/mes
+                  </Text>
+
+                  {loadingCards ? (
+                    <View className="items-center py-6">
+                      <ActivityIndicator color="#A855F7" />
+                    </View>
+                  ) : cards.length > 0 && !teamShowAddForm ? (
+                    <View className="gap-2">
+                      {cards.map((card) => (
+                        <TouchableOpacity
+                          key={card.openpay_card_id}
+                          onPress={() => handleSubscribeWithCard(card)}
+                          disabled={subscribingCardId !== null}
+                          className="flex-row items-center justify-between bg-zinc-800/60 border border-zinc-700/50 rounded-xl p-4"
+                        >
+                          <View className="flex-row items-center gap-3 flex-1">
+                            <CreditCard size={20} color="#A1A1AA" />
+                            <View className="flex-1">
+                              <Text className="text-white font-bold text-sm">
+                                {card.brand?.toUpperCase() || 'TARJETA'} •••• {card.last4}
+                              </Text>
+                              <Text className="text-zinc-500 text-xs mt-0.5">
+                                Suscribirme con esta tarjeta
+                              </Text>
+                            </View>
+                          </View>
+                          {subscribingCardId === card.openpay_card_id ? (
+                            <ActivityIndicator color="#A855F7" />
+                          ) : (
+                            <View
+                              className="px-3 py-1.5 rounded-lg"
+                              style={{ backgroundColor: '#A855F7' }}
+                            >
+                              <Text className="text-white text-xs font-black uppercase tracking-widest">
+                                ACTIVAR
+                              </Text>
+                            </View>
+                          )}
+                        </TouchableOpacity>
+                      ))}
+
+                      <TouchableOpacity
+                        onPress={() => setTeamShowAddForm(true)}
+                        className="flex-row items-center justify-center gap-2 py-3 rounded-xl border border-dashed border-zinc-700"
+                      >
+                        <CreditCard size={16} color="#71717A" />
+                        <Text className="text-zinc-400 text-sm">Usar otra tarjeta</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ) : teamShowAddForm ? (
+                    <View>
+                      <AddCardForm
+                        onCardAdded={handleTeamCardAdded}
+                        onCancel={() => setTeamShowAddForm(false)}
+                      />
+                    </View>
+                  ) : (
+                    <TouchableOpacity
+                      onPress={() => setTeamShowAddForm(true)}
+                      className="overflow-hidden rounded-xl"
+                    >
+                      <LinearGradient
+                        colors={['#A855F7', '#7E22CE']}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 0 }}
+                        className="py-4 items-center"
+                      >
+                        <View className="flex-row items-center gap-2">
+                          <CreditCard size={18} color="#fff" />
+                          <Text className="text-white font-bold text-base uppercase tracking-widest">
+                            Agregar tarjeta y suscribirme
+                          </Text>
+                        </View>
+                      </LinearGradient>
+                    </TouchableOpacity>
+                  )}
+                </View>
               </View>
             ) : (
               /* PRO but no subscription found (admin/ceo grant) */

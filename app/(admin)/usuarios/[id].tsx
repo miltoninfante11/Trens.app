@@ -40,11 +40,12 @@ import {
   BadgeCheck,
 } from 'lucide-react-native';
 import adminUsers, { AdminUser, OpenpayPayment } from '../../../services/admin/users';
-import { getUserCards } from '../../../services/admin/users';
 import {
   listActiveTemplates,
   assignPlanToUser,
   getUserCurrentPlan,
+  clonePlanFromUser,
+  ClonePlanType,
   TrainingTemplate,
 } from '../../../services/admin/plans';
 import * as Haptics from '../../../lib/haptics';
@@ -225,6 +226,7 @@ function RoleChangeModal({
   const roles = [
     { id: 'free', label: 'Free', icon: User, color: COLORS.zinc400 },
     { id: 'pro', label: 'PRO', icon: Crown, color: COLORS.purple },
+    { id: 'team', label: 'TEAM', icon: Crown, color: '#D946EF' },
     { id: 'admin', label: 'Admin', icon: Shield, color: COLORS.orange },
   ];
 
@@ -674,6 +676,249 @@ function AssignPlanModal({
 }
 
 // ============================================================================
+// COPY PLAN FROM USER MODAL
+// ============================================================================
+function CopyPlanFromUserModal({
+  visible,
+  onClose,
+  onCopy,
+  loading,
+  targetUserId,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  onCopy: (sourceUserId: string, planType: ClonePlanType) => void;
+  loading: boolean;
+  targetUserId: string;
+}) {
+  const [planType, setPlanType] = useState<ClonePlanType>('training');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [users, setUsers] = useState<AdminUser[]>([]);
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  const [searching, setSearching] = useState(false);
+
+  const fetchUsers = useCallback(
+    async (query: string) => {
+      setSearching(true);
+      try {
+        const result = await adminUsers.listUsers({
+          search: query.trim().length >= 2 ? query.trim() : undefined,
+          limit: 30,
+        });
+        const filtered = result.users.filter((candidate) => candidate.id !== targetUserId);
+        setUsers(filtered);
+      } catch (err) {
+        console.error('Error searching users:', err);
+      } finally {
+        setSearching(false);
+      }
+    },
+    [targetUserId]
+  );
+
+  useEffect(() => {
+    if (!visible) return;
+    setSelectedUserId(null);
+    setSearchQuery('');
+    setPlanType('training');
+    fetchUsers('');
+  }, [visible, fetchUsers]);
+
+  useEffect(() => {
+    if (!visible) return;
+    const timer = setTimeout(() => {
+      fetchUsers(searchQuery);
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [searchQuery, visible, fetchUsers]);
+
+  const selectedUser = users.find((u) => u.id === selectedUserId) || null;
+
+  const getRoleColor = (role: AdminUser['role']) => {
+    switch (role) {
+      case 'ceo':
+        return COLORS.red;
+      case 'admin':
+        return COLORS.orange;
+      case 'pro':
+        return COLORS.purple;
+      case 'team':
+        return '#D946EF';
+      default:
+        return COLORS.zinc400;
+    }
+  };
+
+  return (
+    <Modal visible={visible} transparent animationType="fade">
+      <View className="flex-1 bg-black/90">
+        <View className="bg-zinc-900 border-b border-zinc-800 px-4 pt-14 pb-4">
+          <View className="flex-row items-center justify-between mb-4">
+            <View className="flex-row items-center gap-3">
+              <Target size={22} color={COLORS.red} />
+              <Text className="text-white text-xl font-bold">Copiar Plan de Usuario</Text>
+            </View>
+            <TouchableOpacity onPress={onClose} className="p-2">
+              <X size={24} color={COLORS.zinc400} />
+            </TouchableOpacity>
+          </View>
+
+          <Text className="text-zinc-500 text-xs font-mono mb-2">TIPO DE PLAN</Text>
+          <View className="flex-row gap-2 mb-4">
+            <TouchableOpacity
+              className={`flex-1 py-3 rounded-xl border items-center ${
+                planType === 'training'
+                  ? 'bg-red-600/20 border-red-500'
+                  : 'bg-zinc-800 border-zinc-700'
+              }`}
+              onPress={() => setPlanType('training')}
+            >
+              <Text
+                className={`font-bold ${planType === 'training' ? 'text-red-400' : 'text-white'}`}
+              >
+                Entrenamiento
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              className={`flex-1 py-3 rounded-xl border items-center ${
+                planType === 'nutrition'
+                  ? 'bg-red-600/20 border-red-500'
+                  : 'bg-zinc-800 border-zinc-700'
+              }`}
+              onPress={() => setPlanType('nutrition')}
+            >
+              <Text
+                className={`font-bold ${planType === 'nutrition' ? 'text-red-400' : 'text-white'}`}
+              >
+                Nutrición
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          <View className="flex-row items-center bg-zinc-800 rounded-xl px-4 py-3 border border-zinc-700">
+            <Search size={18} color={COLORS.zinc400} />
+            <TextInput
+              className="flex-1 text-white text-base ml-3"
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              placeholder="Buscar usuario por nombre o email..."
+              placeholderTextColor={COLORS.zinc500}
+              autoCapitalize="none"
+            />
+            {searchQuery.length > 0 && (
+              <TouchableOpacity onPress={() => setSearchQuery('')}>
+                <X size={16} color={COLORS.zinc400} />
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+
+        {searching ? (
+          <View className="flex-1 items-center justify-center">
+            <ActivityIndicator size="large" color={COLORS.red} />
+            <Text className="text-zinc-500 mt-3 font-mono text-sm">Buscando usuarios...</Text>
+          </View>
+        ) : users.length === 0 ? (
+          <View className="flex-1 items-center justify-center px-6">
+            <User size={48} color={COLORS.zinc700} />
+            <Text className="text-zinc-500 mt-3 text-center">
+              No se encontraron usuarios con esa búsqueda
+            </Text>
+          </View>
+        ) : (
+          <FlatList
+            data={users}
+            keyExtractor={(item) => item.id}
+            contentContainerStyle={{ padding: 16, paddingBottom: 120 }}
+            renderItem={({ item }) => {
+              const isSelected = selectedUserId === item.id;
+              const roleColor = getRoleColor(item.role);
+              return (
+                <TouchableOpacity
+                  className={`bg-zinc-900 rounded-xl mb-2 border p-4 ${
+                    isSelected ? 'border-red-500 bg-red-600/5' : 'border-zinc-800'
+                  }`}
+                  onPress={() => setSelectedUserId(isSelected ? null : item.id)}
+                  activeOpacity={0.75}
+                >
+                  <View className="flex-row items-center">
+                    <View className="w-11 h-11 bg-zinc-800 rounded-full overflow-hidden items-center justify-center">
+                      {item.avatar_url ? (
+                        <Image
+                          source={{ uri: item.avatar_url }}
+                          className="w-full h-full"
+                          resizeMode="cover"
+                        />
+                      ) : (
+                        <User size={20} color={COLORS.zinc400} />
+                      )}
+                    </View>
+                    <View className="flex-1 ml-3">
+                      <Text
+                        className={`font-bold ${isSelected ? 'text-red-400' : 'text-white'}`}
+                        numberOfLines={1}
+                      >
+                        {item.full_name || 'Sin nombre'}
+                      </Text>
+                      <Text className="text-zinc-500 text-xs font-mono" numberOfLines={1}>
+                        {item.email}
+                      </Text>
+                    </View>
+                    <View
+                      className="px-2 py-1 rounded"
+                      style={{ backgroundColor: `${roleColor}20` }}
+                    >
+                      <Text
+                        style={{ color: roleColor }}
+                        className="text-[10px] font-mono font-bold"
+                      >
+                        {item.role.toUpperCase()}
+                      </Text>
+                    </View>
+                  </View>
+                </TouchableOpacity>
+              );
+            }}
+          />
+        )}
+
+        {selectedUser && (
+          <View className="absolute bottom-0 left-0 right-0 p-4 pb-8 bg-black/95 border-t border-zinc-800">
+            <View className="bg-zinc-900 rounded-xl p-3 mb-3 border border-zinc-800">
+              <Text className="text-zinc-500 text-[10px] font-mono">USUARIO ORIGEN</Text>
+              <Text className="text-white font-bold mt-1" numberOfLines={1}>
+                {selectedUser.full_name || 'Sin nombre'}
+              </Text>
+              <Text className="text-zinc-500 text-xs font-mono" numberOfLines={1}>
+                {selectedUser.email}
+              </Text>
+            </View>
+
+            <TouchableOpacity
+              className="bg-red-600 py-4 rounded-xl flex-row items-center justify-center"
+              onPress={() => onCopy(selectedUser.id, planType)}
+              disabled={loading}
+              activeOpacity={0.8}
+            >
+              {loading ? (
+                <ActivityIndicator size="small" color="white" />
+              ) : (
+                <>
+                  <Target size={20} color="white" />
+                  <Text className="text-white font-bold text-base ml-2">
+                    Copiar plan de {planType === 'training' ? 'entrenamiento' : 'nutrición'}
+                  </Text>
+                </>
+              )}
+            </TouchableOpacity>
+          </View>
+        )}
+      </View>
+    </Modal>
+  );
+}
+
+// ============================================================================
 // GRANT PRO MODAL
 // ============================================================================
 function GrantProModal({
@@ -923,6 +1168,7 @@ export default function UsuarioDetailScreen() {
   const [roleModalVisible, setRoleModalVisible] = useState(false);
   const [grantProModalVisible, setGrantProModalVisible] = useState(false);
   const [assignPlanModalVisible, setAssignPlanModalVisible] = useState(false);
+  const [copyPlanModalVisible, setCopyPlanModalVisible] = useState(false);
   const [currentPlan, setCurrentPlan] = useState<{
     frequency: number;
     routineNames: Record<string, string>;
@@ -1051,6 +1297,54 @@ export default function UsuarioDetailScreen() {
     } finally {
       setActionLoading(false);
     }
+  };
+
+  const handleCopyPlanFromUser = async (sourceUserId: string, planType: ClonePlanType) => {
+    if (!id || !user) return;
+
+    Alert.alert(
+      'Copiar Plan',
+      `Se reemplazará el plan de ${planType === 'training' ? 'entrenamiento' : 'nutrición'} actual de este usuario. ¿Continuar?`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Copiar',
+          style: 'destructive',
+          onPress: async () => {
+            setActionLoading(true);
+            try {
+              const result = await clonePlanFromUser(id, sourceUserId, planType);
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+              setCopyPlanModalVisible(false);
+
+              if (planType === 'training') {
+                const plan = await getUserCurrentPlan(id);
+                setCurrentPlan(plan);
+                if (result.copied.frequency) {
+                  setUser({ ...user, training_frequency: result.copied.frequency });
+                }
+              }
+
+              if (planType === 'training') {
+                Alert.alert(
+                  'Plan Copiado',
+                  `Entrenamiento copiado exitosamente\n\nEjercicios: ${result.copied.trainingExercises || 0}\nFrecuencia: ${result.copied.frequency || 0} días/semana`
+                );
+              } else {
+                Alert.alert(
+                  'Plan Copiado',
+                  `Nutrición copiada exitosamente\n\nStacks: ${result.copied.mealStacks || 0}\nComidas: ${result.copied.meals || 0}\nOpciones: ${result.copied.mealOptions || 0}\nSuplementos: ${result.copied.supplements || 0}`
+                );
+              }
+            } catch (err: any) {
+              Alert.alert('Error', err.message);
+            } finally {
+              setActionLoading(false);
+            }
+          },
+        },
+      ]
+    );
   };
 
   const handleRevokePro = async () => {
@@ -1182,7 +1476,7 @@ export default function UsuarioDetailScreen() {
           onPress: async () => {
             setActionLoading(true);
             try {
-              const { token_hash, email } = await adminUsers.impersonateUser(id);
+              const { token_hash } = await adminUsers.impersonateUser(id);
 
               // Verificar OTP para iniciar sesión como el usuario
               const { error: otpError } = await supabase.auth.verifyOtp({
@@ -1252,6 +1546,8 @@ export default function UsuarioDetailScreen() {
         return COLORS.orange;
       case 'pro':
         return COLORS.purple;
+      case 'team':
+        return '#D946EF';
       default:
         return COLORS.zinc400;
     }
@@ -1341,9 +1637,9 @@ export default function UsuarioDetailScreen() {
           {user.pro_expires_at && (
             <InfoRow
               icon={Clock}
-              label="PRO hasta"
+              label={user.role === 'team' ? 'TEAM hasta' : 'PRO hasta'}
               value={formatDate(user.pro_expires_at)}
-              color={COLORS.purple}
+              color={user.role === 'team' ? '#D946EF' : COLORS.purple}
             />
           )}
         </View>
@@ -1429,6 +1725,13 @@ export default function UsuarioDetailScreen() {
           />
 
           <ActionButton
+            icon={Target}
+            label="Copiar Plan de Otro Usuario"
+            color={COLORS.red}
+            onPress={() => setCopyPlanModalVisible(true)}
+          />
+
+          <ActionButton
             icon={Shield}
             label="Cambiar Rol"
             color={COLORS.orange}
@@ -1443,11 +1746,20 @@ export default function UsuarioDetailScreen() {
             loading={actionLoading}
           />
 
-          {user.role !== 'pro' && (
+          {user.role !== 'pro' && user.role !== 'team' && (
             <ActionButton
               icon={Gift}
-              label="Otorgar PRO Manual"
+              label="Otorgar TEAM"
               color={COLORS.purple}
+              onPress={() => setGrantProModalVisible(true)}
+            />
+          )}
+
+          {user.role === 'team' && (
+            <ActionButton
+              icon={Calendar}
+              label="Editar Duración TEAM"
+              color="#D946EF"
               onPress={() => setGrantProModalVisible(true)}
             />
           )}
@@ -1464,10 +1776,10 @@ export default function UsuarioDetailScreen() {
               />
             )}
 
-          {user.role === 'pro' && !user.subscription?.status && (
+          {(user.role === 'pro' || user.role === 'team') && !user.subscription?.status && (
             <ActionButton
               icon={Ban}
-              label="Revocar PRO"
+              label={user.role === 'team' ? 'Revocar TEAM' : 'Revocar PRO'}
               color={COLORS.yellow}
               onPress={handleRevokePro}
               loading={actionLoading}
@@ -1598,7 +1910,9 @@ export default function UsuarioDetailScreen() {
         onClose={() => setGrantProModalVisible(false)}
         onGrant={handleGrantPro}
         loading={actionLoading}
-        currentExpiresAt={user.role === 'pro' ? user.pro_expires_at : undefined}
+        currentExpiresAt={
+          user.role === 'pro' || user.role === 'team' ? user.pro_expires_at : undefined
+        }
       />
 
       <AssignPlanModal
@@ -1608,6 +1922,16 @@ export default function UsuarioDetailScreen() {
         loading={actionLoading}
         currentPlan={currentPlan}
       />
+
+      {!!id && (
+        <CopyPlanFromUserModal
+          visible={copyPlanModalVisible}
+          onClose={() => setCopyPlanModalVisible(false)}
+          onCopy={handleCopyPlanFromUser}
+          loading={actionLoading}
+          targetUserId={id}
+        />
+      )}
     </View>
   );
 }

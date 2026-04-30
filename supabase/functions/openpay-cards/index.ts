@@ -737,14 +737,16 @@ serve(async (req) => {
 
     throw new Error(`Acción no válida: ${action}`);
   } catch (error: any) {
-    console.error('❌ openpay-cards error:', error);
+    console.error('❌ openpay-cards error:', error?.message || error);
+    // Devolvemos 200 con success:false para que el cliente pueda leer el mensaje real
+    // (supabase-js no expone el body cuando el status es no-2xx)
     return new Response(
       JSON.stringify({
         success: false,
-        error: error.message || 'Error al procesar operación de tarjeta',
+        error: error?.message || 'Error al procesar operación de tarjeta',
       }),
       {
-        status: 400,
+        status: 200,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       }
     );

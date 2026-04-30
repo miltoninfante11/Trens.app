@@ -48,6 +48,9 @@ const RESERVED_SUBDOMAINS = new Set([
   'admin',
   'mail',
   'cdn',
+  'shop',
+  'tienda',
+  'pages',
 ]);
 
 // =============================================================================

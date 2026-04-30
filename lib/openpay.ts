@@ -100,6 +100,7 @@ export async function createSubscription(
   const { data, error } = await supabase.functions.invoke('openpay-subscribe', {
     body: {
       tokenId: params.tokenId,
+      cardId: params.cardId,
       customer: {
         name: params.customer.name,
         email: params.customer.email,

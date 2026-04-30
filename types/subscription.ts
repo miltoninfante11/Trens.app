@@ -111,7 +111,8 @@ export interface CreateSubscriptionResult {
 
 /** Parámetros para crear suscripción */
 export interface CreateSubscriptionParams {
-  tokenId: string;
+  tokenId?: string;
+  cardId?: string; // Tarjeta ya guardada (saltea tokenización)
   customer: OpenpayCustomerData;
   userId: string;
   saveCard?: boolean; // Guardar tarjeta para futuros cobros

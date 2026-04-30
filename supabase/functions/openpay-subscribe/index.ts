@@ -58,7 +58,8 @@ async function openpayFetch(
 }
 
 interface CreateSubscriptionRequest {
-  tokenId: string;
+  tokenId?: string;
+  cardId?: string; // Tarjeta ya guardada (saltea tokenización)
   customer: {
     name: string;
     email: string;
@@ -78,13 +79,21 @@ serve(async (req) => {
   try {
     const {
       tokenId,
+      cardId,
       customer,
       userId,
       saveCard = true,
       deviceSessionId,
     }: CreateSubscriptionRequest = await req.json();
 
-    console.log('📥 Creating subscription for:', customer.email, { saveCard });
+    if (!tokenId && !cardId) {
+      throw new Error('Debes proporcionar tokenId o cardId');
+    }
+
+    console.log('📥 Creating subscription for:', customer.email, {
+      saveCard,
+      mode: cardId ? 'saved-card' : 'new-token',
+    });
 
     // Supabase client (needed early to check existing customer)
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
@@ -143,11 +152,37 @@ serve(async (req) => {
 
     // ================================================================
     // 2. GUARDAR TARJETA EN EL CUSTOMER (para futuros cobros)
+    // O usar tarjeta ya guardada si vino cardId
     // ================================================================
     let savedCardId: string | null = null;
     let savedCardData: any = null;
 
-    if (saveCard) {
+    if (cardId) {
+      // Modo: tarjeta ya guardada — leer datos desde DB y reutilizar cardId directamente
+      const { data: existingCardRow } = await supabase
+        .from('customer_cards')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('openpay_card_id', cardId)
+        .single();
+
+      if (!existingCardRow) {
+        throw new Error('Tarjeta no encontrada para este usuario');
+      }
+
+      savedCardId = cardId;
+      savedCardData = {
+        id: cardId,
+        card_number: existingCardRow.last4 ? `XXXXXX${existingCardRow.last4}` : '',
+        brand: existingCardRow.brand,
+        type: existingCardRow.type,
+        holder_name: existingCardRow.holder_name,
+        expiration_month: existingCardRow.expiration_month,
+        expiration_year: existingCardRow.expiration_year,
+        allows_charges: existingCardRow.allows_charges ?? true,
+      };
+      console.log('♻️ Using saved card:', savedCardId);
+    } else if (saveCard && tokenId) {
       const cardResult = await openpayFetch(`/customers/${customerId}/cards`, {
         method: 'POST',
         body: JSON.stringify({
@@ -173,11 +208,13 @@ serve(async (req) => {
       plan_id: OPENPAY_PLAN_ID,
     };
 
-    // Usar la tarjeta guardada si se pudo guardar, sino el token
+    // Prioridad: tarjeta guardada > token
     if (savedCardId) {
       subscriptionBody.source_id = savedCardId;
-    } else {
+    } else if (tokenId) {
       subscriptionBody.source_id = tokenId;
+    } else {
+      throw new Error('No hay fuente de pago disponible');
     }
 
     const subResult = await openpayFetch(`/customers/${customerId}/subscriptions`, {
@@ -198,7 +235,10 @@ serve(async (req) => {
 
     // 4a. Insertar/actualizar suscripción
     const cardLast4 =
-      savedCardData?.card_number?.slice(-4) || subscription.card?.card_number?.slice(-4) || '';
+      (cardId && savedCardData?.card_number?.replace(/^X+/, '')?.slice(-4)) ||
+      savedCardData?.card_number?.slice(-4) ||
+      subscription.card?.card_number?.slice(-4) ||
+      '';
     const cardBrand = savedCardData?.brand || subscription.card?.brand || '';
 
     const { error: dbError } = await supabase.from('subscriptions').upsert(

@@ -10,10 +10,19 @@ export default function Index() {
   const { loading, isPro, isAdmin, isAuthenticated } = useUserRoleContext();
   const [isStandalone, setIsStandalone] = useState<boolean | null>(null);
   const [checkingPWA, setCheckingPWA] = useState(true);
+  const [isShopSubdomain, setIsShopSubdomain] = useState(false);
 
   // Detectar si estamos en PWA (solo en web)
   useEffect(() => {
     if (Platform.OS === 'web') {
+      // Detectar subdominio shop.trens.app
+      try {
+        const host = typeof window !== 'undefined' ? window.location.hostname : '';
+        if (host.startsWith('shop.')) {
+          setIsShopSubdomain(true);
+        }
+      } catch {}
+
       // Pequeño delay para asegurar que window está listo
       const timer = setTimeout(() => {
         const pwaStatus = isPWA();
@@ -49,6 +58,11 @@ export default function Index() {
   // WEB: Lógica de redirección según PWA vs Browser
   // ============================================================================
   if (Platform.OS === 'web') {
+    // Subdominio shop.trens.app → siempre llevamos a la tienda standalone
+    if (isShopSubdomain) {
+      return <Redirect href={'/shop' as Href} />;
+    }
+
     // Si NO está en modo PWA (standalone)
     if (!isStandalone) {
       // Si está autenticado, permitir acceso (clientes en efectivo)

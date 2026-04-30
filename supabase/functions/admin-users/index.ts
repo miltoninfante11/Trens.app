@@ -38,7 +38,7 @@ interface CreateUserData {
   password: string;
   fullName?: string;
   phone?: string;
-  role?: 'free' | 'pro' | 'admin';
+  role?: 'free' | 'pro' | 'team' | 'admin';
   grantPro?: boolean;
   proExpiresAt?: string;
   sendWelcomeEmail?: boolean;
@@ -235,6 +235,7 @@ serve(async (req) => {
         const stats = {
           total: users.length,
           pro: users.filter((u) => u.role === 'pro').length,
+          team: users.filter((u) => u.role === 'team').length,
           free: users.filter((u) => u.role === 'free').length,
           admin: users.filter((u) => u.role === 'admin').length,
           withSubscription: users.filter((u) => u.subscription?.status === 'active').length,
@@ -394,7 +395,8 @@ serve(async (req) => {
         }
 
         // Asignar rol si se especifica
-        const userRole = createData.grantPro ? 'pro' : createData.role || 'free';
+        // grantPro = true → 'team' (PRO manual). Si pidieron rol explícito, lo respetamos.
+        const userRole = createData.grantPro ? 'team' : createData.role || 'free';
         if (userRole !== 'free') {
           const roleExpiresAt =
             createData.grantPro && createData.proExpiresAt
@@ -489,7 +491,8 @@ serve(async (req) => {
           {
             user_id: userId,
             role,
-            pro_expires_at: role === 'pro' && proExpiresAt ? proExpiresAt : null,
+            pro_expires_at:
+              (role === 'pro' || role === 'team') && proExpiresAt ? proExpiresAt : null,
             updated_at: new Date().toISOString(),
           },
           { onConflict: 'user_id' }
@@ -513,10 +516,21 @@ serve(async (req) => {
         const expiresAt =
           proExpiresAt || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
 
+        // Si el usuario ya tiene una suscripción activa/past_due → mantener role='pro'
+        // (no lo bajamos a 'team'). Si no tiene → asignar 'team' (PRO manual).
+        const { data: activeSub } = await supabase
+          .from('subscriptions')
+          .select('id')
+          .eq('user_id', userId)
+          .in('status', ['active', 'trialing', 'past_due'])
+          .maybeSingle();
+
+        const grantedRole = activeSub ? 'pro' : 'team';
+
         const { error } = await supabase.from('user_roles').upsert(
           {
             user_id: userId,
-            role: 'pro',
+            role: grantedRole,
             pro_expires_at: expiresAt,
             updated_at: new Date().toISOString(),
           },
@@ -525,9 +539,9 @@ serve(async (req) => {
 
         if (error) throw error;
 
-        console.log(`✅ PRO granted: ${userId} until ${expiresAt}`);
+        console.log(`✅ ${grantedRole.toUpperCase()} granted: ${userId} until ${expiresAt}`);
 
-        return new Response(JSON.stringify({ success: true, expiresAt }), {
+        return new Response(JSON.stringify({ success: true, expiresAt, role: grantedRole }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }

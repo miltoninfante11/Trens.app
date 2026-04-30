@@ -48,6 +48,7 @@ import {
   SkipForward,
   RotateCcw,
   Wrench,
+  ShoppingBag,
 } from 'lucide-react-native';
 import { usePathname } from 'expo-router';
 import { useHank } from '../../context/HankContext';
@@ -76,6 +77,7 @@ import { QuickMealsModal } from './QuickMealsModal';
 import { QuickStackModal } from './QuickStackModal';
 import { Image } from 'expo-image';
 import { PlanNotesModal } from '../plan/PlanNotesModal';
+import ShopModal from '../shop/ShopModal';
 
 // ============================================================================
 // TYPES
@@ -124,6 +126,12 @@ const HANK_TOOLS: Array<{
   color: string;
   label: string;
 }> = [
+  {
+    id: 'shop',
+    icon: <ShoppingBag size={18} color="#DC2626" />,
+    color: '#DC2626',
+    label: 'Tienda',
+  },
   {
     id: 'gym_structure',
     icon: <Dumbbell size={18} color="#DC2626" />,
@@ -3111,6 +3119,9 @@ export const HankOverlay: React.FC = () => {
 
       {/* Target Highlight Overlay */}
       <HankTargetHighlight />
+
+      {/* Shop Modal - self-subscribes to hankToolsEvent('shop') */}
+      <ShopModal />
 
       {/* Quick Meals Modal - opened from Hank Tools fan */}
       <QuickMealsModal visible={showQuickMeals} onClose={() => setShowQuickMeals(false)} />

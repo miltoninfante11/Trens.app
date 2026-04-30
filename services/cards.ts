@@ -7,6 +7,32 @@ import { supabase } from '../lib/supabase';
 import type { SavedCard, CustomerCard } from '../types/subscription';
 
 // ============================================================================
+// HELPERS
+// ============================================================================
+
+/**
+ * Extrae el mensaje de error real desde una respuesta de edge function.
+ * supabase-js arroja FunctionsHttpError con `context: Response` cuando el
+ * status no es 2xx — el body JSON sigue ahí pero hay que leerlo a mano.
+ */
+async function extractFnError(error: any, data: any, fallback: string): Promise<string> {
+  if (data?.error) return data.error;
+  if (error?.context && typeof error.context.json === 'function') {
+    try {
+      const body = await error.context.json();
+      if (body?.error) return body.error;
+      if (body?.message) return body.message;
+    } catch {
+      try {
+        const txt = await error.context.text();
+        if (txt) return txt;
+      } catch {}
+    }
+  }
+  return error?.message || fallback;
+}
+
+// ============================================================================
 // OBTENER MIS TARJETAS
 // ============================================================================
 
@@ -20,7 +46,7 @@ export async function getMyCards(): Promise<SavedCard[]> {
   });
 
   if (error || !data?.success) {
-    throw new Error(data?.error || error?.message || 'Error al obtener tarjetas');
+    throw new Error(await extractFnError(error, data, 'Error al obtener tarjetas'));
   }
 
   return data.cards || [];
@@ -51,7 +77,7 @@ export async function saveCard(tokenId: string, deviceSessionId?: string): Promi
   });
 
   if (error || !data?.success) {
-    throw new Error(data?.error || error?.message || 'Error al guardar tarjeta');
+    throw new Error(await extractFnError(error, data, 'Error al guardar tarjeta'));
   }
 
   return data.card;

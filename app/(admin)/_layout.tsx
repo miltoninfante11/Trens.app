@@ -1,17 +1,7 @@
 import { Tabs, Redirect } from 'expo-router';
 import { View, Text, ActivityIndicator } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import {
-  Dumbbell,
-  LayoutList,
-  Users,
-  CreditCard,
-  BarChart3,
-  Shield,
-  Video,
-  ImageIcon,
-  Link2,
-} from 'lucide-react-native';
+import { Dumbbell, Users, CreditCard, Shield, Settings, Wrench } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
 import { useAuth } from '../_layout';
 import { supabase } from '../../lib/supabase';
@@ -158,17 +148,17 @@ export default function AdminLayout() {
         }}
       >
         <Tabs.Screen
-          name="rutinas/index"
+          name="gym/index"
           options={{
-            title: 'RUTINAS',
-            tabBarIcon: ({ color, size }) => <LayoutList size={size} color={color} />,
+            title: 'GYM',
+            tabBarIcon: ({ color, size }) => <Dumbbell size={size} color={color} />,
           }}
         />
         <Tabs.Screen
-          name="ejercicios/index"
+          name="ajustes/index"
           options={{
-            title: 'EJERCICIOS',
-            tabBarIcon: ({ color, size }) => <Dumbbell size={size} color={color} />,
+            title: 'AJUSTES',
+            tabBarIcon: ({ color, size }) => <Settings size={size} color={color} />,
           }}
         />
         <Tabs.Screen
@@ -179,45 +169,34 @@ export default function AdminLayout() {
           }}
         />
         <Tabs.Screen
-          name="pagos/index"
+          name="herramientas/index"
           options={{
-            title: 'PAGOS',
+            title: 'HERRAMIENTAS',
+            tabBarIcon: ({ color, size }) => <Wrench size={size} color={color} />,
+          }}
+        />
+        <Tabs.Screen
+          name="pay/index"
+          options={{
+            title: 'PAY',
             tabBarIcon: ({ color, size }) => <CreditCard size={size} color={color} />,
           }}
         />
-        <Tabs.Screen
-          name="finanzas/index"
-          options={{
-            title: 'FINANZAS',
-            tabBarIcon: ({ color, size }) => <BarChart3 size={size} color={color} />,
-          }}
-        />
-        <Tabs.Screen
-          name="feed/index"
-          options={{
-            title: 'FEED',
-            tabBarIcon: ({ color, size }) => <Video size={size} color={color} />,
-          }}
-        />
-        <Tabs.Screen
-          name="assets/index"
-          options={{
-            title: 'ASSETS',
-            tabBarIcon: ({ color, size }) => <ImageIcon size={size} color={color} />,
-          }}
-        />
-        <Tabs.Screen
-          name="enlaces/index"
-          options={{
-            title: 'ENLACES',
-            tabBarIcon: ({ color, size }) => <Link2 size={size} color={color} />,
-          }}
-        />
+
+        {/* Sub-módulos ocultos del tab bar (accesibles vía Link desde los hubs) */}
+        <Tabs.Screen name="rutinas/index" options={{ href: null }} />
+        <Tabs.Screen name="ejercicios/index" options={{ href: null }} />
+        <Tabs.Screen name="pagos/index" options={{ href: null }} />
+        <Tabs.Screen name="finanzas/index" options={{ href: null }} />
+        <Tabs.Screen name="feed/index" options={{ href: null }} />
+        <Tabs.Screen name="assets/index" options={{ href: null }} />
+        <Tabs.Screen name="enlaces/index" options={{ href: null }} />
 
         {/* Ocultar rutas de detalle */}
         <Tabs.Screen name="rutinas/[id]" options={{ href: null }} />
         <Tabs.Screen name="ejercicios/[id]" options={{ href: null }} />
         <Tabs.Screen name="usuarios/[id]" options={{ href: null }} />
+        <Tabs.Screen name="tienda/index" options={{ href: null }} />
       </Tabs>
     </View>
   );

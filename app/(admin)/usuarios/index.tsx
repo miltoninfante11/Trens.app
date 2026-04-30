@@ -107,8 +107,8 @@ function getDaysRemaining(user: AdminUser): number | null {
     const now = new Date();
     return Math.ceil((end.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
   }
-  // For manual PRO: use pro_expires_at
-  if (user.role === 'pro' && user.pro_expires_at) {
+  // For manual PRO/TEAM: use pro_expires_at
+  if ((user.role === 'pro' || user.role === 'team') && user.pro_expires_at) {
     const end = new Date(user.pro_expires_at);
     const now = new Date();
     return Math.ceil((end.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
@@ -160,6 +160,8 @@ function UserCard({ user }: { user: AdminUser }) {
         return { bg: 'bg-orange-600/30', text: 'text-orange-400' };
       case 'pro':
         return { bg: 'bg-purple-600/30', text: 'text-purple-400' };
+      case 'team':
+        return { bg: 'bg-fuchsia-600/30', text: 'text-fuchsia-400' };
       default:
         return { bg: 'bg-zinc-800', text: 'text-zinc-400' };
     }
@@ -191,6 +193,7 @@ function UserCard({ user }: { user: AdminUser }) {
               {user.full_name || 'Sin nombre'}
             </Text>
             {user.role === 'pro' && <Crown size={14} color={COLORS.purple} />}
+            {user.role === 'team' && <Crown size={14} color="#D946EF" />}
             {user.role === 'admin' && <Shield size={14} color={COLORS.orange} />}
             {user.role === 'ceo' && <Crown size={14} color={COLORS.red} />}
           </View>
@@ -740,6 +743,7 @@ export default function AdminUsuariosScreen() {
   const [stats, setStats] = useState<AdminStats>({
     total: 0,
     pro: 0,
+    team: 0,
     free: 0,
     admin: 0,
     withSubscription: 0,
@@ -761,12 +765,7 @@ export default function AdminUsuariosScreen() {
         (u) => u.subscription?.status === 'active' || u.subscription?.status === 'past_due'
       );
     } else if (proFilter === 'manual') {
-      filtered = filtered.filter(
-        (u) =>
-          u.role === 'pro' &&
-          (!u.subscription ||
-            (u.subscription.status !== 'active' && u.subscription.status !== 'past_due'))
-      );
+      filtered = filtered.filter((u) => u.role === 'team');
     }
     return sortByExpiration(filtered);
   }, [users, proFilter]);
@@ -776,12 +775,7 @@ export default function AdminUsuariosScreen() {
     const withCard = users.filter(
       (u) => u.subscription?.status === 'active' || u.subscription?.status === 'past_due'
     ).length;
-    const manual = users.filter(
-      (u) =>
-        u.role === 'pro' &&
-        (!u.subscription ||
-          (u.subscription.status !== 'active' && u.subscription.status !== 'past_due'))
-    ).length;
+    const manual = users.filter((u) => u.role === 'team').length;
     return { all: users.length, card: withCard, manual };
   }, [users]);
 
@@ -957,7 +951,7 @@ export default function AdminUsuariosScreen() {
             },
             {
               key: 'manual' as ProFilter,
-              label: 'PRO Manual',
+              label: 'TEAM',
               count: filterCounts.manual,
               color: 'purple',
             },
