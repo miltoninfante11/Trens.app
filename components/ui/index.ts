@@ -22,6 +22,7 @@ export { GlowOrb } from './GlowOrb';
 export { SectionHeader } from './SectionHeader';
 export { GradientText } from './GradientText';
 export { FloatingParticles } from './FloatingParticles';
+export { SavageBackground } from './SavageBackground';
 
 // Re-export existing components
 export { PhoneInput, getDefaultCountry, getFullPhoneNumber } from './PhoneInput';

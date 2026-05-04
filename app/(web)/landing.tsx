@@ -56,6 +56,11 @@ import {
   ListChecks,
   Zap,
   Timer,
+  Truck,
+  Package,
+  MapPin,
+  ShieldCheck,
+  Tag,
 } from 'lucide-react-native';
 import Animated, {
   useSharedValue,
@@ -944,8 +949,8 @@ export default function LandingPage() {
           className="items-center mb-8 max-w-3xl"
         >
           <Text className="text-white text-3xl md:text-5xl font-bold text-center leading-tight">
-            Organiza tu entrenamiento{' '}
-            <Text style={{ color: PREMIUM_COLORS.fireRed }}>al mínimo detalle</Text>
+            Inicia, monitorea y{' '}
+            <Text style={{ color: PREMIUM_COLORS.fireRed }}>alcanza tus objetivos</Text>
           </Text>
           <Text className="text-zinc-400 text-lg md:text-xl text-center mt-6 max-w-2xl leading-relaxed">
             Rutinas con cada serie configurable, plan nutricional por horario, stack de suplementos
@@ -1468,6 +1473,228 @@ export default function LandingPage() {
               </View>
             </View>
           </Animated.View>
+        </View>
+
+        {/* ================================================================== */}
+        {/* TRENS SHOP SECTION */}
+        {/* ================================================================== */}
+        <View
+          className="mt-24 items-center"
+          style={{ maxWidth: 1200, alignSelf: 'center', width: '100%' }}
+        >
+          <Animated.View
+            entering={FadeInUp.delay(200).duration(600)}
+            className="items-center mb-10"
+          >
+            <View className="flex-row items-center gap-3 mb-4">
+              <ShoppingCart size={20} color={PREMIUM_COLORS.fireRed} />
+              <Text
+                className="text-red-500 font-mono tracking-[0.3em] uppercase"
+                style={{ fontSize: SCREEN_WIDTH < 640 ? 11 : 14 }}
+              >
+                TRENS Shop
+              </Text>
+              <ShoppingCart size={20} color={PREMIUM_COLORS.fireRed} />
+            </View>
+            <Text
+              className="text-white font-bold text-center max-w-3xl leading-tight px-2"
+              style={{ fontSize: SCREEN_WIDTH < 640 ? 22 : SCREEN_WIDTH < 768 ? 32 : 44 }}
+            >
+              La <Text style={{ color: PREMIUM_COLORS.fireRed }}>tienda integrada</Text> con los
+              mejores precios del mercado
+            </Text>
+            <Text
+              className="text-zinc-400 text-center mt-4 max-w-2xl px-4"
+              style={{ fontSize: SCREEN_WIDTH < 640 ? 14 : 16 }}
+            >
+              Suplementos, equipamiento, ropa técnica y accesorios premium — todo dentro de la app.
+              Compra directamente con tu tarjeta guardada en segundos.
+            </Text>
+          </Animated.View>
+
+          {/* Free shipping highlight banner */}
+          <Animated.View
+            entering={FadeInUp.delay(300).duration(700)}
+            style={{
+              width: '100%',
+              maxWidth: 900,
+              borderRadius: 24,
+              overflow: 'hidden',
+              borderWidth: 1,
+              borderColor: 'rgba(250, 204, 21, 0.4)',
+              marginBottom: 32,
+            }}
+          >
+            <LinearGradient
+              colors={['rgba(250, 204, 21, 0.18)', 'rgba(220, 38, 38, 0.12)', 'rgba(0, 0, 0, 0.6)']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={{ padding: SCREEN_WIDTH < 640 ? 20 : 32 }}
+            >
+              <View className={SCREEN_WIDTH < 640 ? 'items-center' : 'flex-row items-center gap-6'}>
+                <View
+                  style={{
+                    width: 72,
+                    height: 72,
+                    borderRadius: 20,
+                    backgroundColor: 'rgba(250, 204, 21, 0.15)',
+                    borderWidth: 1,
+                    borderColor: 'rgba(250, 204, 21, 0.5)',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    marginBottom: SCREEN_WIDTH < 640 ? 16 : 0,
+                  }}
+                >
+                  <Truck size={36} color="#FACC15" />
+                </View>
+                <View className={SCREEN_WIDTH < 640 ? 'items-center' : 'flex-1'}>
+                  <View className="flex-row items-center gap-2 mb-2">
+                    <Crown size={16} color="#FACC15" fill="#FACC15" />
+                    <Text
+                      className="text-yellow-400 font-mono uppercase tracking-widest"
+                      style={{ fontSize: 11 }}
+                    >
+                      Beneficio PRO exclusivo
+                    </Text>
+                  </View>
+                  <Text
+                    className="text-white font-bold"
+                    style={{
+                      fontSize: SCREEN_WIDTH < 640 ? 22 : 28,
+                      textAlign: SCREEN_WIDTH < 640 ? 'center' : 'left',
+                    }}
+                  >
+                    Envío <Text style={{ color: '#FACC15' }}>GRATIS</Text> a todo el Perú
+                  </Text>
+                  <Text
+                    className="text-zinc-300 mt-2"
+                    style={{
+                      fontSize: SCREEN_WIDTH < 640 ? 13 : 15,
+                      textAlign: SCREEN_WIDTH < 640 ? 'center' : 'left',
+                    }}
+                  >
+                    Suscríbete a TRENS PRO y recibe cualquier producto físico de la tienda sin pagar
+                    envío. De Lima a Iquitos, de Tacna a Tumbes.
+                  </Text>
+                </View>
+              </View>
+            </LinearGradient>
+          </Animated.View>
+
+          {/* SHOP benefits grid */}
+          <View className="flex-row flex-wrap justify-center" style={{ gap: 12, width: '100%' }}>
+            <Animated.View
+              entering={FadeInUp.delay(400).duration(600)}
+              style={{
+                flexBasis: SCREEN_WIDTH < 768 ? '100%' : SCREEN_WIDTH < 1024 ? '48%' : '23.5%',
+                minWidth: 240,
+              }}
+            >
+              <View className="bg-zinc-900/40 border border-zinc-800 rounded-2xl p-5 h-full">
+                <View
+                  style={{
+                    width: 44,
+                    height: 44,
+                    borderRadius: 12,
+                    backgroundColor: 'rgba(220, 38, 38, 0.15)',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    marginBottom: 12,
+                  }}
+                >
+                  <Tag size={22} color={PREMIUM_COLORS.fireRed} />
+                </View>
+                <Text className="text-white font-bold text-base mb-1">Mejores precios</Text>
+                <Text className="text-zinc-400 text-sm leading-5">
+                  Negociamos directo con marcas para ofrecerte precios por debajo del mercado.
+                </Text>
+              </View>
+            </Animated.View>
+
+            <Animated.View
+              entering={FadeInUp.delay(500).duration(600)}
+              style={{
+                flexBasis: SCREEN_WIDTH < 768 ? '100%' : SCREEN_WIDTH < 1024 ? '48%' : '23.5%',
+                minWidth: 240,
+              }}
+            >
+              <View className="bg-zinc-900/40 border border-zinc-800 rounded-2xl p-5 h-full">
+                <View
+                  style={{
+                    width: 44,
+                    height: 44,
+                    borderRadius: 12,
+                    backgroundColor: 'rgba(220, 38, 38, 0.15)',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    marginBottom: 12,
+                  }}
+                >
+                  <Package size={22} color={PREMIUM_COLORS.fireRed} />
+                </View>
+                <Text className="text-white font-bold text-base mb-1">Productos seleccionados</Text>
+                <Text className="text-zinc-400 text-sm leading-5">
+                  Solo lo que realmente funciona: suplementos, ropa técnica y equipamiento probado.
+                </Text>
+              </View>
+            </Animated.View>
+
+            <Animated.View
+              entering={FadeInUp.delay(600).duration(600)}
+              style={{
+                flexBasis: SCREEN_WIDTH < 768 ? '100%' : SCREEN_WIDTH < 1024 ? '48%' : '23.5%',
+                minWidth: 240,
+              }}
+            >
+              <View className="bg-zinc-900/40 border border-zinc-800 rounded-2xl p-5 h-full">
+                <View
+                  style={{
+                    width: 44,
+                    height: 44,
+                    borderRadius: 12,
+                    backgroundColor: 'rgba(220, 38, 38, 0.15)',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    marginBottom: 12,
+                  }}
+                >
+                  <ShieldCheck size={22} color={PREMIUM_COLORS.fireRed} />
+                </View>
+                <Text className="text-white font-bold text-base mb-1">Pago seguro</Text>
+                <Text className="text-zinc-400 text-sm leading-5">
+                  Compra con tarjeta tokenizada. Sin volver a ingresar datos. Procesado por OpenPay.
+                </Text>
+              </View>
+            </Animated.View>
+
+            <Animated.View
+              entering={FadeInUp.delay(700).duration(600)}
+              style={{
+                flexBasis: SCREEN_WIDTH < 768 ? '100%' : SCREEN_WIDTH < 1024 ? '48%' : '23.5%',
+                minWidth: 240,
+              }}
+            >
+              <View className="bg-zinc-900/40 border border-zinc-800 rounded-2xl p-5 h-full">
+                <View
+                  style={{
+                    width: 44,
+                    height: 44,
+                    borderRadius: 12,
+                    backgroundColor: 'rgba(220, 38, 38, 0.15)',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    marginBottom: 12,
+                  }}
+                >
+                  <MapPin size={22} color={PREMIUM_COLORS.fireRed} />
+                </View>
+                <Text className="text-white font-bold text-base mb-1">Cobertura nacional</Text>
+                <Text className="text-zinc-400 text-sm leading-5">
+                  Entregas a todo el Perú. Tracking en tiempo real desde tu cuenta.
+                </Text>
+              </View>
+            </Animated.View>
+          </View>
         </View>
 
         {/* ================================================================== */}

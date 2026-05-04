@@ -54,6 +54,7 @@ import { TodayCards } from '../../../components/adn/TodayCards';
 import { ProUpgradeModal } from '../../../components/pro/ProUpgradeModal';
 import { ShareModal } from '../../../components/share/ShareModal';
 import AccountModal from '../../../components/account/AccountModal';
+import { SavageBackground } from '../../../components/ui/SavageBackground';
 import { calculateUserDailyMacros } from '../../../services/hank/nutrition';
 
 // ============================================================================
@@ -861,6 +862,9 @@ function AdnScreenContent() {
   // -------------------------------------------------------------------------
   return (
     <View className="flex-1 bg-black">
+      {/* SAVAGE AMBIENT BACKDROP — Landing-grade fire orbs + embers */}
+      <SavageBackground variant="screen" />
+
       <ScrollView
         className="flex-1"
         showsVerticalScrollIndicator={false}
@@ -869,24 +873,32 @@ function AdnScreenContent() {
         }
       >
         {/* HEADER (PÚBLICO) - ED HARDY FIRE STYLE */}
-        <View className="relative pt-16 pb-8 px-6 items-center">
-          {/* Fire Gradient Background */}
+        <View className="relative pt-16 pb-8 px-6 items-center overflow-hidden">
+          {/* Hero spotlight gradient (sits over the SavageBackground) */}
           <LinearGradient
-            colors={['#1a0a0a', '#0a0000', '#000000']}
+            colors={['rgba(220, 38, 38, 0.22)', 'rgba(249, 115, 22, 0.05)', 'transparent']}
             start={{ x: 0.5, y: 0 }}
             end={{ x: 0.5, y: 1 }}
-            className="absolute inset-0"
+            style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
           />
 
-          {/* Subtle fire glow at top */}
+          {/* Diagonal fire shimmer */}
+          <LinearGradient
+            colors={['transparent', 'rgba(220, 38, 38, 0.08)', 'transparent']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
+          />
+
+          {/* Bottom hairline separator with fire glow */}
           <View
-            className="absolute top-0 left-0 right-0 h-32"
+            className="absolute bottom-0 left-6 right-6 h-px"
             style={{
-              backgroundColor: 'rgba(220, 38, 38, 0.08)',
-              shadowColor: '#DC2626',
-              shadowOffset: { width: 0, height: 10 },
-              shadowOpacity: 0.3,
-              shadowRadius: 30,
+              backgroundColor: 'rgba(249, 115, 22, 0.4)',
+              shadowColor: '#F97316',
+              shadowOffset: { width: 0, height: 0 },
+              shadowOpacity: 0.8,
+              shadowRadius: 8,
             }}
           />
 

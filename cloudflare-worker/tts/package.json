@@ -1,0 +1,16 @@
+{
+  "name": "trens-tts",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "logs": "wrangler tail",
+    "secret:set": "wrangler secret put GOOGLE_TTS_API_KEY"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20240903.0",
+    "typescript": "^5.4.0",
+    "wrangler": "^3.78.0"
+  }
+}

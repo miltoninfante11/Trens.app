@@ -43,6 +43,8 @@ import { hankToolsEvent } from '../../lib/hankToolsEvent';
 import { useAuth } from '../../app/_layout';
 import { useSubscription } from '../../context/SubscriptionContext';
 import { getMyCards } from '../../lib/openpay';
+import { LinearGradient } from 'expo-linear-gradient';
+import { SavageBackground } from '../ui/SavageBackground';
 
 const GUEST_CART_KEY = '@trens/shop/guest_cart';
 
@@ -464,11 +466,70 @@ export default function ShopModal({ asPage, onPageClose }: ShopModalProps = {}) 
 
   // Header común reutilizado en ambos modos
   const renderHeader = (v: ShopView = view) => (
-    <View className="flex-row items-center justify-between px-4 py-3 border-b border-zinc-900">
+    <View
+      className="flex-row items-center justify-between px-4 py-4 relative"
+      style={{
+        borderBottomWidth: 1,
+        borderBottomColor: 'rgba(220, 38, 38, 0.35)',
+        backgroundColor: asPage ? 'rgba(0, 0, 0, 0.35)' : undefined,
+      }}
+    >
+      {/* Hairline glow under the header (asPage only) */}
+      {asPage && (
+        <View
+          pointerEvents="none"
+          style={{
+            position: 'absolute',
+            bottom: -1,
+            left: 24,
+            right: 24,
+            height: 1,
+            backgroundColor: 'rgba(249, 115, 22, 0.6)',
+            shadowColor: '#F97316',
+            shadowOffset: { width: 0, height: 0 },
+            shadowOpacity: 0.9,
+            shadowRadius: 10,
+          }}
+        />
+      )}
+
       {v === 'catalog' ? (
-        <View className="flex-row items-center gap-2 flex-1">
-          <ShoppingBag size={22} color={COLORS.red} />
-          <Text className="text-white font-bold text-xl tracking-wider">TIENDA</Text>
+        <View className="flex-row items-center gap-3 flex-1">
+          {/* Fire-glow shopping icon */}
+          <LinearGradient
+            colors={['#DC2626', '#F97316']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={{
+              width: 36,
+              height: 36,
+              borderRadius: 10,
+              alignItems: 'center',
+              justifyContent: 'center',
+              shadowColor: '#DC2626',
+              shadowOffset: { width: 0, height: 0 },
+              shadowOpacity: 0.7,
+              shadowRadius: 10,
+              elevation: 6,
+            }}
+          >
+            <ShoppingBag size={18} color="#fff" strokeWidth={2.5} />
+          </LinearGradient>
+          <View>
+            <Text
+              className="text-white font-black text-xl tracking-[0.18em]"
+              style={{
+                textShadowColor: '#DC2626',
+                textShadowOffset: { width: 0, height: 0 },
+                textShadowRadius: 12,
+              }}
+            >
+              TIENDA
+            </Text>
+            <Text className="text-fire-orange font-mono text-[9px] tracking-[0.3em] uppercase">
+              Savage Gear
+            </Text>
+          </View>
         </View>
       ) : (
         <TouchableOpacity
@@ -497,13 +558,36 @@ export default function ShopModal({ asPage, onPageClose }: ShopModalProps = {}) 
         {v !== 'cart' && v !== 'checkout' && v !== 'success' && (
           <TouchableOpacity
             onPress={() => setView('cart')}
-            className="bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 flex-row items-center gap-1.5"
+            activeOpacity={0.85}
+            className="rounded-xl px-3 py-2 flex-row items-center gap-1.5"
+            style={{
+              backgroundColor: 'rgba(15, 8, 8, 0.9)',
+              borderWidth: 1.5,
+              borderColor: cartCount > 0 ? 'rgba(220, 38, 38, 0.6)' : 'rgba(220, 38, 38, 0.2)',
+              shadowColor: '#DC2626',
+              shadowOffset: { width: 0, height: 0 },
+              shadowOpacity: cartCount > 0 ? 0.6 : 0.15,
+              shadowRadius: 10,
+              elevation: cartCount > 0 ? 6 : 2,
+            }}
           >
-            <ShoppingCart size={18} color={COLORS.white} />
+            <ShoppingCart size={18} color={cartCount > 0 ? '#F97316' : COLORS.white} />
             {cartCount > 0 && (
-              <View className="bg-red-600 rounded-full min-w-[20px] h-5 items-center justify-center px-1">
-                <Text className="text-white font-mono text-[10px] font-bold">{cartCount}</Text>
-              </View>
+              <LinearGradient
+                colors={['#DC2626', '#F97316']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={{
+                  borderRadius: 999,
+                  minWidth: 20,
+                  height: 20,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  paddingHorizontal: 4,
+                }}
+              >
+                <Text className="text-white font-mono text-[10px] font-black">{cartCount}</Text>
+              </LinearGradient>
             )}
           </TouchableOpacity>
         )}
@@ -677,6 +761,24 @@ export default function ShopModal({ asPage, onPageClose }: ShopModalProps = {}) 
     const pageView: ShopView = overlayActive ? lastPageViewRef.current : view;
     return (
       <View className="flex-1 bg-black" style={{ paddingTop: insets.top }}>
+        {/* SAVAGE LANDING-GRADE AMBIENT BACKDROP */}
+        <SavageBackground variant="screen" />
+
+        {/* Top fire spotlight that bleeds into the header */}
+        <LinearGradient
+          colors={['rgba(220, 38, 38, 0.28)', 'rgba(249, 115, 22, 0.06)', 'transparent']}
+          start={{ x: 0.5, y: 0 }}
+          end={{ x: 0.5, y: 1 }}
+          pointerEvents="none"
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            height: 260,
+          }}
+        />
+
         {renderHeader(pageView)}
         {renderBody(pageView)}
 
@@ -725,26 +827,20 @@ function CatalogView({
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
-        contentContainerStyle={{ gap: 8, paddingHorizontal: 16, paddingVertical: 12 }}
+        contentContainerStyle={{ gap: 8, paddingHorizontal: 16, paddingVertical: 14 }}
       >
-        <TouchableOpacity
+        <CategoryPill
+          label="TODO"
+          active={!activeCategory}
           onPress={() => setActiveCategory(null)}
-          className={`px-4 py-2 rounded-xl ${
-            !activeCategory ? 'bg-red-600' : 'bg-zinc-900 border border-zinc-800'
-          }`}
-        >
-          <Text className="text-white font-mono text-xs font-bold">TODO</Text>
-        </TouchableOpacity>
+        />
         {categories.map((c: ShopCategory) => (
-          <TouchableOpacity
+          <CategoryPill
             key={c.id}
+            label={c.name.toUpperCase()}
+            active={activeCategory === c.slug}
             onPress={() => setActiveCategory(c.slug)}
-            className={`px-4 py-2 rounded-xl ${
-              activeCategory === c.slug ? 'bg-red-600' : 'bg-zinc-900 border border-zinc-800'
-            }`}
-          >
-            <Text className="text-white font-mono text-xs font-bold">{c.name.toUpperCase()}</Text>
-          </TouchableOpacity>
+          />
         ))}
       </ScrollView>
 
@@ -757,63 +853,185 @@ function CatalogView({
       ) : (
         <View className="flex-row flex-wrap px-2">
           {products.map((p: ShopProduct) => (
-            <TouchableOpacity
-              key={p.id}
-              onPress={() => onProductPress(p)}
-              className="w-1/2 p-2"
-              activeOpacity={0.8}
-            >
-              <View className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden">
-                <View style={{ width: '100%', height: CARD_IMG, backgroundColor: '#27272a' }}>
-                  {p.thumbnail_url ? (
-                    <Image
-                      source={{ uri: p.thumbnail_url }}
-                      style={{ width: '100%', height: '100%' }}
-                      contentFit="cover"
-                      transition={150}
-                    />
-                  ) : (
-                    <View className="w-full h-full items-center justify-center">
-                      <ShoppingBag size={36} color={COLORS.zinc700} />
-                    </View>
-                  )}
-                  {p.compare_at_price && Number(p.compare_at_price) > Number(p.price) && (
-                    <View className="absolute top-2 left-2 bg-red-600 rounded px-2 py-1">
-                      <Text className="text-white font-mono text-[10px] font-bold">
-                        -{Math.round((1 - Number(p.price) / Number(p.compare_at_price)) * 100)}%
-                      </Text>
-                    </View>
-                  )}
-                </View>
-                <View className="p-3">
-                  <Text className="text-white font-bold text-sm" numberOfLines={2}>
-                    {p.name}
-                  </Text>
-                  <View className="flex-row items-center gap-2 mt-1">
-                    <Text className="text-green-500 font-bold text-base">
-                      S/ {Number(p.price).toFixed(2)}
-                    </Text>
-                    {p.compare_at_price && (
-                      <Text className="text-zinc-500 line-through text-xs font-mono">
-                        S/ {Number(p.compare_at_price).toFixed(2)}
-                      </Text>
-                    )}
-                  </View>
-                  {!p.stock_unlimited && !p.is_digital && p.stock <= 5 && p.stock > 0 && (
-                    <Text className="text-orange-500 font-mono text-[10px] mt-1">
-                      ¡Solo {p.stock} disponibles!
-                    </Text>
-                  )}
-                  {!p.stock_unlimited && !p.is_digital && p.stock === 0 && (
-                    <Text className="text-zinc-500 font-mono text-[10px] mt-1">Agotado</Text>
-                  )}
-                </View>
-              </View>
-            </TouchableOpacity>
+            <ProductCard key={p.id} product={p} onPress={() => onProductPress(p)} />
           ))}
         </View>
       )}
     </ScrollView>
+  );
+}
+
+// ============================================================================
+// CATEGORY PILL — Premium fire-glow pill (matches landing aesthetic)
+// ============================================================================
+function CategoryPill({
+  label,
+  active,
+  onPress,
+}: {
+  label: string;
+  active: boolean;
+  onPress: () => void;
+}) {
+  if (active) {
+    return (
+      <TouchableOpacity onPress={onPress} activeOpacity={0.85}>
+        <LinearGradient
+          colors={['#DC2626', '#F97316']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={{
+            paddingHorizontal: 16,
+            paddingVertical: 9,
+            borderRadius: 12,
+            shadowColor: '#DC2626',
+            shadowOffset: { width: 0, height: 0 },
+            shadowOpacity: 0.6,
+            shadowRadius: 10,
+            elevation: 6,
+          }}
+        >
+          <Text className="text-white font-mono text-xs font-black tracking-widest">{label}</Text>
+        </LinearGradient>
+      </TouchableOpacity>
+    );
+  }
+  return (
+    <TouchableOpacity
+      onPress={onPress}
+      activeOpacity={0.8}
+      className="px-4 py-2 rounded-xl"
+      style={{
+        backgroundColor: 'rgba(15, 8, 8, 0.85)',
+        borderWidth: 1,
+        borderColor: 'rgba(220, 38, 38, 0.18)',
+      }}
+    >
+      <Text className="text-zinc-300 font-mono text-xs font-bold tracking-widest">{label}</Text>
+    </TouchableOpacity>
+  );
+}
+
+// ============================================================================
+// PRODUCT CARD — Premium fire-glow card with savage hover-style border
+// ============================================================================
+function ProductCard({ product: p, onPress }: { product: ShopProduct; onPress: () => void }) {
+  const outOfStock = !p.stock_unlimited && !p.is_digital && p.stock === 0;
+  const lowStock = !p.stock_unlimited && !p.is_digital && p.stock <= 5 && p.stock > 0;
+  const discount =
+    p.compare_at_price && Number(p.compare_at_price) > Number(p.price)
+      ? Math.round((1 - Number(p.price) / Number(p.compare_at_price)) * 100)
+      : 0;
+
+  return (
+    <TouchableOpacity onPress={onPress} className="w-1/2 p-2" activeOpacity={0.85}>
+      <View
+        className="rounded-2xl overflow-hidden"
+        style={{
+          backgroundColor: 'rgba(15, 8, 8, 0.92)',
+          borderWidth: 1.5,
+          borderColor: 'rgba(220, 38, 38, 0.28)',
+          shadowColor: '#DC2626',
+          shadowOffset: { width: 0, height: 4 },
+          shadowOpacity: 0.25,
+          shadowRadius: 14,
+          elevation: 6,
+        }}
+      >
+        <View style={{ width: '100%', height: CARD_IMG, backgroundColor: '#0a0505' }}>
+          {p.thumbnail_url ? (
+            <Image
+              source={{ uri: p.thumbnail_url }}
+              style={{ width: '100%', height: '100%' }}
+              contentFit="cover"
+              transition={150}
+            />
+          ) : (
+            <View className="w-full h-full items-center justify-center">
+              <ShoppingBag size={36} color={COLORS.zinc700} />
+            </View>
+          )}
+
+          {/* Inner shimmer overlay (landing-grade) */}
+          <LinearGradient
+            colors={['transparent', 'transparent', 'rgba(0, 0, 0, 0.55)']}
+            start={{ x: 0.5, y: 0 }}
+            end={{ x: 0.5, y: 1 }}
+            pointerEvents="none"
+            style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
+          />
+
+          {discount > 0 && (
+            <LinearGradient
+              colors={['#DC2626', '#F97316']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={{
+                position: 'absolute',
+                top: 8,
+                left: 8,
+                paddingHorizontal: 8,
+                paddingVertical: 3,
+                borderRadius: 6,
+                shadowColor: '#DC2626',
+                shadowOffset: { width: 0, height: 0 },
+                shadowOpacity: 0.7,
+                shadowRadius: 8,
+              }}
+            >
+              <Text className="text-white font-mono text-[10px] font-black tracking-wider">
+                -{discount}%
+              </Text>
+            </LinearGradient>
+          )}
+
+          {outOfStock && (
+            <View className="absolute inset-0 items-center justify-center bg-black/60">
+              <View
+                className="px-3 py-1 rounded-md"
+                style={{
+                  backgroundColor: 'rgba(0, 0, 0, 0.85)',
+                  borderWidth: 1,
+                  borderColor: '#52525b',
+                }}
+              >
+                <Text className="text-zinc-300 font-mono text-[10px] font-bold tracking-widest">
+                  AGOTADO
+                </Text>
+              </View>
+            </View>
+          )}
+        </View>
+
+        <View className="p-3">
+          <Text className="text-white font-bold text-sm" numberOfLines={2}>
+            {p.name}
+          </Text>
+          <View className="flex-row items-center gap-2 mt-1.5">
+            <Text
+              className="text-fire-orange font-black text-base"
+              style={{
+                textShadowColor: 'rgba(249, 115, 22, 0.6)',
+                textShadowOffset: { width: 0, height: 0 },
+                textShadowRadius: 8,
+              }}
+            >
+              S/ {Number(p.price).toFixed(2)}
+            </Text>
+            {p.compare_at_price && Number(p.compare_at_price) > Number(p.price) && (
+              <Text className="text-zinc-500 line-through text-xs font-mono">
+                S/ {Number(p.compare_at_price).toFixed(2)}
+              </Text>
+            )}
+          </View>
+          {lowStock && (
+            <Text className="text-fire-orange font-mono text-[10px] mt-1 font-bold">
+              ¡Solo {p.stock} disponibles!
+            </Text>
+          )}
+        </View>
+      </View>
+    </TouchableOpacity>
   );
 }
 
@@ -829,6 +1047,7 @@ function ProductDetail({
   onAdd: (qty: number) => void;
   isPro?: boolean;
 }) {
+  const router = useRouter();
   const [qty, setQty] = useState(1);
   const [imageIndex, setImageIndex] = useState(0);
   const outOfStock = !product.stock_unlimited && !product.is_digital && (product.stock || 0) === 0;
@@ -937,12 +1156,16 @@ function ProductDetail({
                   </Text>
                 </View>
               ) : (
-                <View className="bg-yellow-500/10 border border-yellow-500/40 rounded-lg px-3 py-1.5 flex-row items-center gap-1.5">
+                <TouchableOpacity
+                  onPress={() => router.push('/landing')}
+                  activeOpacity={0.8}
+                  className="bg-yellow-500/10 border border-yellow-500/40 rounded-lg px-3 py-1.5 flex-row items-center gap-1.5"
+                >
                   <Crown size={12} color="#FACC15" fill="#FACC15" />
                   <Text className="text-yellow-300 font-mono text-xs font-bold">
                     Envío gratis con PRO
                   </Text>
-                </View>
+                </TouchableOpacity>
               ))}
             {!product.stock_unlimited && !product.is_digital && (
               <View className="bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-1.5">
@@ -1166,12 +1389,15 @@ function CheckoutView({
                   onPress={() => setSelectedCardId(c.id)}
                   className={`p-3 rounded-xl border mb-2 flex-row items-center justify-between ${
                     selectedCardId === c.id
-                      ? 'border-red-600 bg-red-600/10'
+                      ? 'border-blue-500 bg-blue-500/10'
                       : 'border-zinc-800 bg-zinc-900'
                   }`}
                 >
                   <View className="flex-row items-center gap-3">
-                    <CreditCard size={20} color={COLORS.white} />
+                    <CreditCard
+                      size={20}
+                      color={selectedCardId === c.id ? '#3B82F6' : COLORS.white}
+                    />
                     <View>
                       <Text className="text-white font-bold">
                         {c.brand?.toUpperCase()} ••••{c.last4}
@@ -1181,7 +1407,7 @@ function CheckoutView({
                       )}
                     </View>
                   </View>
-                  {selectedCardId === c.id && <Check size={18} color={COLORS.red} />}
+                  {selectedCardId === c.id && <Check size={18} color="#3B82F6" />}
                 </TouchableOpacity>
               ))
             )}

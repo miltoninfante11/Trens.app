@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { View, Text, ActivityIndicator, ScrollView, Pressable, Image } from 'react-native';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import {
@@ -15,12 +15,15 @@ import {
   Activity,
   Volume2,
   VolumeX,
+  GitlabIcon,
 } from 'lucide-react-native';
 import { router, useFocusEffect } from 'expo-router';
 import * as Speech from 'expo-speech';
 import * as Haptics from '../../lib/haptics';
 import { supabase } from '../../lib/supabase';
 import { hankSpeakState } from '../../lib/hankSpeakState';
+import { speakSavage, stopSavage, prefetchSavage } from '../../services/tts/savageTTS';
+import { setHankChatOpen } from '../../lib/hankChatState';
 
 // ============================================================================
 // TYPES
@@ -647,6 +650,75 @@ export const TodayCards: React.FC<TodayCardsProps> = ({ userId }) => {
   const [nextItemId, setNextItemId] = useState<string | null>(null);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const speakingRef = useRef(false);
+  const maleVoiceRef = useRef<string | null>(null);
+
+  // Cargar voces del dispositivo y elegir una masculina en español
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const voices = await Speech.getAvailableVoicesAsync();
+        if (cancelled) return;
+
+        // Heurística para detectar voces masculinas en español
+        const spanishVoices = voices.filter((v) => v.language?.toLowerCase().startsWith('es'));
+
+        // Patrones conocidos de voces masculinas (iOS, Android, Web)
+        const malePatterns = [
+          /jorge/i,
+          /diego/i,
+          /carlos/i,
+          /juan/i,
+          /enrique/i,
+          /miguel/i,
+          /pablo/i,
+          /paco/i,
+          /\bmale\b/i,
+          /-male/i,
+          /hombre/i,
+          // Google TTS
+          /es-(es|us|mx)-x-[a-z]+m-/i, // codificación Google: ...m- = male
+          /es-[A-Z]{2}-Standard-B/i, // Google Cloud Standard B suele ser masculina
+          /es-[A-Z]{2}-Wavenet-B/i,
+          /es-[A-Z]{2}-Neural2-B/i,
+        ];
+
+        const malePreferences = [/es-MX/i, /es-US/i, /es-ES/i, /es-419/i, /^es/i];
+
+        let picked: string | null = null;
+
+        // 1) Buscar voz masculina con preferencia regional
+        for (const region of malePreferences) {
+          const found = spanishVoices.find(
+            (v) =>
+              region.test(v.language || '') &&
+              malePatterns.some((p) => p.test(v.identifier) || p.test(v.name || ''))
+          );
+          if (found) {
+            picked = found.identifier;
+            break;
+          }
+        }
+
+        // 2) Cualquier voz masculina en español
+        if (!picked) {
+          const any = spanishVoices.find((v) =>
+            malePatterns.some((p) => p.test(v.identifier) || p.test(v.name || ''))
+          );
+          if (any) picked = any.identifier;
+        }
+
+        if (picked) {
+          maleVoiceRef.current = picked;
+        }
+      } catch {
+        // Silencioso: si falla, usaremos pitch bajo como fallback
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const fetchTodayData = useCallback(async () => {
     if (!userId) {
@@ -1129,7 +1201,7 @@ export const TodayCards: React.FC<TodayCardsProps> = ({ userId }) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
     if (speakingRef.current) {
-      Speech.stop();
+      await stopSavage();
       speakingRef.current = false;
       setIsSpeaking(false);
       hankSpeakState.set(false);
@@ -1154,15 +1226,13 @@ export const TodayCards: React.FC<TodayCardsProps> = ({ userId }) => {
     setIsSpeaking(true);
     hankSpeakState.set(true);
 
-    Speech.speak(text, {
-      language: 'es-MX',
-      rate: 0.92,
+    // Voz juvenil con energía (Google Cloud TTS Chirp3-HD-Charon vía Cloudflare Worker)
+    // Preset 'hype': dinámica, fuerte, con cuerpo
+    // Cae automáticamente a expo-speech con pitch bajo si la red falla
+    await speakSavage(text, {
+      preset: 'hype',
+      lang: 'es-US',
       onDone: () => {
-        speakingRef.current = false;
-        setIsSpeaking(false);
-        hankSpeakState.set(false);
-      },
-      onStopped: () => {
         speakingRef.current = false;
         setIsSpeaking(false);
         hankSpeakState.set(false);
@@ -1174,6 +1244,32 @@ export const TodayCards: React.FC<TodayCardsProps> = ({ userId }) => {
       },
     });
   }, [buildNarrationText]);
+
+  // -------------------------------------------------------------------------
+  // PREFETCH TTS — pre-calienta el caché del worker para que el primer
+  // tap en AUDIO reproduzca casi instantáneo (R2 cache HIT).
+  // -------------------------------------------------------------------------
+  useEffect(() => {
+    if (!timeline || timeline.length === 0) return;
+    const raw = buildNarrationText();
+    const text = raw
+      .replace(
+        /[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{FE00}-\u{FE0F}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{200D}\u{20E3}\u{E0020}-\u{E007F}]/gu,
+        ''
+      )
+      .replace(/\bgr\b/gi, 'gramos')
+      .replace(/\bml\b/gi, 'mililitros')
+      .replace(/\bmg\b/gi, 'miligramos')
+      .replace(/\bkcal\b/gi, 'kilocalorías')
+      .replace(/\s{2,}/g, ' ')
+      .trim();
+    if (!text) return;
+    // Delay pequeño para no competir con el render inicial
+    const t = setTimeout(() => {
+      prefetchSavage(text, { preset: 'hype', lang: 'es-US' });
+    }, 600);
+    return () => clearTimeout(t);
+  }, [timeline, buildNarrationText]);
 
   useFocusEffect(
     useCallback(() => {
@@ -1228,25 +1324,6 @@ export const TodayCards: React.FC<TodayCardsProps> = ({ userId }) => {
           </Text>
         </View>
         <View className="flex-row items-center gap-2">
-          {/* Audio TTS */}
-          <Pressable
-            onPress={handleSpeak}
-            className="px-3 py-1.5 rounded-lg active:scale-95 flex-row items-center gap-1.5"
-            style={{
-              backgroundColor: isSpeaking ? '#DC262625' : '#DC262610',
-              borderWidth: isSpeaking ? 1 : 0,
-              borderColor: '#DC262650',
-            }}
-          >
-            {isSpeaking ? (
-              <VolumeX size={12} color="#DC2626" />
-            ) : (
-              <Volume2 size={12} color="#DC2626" />
-            )}
-            <Text className="text-red-600 text-[10px] font-bold tracking-wider">
-              {isSpeaking ? 'PARAR' : 'AUDIO'}
-            </Text>
-          </Pressable>
           {/* Ver Plan */}
           <Pressable
             onPress={() => {
@@ -1331,6 +1408,47 @@ export const TodayCards: React.FC<TodayCardsProps> = ({ userId }) => {
             </View>
           );
         })}
+      </View>
+
+      {/* Footer: píldora unificada AUDIO + Hank (bottom-left del bloque) */}
+      <View className="flex-row items-center mt-3">
+        <View
+          className="flex-row items-center rounded-lg overflow-hidden"
+          style={{
+            backgroundColor: isSpeaking ? '#DC262625' : '#DC262610',
+            borderWidth: 1,
+            borderColor: isSpeaking ? '#DC262650' : '#DC262625',
+          }}
+        >
+          {/* Lado izquierdo: AUDIO */}
+          <Pressable
+            onPress={handleSpeak}
+            className="px-3 py-1.5 active:opacity-70 flex-row items-center gap-1.5"
+          >
+            {isSpeaking ? (
+              <VolumeX size={12} color="#DC2626" />
+            ) : (
+              <Volume2 size={12} color="#DC2626" />
+            )}
+            <Text className="text-red-600 text-[10px] font-bold tracking-wider">
+              {isSpeaking ? 'PARAR' : 'AUDIO'}
+            </Text>
+          </Pressable>
+          {/* Divider */}
+          <View className="w-[1px] h-4" style={{ backgroundColor: '#DC262640' }} />
+          {/* Lado derecho: Hank (mismo icono que el header del modal de chat) */}
+          <Pressable
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setHankChatOpen(true);
+            }}
+            className="px-2 py-1 active:opacity-70 items-center justify-center"
+          >
+            <View className="w-6 h-6 rounded-full bg-red-600/20 items-center justify-center">
+              <GitlabIcon size={14} color="#DC2626" strokeWidth={2.5} />
+            </View>
+          </Pressable>
+        </View>
       </View>
     </View>
   );

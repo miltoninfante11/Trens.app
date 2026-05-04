@@ -1,0 +1,20 @@
+name = "trens-tts"
+main = "src/index.ts"
+compatibility_date = "2024-09-01"
+account_id = "1eaa95adf7e0fbfc97fe56906bbc4ed9"
+
+# Reutilizamos el bucket existente como caché (carpeta tts/)
+[[r2_buckets]]
+binding = "TTS_CACHE"
+bucket_name = "trens-exercise-media"
+
+[vars]
+ALLOWED_ORIGINS = "https://trens.app,https://www.trens.app,https://shop.trens.app,https://share.trens.app,http://localhost:8081,http://localhost:19006,https://*.pages.dev,https://*.vercel.app"
+DEFAULT_VOICE = "es-US-Neural2-B"
+DEFAULT_LANG = "es-US"
+# Pitch y rate por defecto para voz "savage" varonil
+DEFAULT_PITCH = "-2.0"
+DEFAULT_RATE = "0.95"
+
+# IMPORTANTE: la API key se configura como secret, NO en este archivo:
+#   wrangler secret put GOOGLE_TTS_API_KEY

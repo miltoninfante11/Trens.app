@@ -418,6 +418,8 @@ export function getPlanDetails(): PlanDetails {
       'Notificaciones de entrenamiento y suplementos',
       'Perfil ADN atlético con TrensID Card',
       'Asistente IA integrado',
+      'TRENS Shop: los mejores precios del mercado',
+      'Envío GRATIS a todo el Perú en TRENS Shop',
       'iOS, Android y Web (PWA) incluidos',
     ],
   };

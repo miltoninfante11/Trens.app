@@ -8,7 +8,7 @@ import { View, Text, ScrollView, Pressable, RefreshControl } from 'react-native'
 import { PWAGuard } from '../../../components/auth/PWAGuard';
 import { Alert } from '../../../lib/alert';
 import Animated, { useAnimatedStyle, withSpring } from 'react-native-reanimated';
-import { Plus, Pill, Sparkles, ShoppingCart, StickyNote, Flame, Layers } from 'lucide-react-native';
+import { Plus, Pill, Sparkles, ShoppingBag, StickyNote, Flame, Layers } from 'lucide-react-native';
 import * as Haptics from '../../../lib/haptics';
 import { useRouter, useFocusEffect } from 'expo-router';
 
@@ -22,7 +22,7 @@ import { EditMealModal } from '../../../components/plan/EditMealModal';
 import { TimePickerModal } from '../../../components/plan/TimePickerModal';
 import { StackManagerModal } from '../../../components/plan/StackManagerModal';
 import { AddOptionModal } from '../../../components/plan/AddOptionModal';
-import { ShoppingListModal } from '../../../components/plan/ShoppingListModal';
+import { hankToolsEvent } from '../../../lib/hankToolsEvent';
 import { PlanNotesModal } from '../../../components/plan/PlanNotesModal';
 import { AddCardioModal, AddCardioData } from '../../../components/plan/AddCardioModal';
 import { supabase } from '../../../lib/supabase';
@@ -421,7 +421,6 @@ function PlanScreen() {
   const [timePickerStackTime, setTimePickerStackTime] = useState<string | null>(null);
   const [showStackManager, setShowStackManager] = useState(false);
   const [stackManagerInitialView, setStackManagerInitialView] = useState<'list' | 'add'>('list');
-  const [showShoppingList, setShowShoppingList] = useState(false);
   const [showPlanNotes, setShowPlanNotes] = useState(false);
   const [showAddOption, setShowAddOption] = useState(false);
   const [addOptionMealId, setAddOptionMealId] = useState<string | null>(null);
@@ -2870,18 +2869,18 @@ function PlanScreen() {
 
           {/* Action Buttons */}
           <View className="flex-row gap-2">
-            {/* Shopping List Button */}
+            {/* Tienda Button - Abre ShopModal */}
             <Pressable
               onPress={() => {
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                setShowShoppingList(true);
+                hankToolsEvent.open('shop');
               }}
               className="items-center px-3 py-2.5 rounded-xl active:scale-95"
               style={{
-                backgroundColor: 'rgba(34, 197, 94, 0.08)',
+                backgroundColor: 'rgba(220, 38, 38, 0.08)',
                 borderWidth: 1.5,
-                borderColor: 'rgba(34, 197, 94, 0.4)',
-                shadowColor: '#22C55E',
+                borderColor: 'rgba(220, 38, 38, 0.4)',
+                shadowColor: '#DC2626',
                 shadowOffset: { width: 0, height: 0 },
                 shadowOpacity: 0.3,
                 shadowRadius: 12,
@@ -2889,13 +2888,11 @@ function PlanScreen() {
             >
               <View
                 className="w-8 h-8 rounded-full items-center justify-center"
-                style={{ backgroundColor: 'rgba(34, 197, 94, 0.2)' }}
+                style={{ backgroundColor: 'rgba(220, 38, 38, 0.2)' }}
               >
-                <ShoppingCart size={14} color="#22C55E" />
+                <ShoppingBag size={14} color="#DC2626" />
               </View>
-              <Text className="text-green-400 text-[9px] font-bold tracking-widest mt-1">
-                COMPRAS
-              </Text>
+              <Text className="text-red-500 text-[9px] font-bold tracking-widest mt-1">TIENDA</Text>
             </Pressable>
 
             {/* Stack Button Premium */}
@@ -3334,12 +3331,6 @@ function PlanScreen() {
         }}
         onSave={handleSaveOption}
         onCalculateMacros={handleCalculateMacros}
-      />
-
-      <ShoppingListModal
-        visible={showShoppingList}
-        onClose={() => setShowShoppingList(false)}
-        meals={meals}
       />
 
       <PlanNotesModal
