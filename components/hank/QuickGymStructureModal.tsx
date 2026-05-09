@@ -91,13 +91,13 @@ export const QuickGymStructureModal: React.FC<QuickGymStructureModalProps> = ({
       // Fetch profile training data
       const { data: profile } = await supabase
         .from('profiles')
-        .select('training_routine_names, training_frequency, training_current_day')
+        .select('training_routine_names')
         .eq('id', user.id)
         .single();
 
       const isExternal = userProfile?.training_mode === 'external';
       setIsExternalMode(isExternal);
-      setCurrentDayIndex(profile?.training_current_day || 0);
+      setCurrentDayIndex(new Date().getDay()); // weekday: 0=Dom..6=Sáb
 
       let dayInfos: DayInfo[] = [];
 
@@ -111,15 +111,16 @@ export const QuickGymStructureModal: React.FC<QuickGymStructureModalProps> = ({
           exercises: [],
         }));
       } else {
-        // Gym mode: days from routine names
-        const freq = profile?.training_frequency || userProfile?.training_days_per_week || 3;
+        // Weekday mode: 7 días de la semana desde routine_names
         const routineNames = (profile?.training_routine_names || {}) as Record<string, string>;
 
-        for (let i = 0; i < freq; i++) {
+        for (let wd = 0; wd < 7; wd++) {
+          const muscles = (routineNames[String(wd)] || '').trim();
+          if (muscles.length === 0) continue; // saltar días de descanso
           dayInfos.push({
-            index: i,
-            name: `Día ${i + 1}`,
-            muscleGroups: routineNames[String(i)] || 'Sin asignar',
+            index: wd,
+            name: ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'][wd],
+            muscleGroups: muscles,
             exercises: [],
           });
         }

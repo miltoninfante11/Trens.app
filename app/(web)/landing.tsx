@@ -18,6 +18,9 @@ import {
 } from 'react-native';
 import { Link } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
+import PromoPill from '../../components/ui/PromoPill';
+import CoachingModal from '../../components/ui/CoachingModal';
+import shopService from '../../services/shop';
 import {
   Dumbbell,
   Camera,
@@ -853,1182 +856,1323 @@ export default function LandingPage() {
 
   const planDetails = getPlanDetails();
 
+  // Coaching modal (abierto desde PromoPill superior)
+  const [coachingOpen, setCoachingOpen] = useState(false);
+  const [promoImage, setPromoImage] = useState<string | null>(null);
+
+  // Cargar la imagen del primer banner del carrusel (misma que usa el modal del shop)
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const banners = await shopService.listBanners();
+        if (mounted && banners[0]?.image_url) {
+          setPromoImage(banners[0].image_url);
+        }
+      } catch {}
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
   return (
-    <ScrollView
-      ref={scrollRef}
-      className="flex-1 bg-black"
-      showsVerticalScrollIndicator={false}
-      contentContainerStyle={{ paddingBottom: 100 }}
-    >
-      {/* ================================================================== */}
-      {/* HERO SECTION - PREMIUM */}
-      {/* ================================================================== */}
-      <View className="min-h-screen justify-center items-center px-6 py-24 relative overflow-hidden">
-        {/* Animated Background Orbs */}
-        <GlowOrb color={PREMIUM_COLORS.fireRed} size={600} top="10%" left="30%" delay={0} />
-        <GlowOrb color={PREMIUM_COLORS.fireOrange} size={400} top="60%" left="70%" delay={1000} />
-        <GlowOrb color="#B91C1C" size={300} top="80%" left="20%" delay={2000} />
-
-        {/* Floating Particles */}
-        {[...Array(20)].map((_, i) => (
-          <FloatingParticle key={i} delay={i * 400} left={5 + i * 4.5} />
-        ))}
-
-        {/* Main gradient overlay */}
-        <LinearGradient
-          colors={['rgba(220, 38, 38, 0.15)', 'transparent', 'rgba(0, 0, 0, 0.8)']}
-          start={{ x: 0.5, y: 0 }}
-          end={{ x: 0.5, y: 1 }}
-          style={{
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-          }}
-        />
-
-        {/* Grid Pattern Overlay */}
-        <View
-          style={{
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            opacity: 0.03,
-            ...(Platform.OS === 'web' &&
-              ({
-                backgroundImage:
-                  'linear-gradient(rgba(255,255,255,0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.1) 1px, transparent 1px)',
-                backgroundSize: '50px 50px',
-              } as any)),
-          }}
-        />
-
-        {/* Logo with Animation */}
-        <Animated.View
-          entering={ZoomIn.duration(1000).springify()}
-          style={floatStyle}
-          className="mb-10"
-        >
-          <AnimatedLogo />
-        </Animated.View>
-
-        {/* Brand Name */}
-        <Animated.View entering={FadeInDown.delay(300).duration(800)} className="items-center mb-4">
-          <Text
-            className="text-white text-6xl md:text-7xl font-bold tracking-tight"
-            style={{
-              textShadowColor: PREMIUM_COLORS.fireRed,
-              textShadowOffset: { width: 0, height: 4 },
-              textShadowRadius: 20,
-            }}
-          >
-            TRENS
-          </Text>
-        </Animated.View>
-
-        {/* Tagline */}
-        <Animated.View entering={FadeInDown.delay(500).duration(800)} className="items-center mb-6">
-          <LinearGradient
-            colors={[PREMIUM_COLORS.fireRed, PREMIUM_COLORS.fireOrange, PREMIUM_COLORS.fireYellow]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-            className="px-6 py-2 rounded-full"
-          >
-            <Text className="text-white font-mono text-sm tracking-[0.3em] uppercase">
-              High Performance Fitness
-            </Text>
-          </LinearGradient>
-        </Animated.View>
-
-        {/* Main Headline */}
-        <Animated.View
-          entering={FadeInDown.delay(700).duration(800)}
-          className="items-center mb-8 max-w-3xl"
-        >
-          <Text className="text-white text-3xl md:text-5xl font-bold text-center leading-tight">
-            Inicia, monitorea y{' '}
-            <Text style={{ color: PREMIUM_COLORS.fireRed }}>alcanza tus objetivos</Text>
-          </Text>
-          <Text className="text-zinc-400 text-lg md:text-xl text-center mt-6 max-w-2xl leading-relaxed">
-            Rutinas con cada serie configurable, plan nutricional por horario, stack de suplementos
-            ilimitado, múltiples cardios, 2 entrenamientos al día, cámara PRO con Spotify integrado
-            y feed extremo. Todo conectado en una sola plataforma.
-          </Text>
-        </Animated.View>
-
-        {/* CTA Button with Glow */}
-        <Animated.View entering={FadeInUp.delay(900).duration(800)} style={pulseStyle}>
-          <TouchableOpacity onPress={scrollToPricing} activeOpacity={0.9} className="relative">
-            {/* Button glow */}
-            <View
-              style={{
-                position: 'absolute',
-                top: -10,
-                left: -10,
-                right: -10,
-                bottom: -10,
-                borderRadius: 28,
-                backgroundColor: PREMIUM_COLORS.fireRed,
-                opacity: 0.3,
-              }}
-              className="blur-xl"
-            />
-            <LinearGradient
-              colors={[PREMIUM_COLORS.fireRed, '#B91C1C']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              className="px-12 py-5 rounded-2xl flex-row items-center gap-4"
-              style={{
-                shadowColor: PREMIUM_COLORS.fireRed,
-                shadowOffset: { width: 0, height: 8 },
-                shadowOpacity: 0.6,
-                shadowRadius: 20,
-                elevation: 15,
-              }}
-            >
-              <Flame size={26} color="white" fill="white" />
-              <Text className="text-white text-xl font-bold tracking-wide">EMPIEZA AHORA</Text>
-              <ArrowRight size={24} color="white" />
-            </LinearGradient>
-          </TouchableOpacity>
-        </Animated.View>
-
-        {/* Price Badge */}
-        <Animated.View entering={FadeInUp.delay(1100).duration(800)} className="mt-8">
-          <View className="flex-row items-center gap-2 bg-zinc-900/60 backdrop-blur-xl border border-zinc-800 px-6 py-3 rounded-full">
-            <Crown size={18} color={PREMIUM_COLORS.fireYellow} />
-            <Text className="text-zinc-400">
-              Solo <Text className="text-red-500 font-bold text-lg">{getFormattedPrice()}</Text>
-              <Text className="text-zinc-500"> / mes</Text>
-            </Text>
-          </View>
-        </Animated.View>
-
-        {/* Scroll Indicator */}
-        <Animated.View entering={FadeInUp.delay(1300).duration(800)} className="absolute bottom-10">
-          <View className="items-center">
-            <Text className="text-zinc-600 text-xs uppercase tracking-widest mb-2">
-              Descubre más
-            </Text>
-            <Animated.View
-              style={{
-                ...floatStyle,
-              }}
-            >
-              <ChevronRight
-                size={24}
-                color="#52525B"
-                style={{ transform: [{ rotate: '90deg' }] }}
-              />
-            </Animated.View>
-          </View>
-        </Animated.View>
-      </View>
-
-      {/* ================================================================== */}
-      {/* STATS SECTION */}
-      {/* ================================================================== */}
-      <View className="px-6 py-16 bg-zinc-950/50">
-        <View
-          className="flex-row flex-wrap justify-center items-center gap-8 md:gap-16"
-          style={{ maxWidth: 1000, alignSelf: 'center' }}
-        >
-          <StatCounter value="10K" suffix="+" label="Atletas Activos" delay={100} />
-          <View className="w-px h-12 bg-zinc-800 hidden md:flex" />
-          <StatCounter value="500K" suffix="+" label="Sets Grabados" delay={200} />
-          <View className="w-px h-12 bg-zinc-800 hidden md:flex" />
-          <StatCounter value="98" suffix="%" label="Satisfacción" delay={300} />
-        </View>
-      </View>
-
-      {/* ================================================================== */}
-      {/* PHONE VIDEO DEMO */}
-      {/* ================================================================== */}
-      <PhoneVideoDemo />
-      <View
-        className="bg-black relative overflow-hidden"
-        style={{ paddingHorizontal: 16, paddingVertical: SCREEN_WIDTH < 768 ? 48 : 80 }}
+    <>
+      <PromoPill
+        onLoaded={(p) => {
+          // fallback a la imagen de la promo si no hay banner
+          setPromoImage((prev) => prev || p?.image_url || null);
+        }}
+        onPress={() => setCoachingOpen(true)}
+      />
+      <CoachingModal
+        visible={coachingOpen}
+        onClose={() => setCoachingOpen(false)}
+        onStart={() => {
+          setCoachingOpen(false);
+          // Mismo comportamiento que "EMPIEZA AHORA"
+          setTimeout(() => scrollToPricing(), 50);
+        }}
+        imageUrl={promoImage}
+      />
+      <ScrollView
+        ref={scrollRef}
+        className="flex-1 bg-black"
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: 100 }}
       >
-        <GlowOrb color="#991B1B" size={400} top="50%" left="50%" delay={0} />
+        {/* ================================================================== */}
+        {/* HERO SECTION - PREMIUM */}
+        {/* ================================================================== */}
+        <View className="min-h-screen justify-center items-center px-6 py-24 relative overflow-hidden">
+          {/* Animated Background Orbs */}
+          <GlowOrb color={PREMIUM_COLORS.fireRed} size={600} top="10%" left="30%" delay={0} />
+          <GlowOrb color={PREMIUM_COLORS.fireOrange} size={400} top="60%" left="70%" delay={1000} />
+          <GlowOrb color="#B91C1C" size={300} top="80%" left="20%" delay={2000} />
 
-        <Animated.View entering={FadeInUp.duration(600)} className="items-center mb-10">
-          <Text
-            className="text-red-500 font-mono tracking-[0.3em] uppercase mb-4"
-            style={{ fontSize: SCREEN_WIDTH < 640 ? 11 : 14 }}
-          >
-            ¿Cuánto gastas cada mes?
-          </Text>
-          <Text
-            className="text-white font-bold text-center max-w-2xl px-2"
-            style={{ fontSize: SCREEN_WIDTH < 640 ? 22 : SCREEN_WIDTH < 768 ? 32 : 40 }}
-          >
-            Todo lo que necesitas,{' '}
-            <Text style={{ color: PREMIUM_COLORS.fireRed }}>por una fracción del costo</Text>
-          </Text>
-        </Animated.View>
-
-        <View
-          className="items-center"
-          style={{ maxWidth: 700, alignSelf: 'center', width: '100%' }}
-        >
-          {/* Cost comparison rows */}
-          {[
-            { label: 'Entrenador Personal', price: 'S/ 300 - 500', emoji: '🏋️' },
-            { label: 'Nutricionista', price: 'S/ 150 - 300', emoji: '🥗' },
-            { label: 'Apps de fitness (varias)', price: 'S/ 30 - 60', emoji: '📱' },
-            { label: 'App de grabación/edición', price: 'S/ 20 - 40', emoji: '🎬' },
-            { label: 'Rastreo de suplementos', price: 'S/ 15 - 30', emoji: '💊' },
-          ].map((item, i) => (
-            <Animated.View
-              key={i}
-              entering={FadeInLeft.delay(200 + i * 100).duration(500)}
-              className="flex-row items-center justify-between w-full py-4 border-b border-zinc-800/50"
-            >
-              <View className="flex-row items-center gap-3">
-                <Text style={{ fontSize: 20 }}>{item.emoji}</Text>
-                <Text className="text-zinc-300 text-base">{item.label}</Text>
-              </View>
-              <Text className="text-zinc-500 text-base line-through font-mono">{item.price}</Text>
-            </Animated.View>
+          {/* Floating Particles */}
+          {[...Array(20)].map((_, i) => (
+            <FloatingParticle key={i} delay={i * 400} left={5 + i * 4.5} />
           ))}
 
-          {/* Total comparison */}
+          {/* Main gradient overlay */}
+          <LinearGradient
+            colors={['rgba(220, 38, 38, 0.15)', 'transparent', 'rgba(0, 0, 0, 0.8)']}
+            start={{ x: 0.5, y: 0 }}
+            end={{ x: 0.5, y: 1 }}
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+            }}
+          />
+
+          {/* Grid Pattern Overlay */}
+          <View
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              opacity: 0.03,
+              ...(Platform.OS === 'web' &&
+                ({
+                  backgroundImage:
+                    'linear-gradient(rgba(255,255,255,0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.1) 1px, transparent 1px)',
+                  backgroundSize: '50px 50px',
+                } as any)),
+            }}
+          />
+
+          {/* Logo with Animation */}
           <Animated.View
-            entering={FadeInUp.delay(800).duration(600)}
-            className="w-full mt-6 p-6 rounded-2xl border-2 border-red-600/30 bg-red-950/20"
+            entering={ZoomIn.duration(1000).springify()}
+            style={floatStyle}
+            className="mb-10"
           >
-            <View className="flex-row items-center justify-between">
-              <View className="flex-row items-center gap-3">
-                <Flame size={24} color={PREMIUM_COLORS.fireRed} fill={PREMIUM_COLORS.fireRed} />
-                <View>
-                  <Text className="text-white text-lg font-bold">TRENS PRO</Text>
-                  <Text className="text-zinc-400 text-sm">Todo incluido en una sola app</Text>
-                </View>
-              </View>
-              <View className="items-end">
-                <Text
-                  className="text-white text-2xl font-bold"
-                  style={{
-                    textShadowColor: PREMIUM_COLORS.glowRed,
-                    textShadowOffset: { width: 0, height: 2 },
-                    textShadowRadius: 12,
-                  }}
-                >
-                  S/ 59.90
-                </Text>
-                <Text className="text-zinc-500 text-xs">/ mes</Text>
-              </View>
+            <AnimatedLogo />
+          </Animated.View>
+
+          {/* Brand Name */}
+          <Animated.View
+            entering={FadeInDown.delay(300).duration(800)}
+            className="items-center mb-4"
+          >
+            <Text
+              className="text-white text-6xl md:text-7xl font-bold tracking-tight"
+              style={{
+                textShadowColor: PREMIUM_COLORS.fireRed,
+                textShadowOffset: { width: 0, height: 4 },
+                textShadowRadius: 20,
+              }}
+            >
+              TRENS
+            </Text>
+          </Animated.View>
+
+          {/* Tagline */}
+          <Animated.View
+            entering={FadeInDown.delay(500).duration(800)}
+            className="items-center mb-6"
+          >
+            <LinearGradient
+              colors={[
+                PREMIUM_COLORS.fireRed,
+                PREMIUM_COLORS.fireOrange,
+                PREMIUM_COLORS.fireYellow,
+              ]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              className="px-6 py-2 rounded-full"
+            >
+              <Text className="text-white font-mono text-sm tracking-[0.3em] uppercase">
+                High Performance Fitness
+              </Text>
+            </LinearGradient>
+          </Animated.View>
+
+          {/* Main Headline */}
+          <Animated.View
+            entering={FadeInDown.delay(700).duration(800)}
+            className="items-center mb-8 max-w-3xl"
+          >
+            <Text className="text-white text-3xl md:text-5xl font-bold text-center leading-tight">
+              Inicia, monitorea y{' '}
+              <Text style={{ color: PREMIUM_COLORS.fireRed }}>alcanza tus objetivos</Text>
+            </Text>
+            <Text className="text-zinc-400 text-lg md:text-xl text-center mt-6 max-w-2xl leading-relaxed">
+              Rutinas con cada serie configurable, plan nutricional por horario, stack de
+              suplementos ilimitado, múltiples cardios, 2 entrenamientos al día, cámara PRO con
+              Spotify integrado y feed extremo. Todo conectado en una sola plataforma.
+            </Text>
+          </Animated.View>
+
+          {/* CTA Button with Glow */}
+          <Animated.View entering={FadeInUp.delay(900).duration(800)} style={pulseStyle}>
+            <TouchableOpacity onPress={scrollToPricing} activeOpacity={0.9} className="relative">
+              {/* Button glow */}
+              <View
+                style={{
+                  position: 'absolute',
+                  top: -10,
+                  left: -10,
+                  right: -10,
+                  bottom: -10,
+                  borderRadius: 28,
+                  backgroundColor: PREMIUM_COLORS.fireRed,
+                  opacity: 0.3,
+                }}
+                className="blur-xl"
+              />
+              <LinearGradient
+                colors={[PREMIUM_COLORS.fireRed, '#B91C1C']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                className="px-12 py-5 rounded-2xl flex-row items-center gap-4"
+                style={{
+                  shadowColor: PREMIUM_COLORS.fireRed,
+                  shadowOffset: { width: 0, height: 8 },
+                  shadowOpacity: 0.6,
+                  shadowRadius: 20,
+                  elevation: 15,
+                }}
+              >
+                <Flame size={26} color="white" fill="white" />
+                <Text className="text-white text-xl font-bold tracking-wide">EMPIEZA AHORA</Text>
+                <ArrowRight size={24} color="white" />
+              </LinearGradient>
+            </TouchableOpacity>
+          </Animated.View>
+
+          {/* Price Badge */}
+          <Animated.View entering={FadeInUp.delay(1100).duration(800)} className="mt-8">
+            <View className="flex-row items-center gap-2 bg-zinc-900/60 backdrop-blur-xl border border-zinc-800 px-6 py-3 rounded-full">
+              <Crown size={18} color={PREMIUM_COLORS.fireYellow} />
+              <Text className="text-zinc-400">
+                Solo <Text className="text-red-500 font-bold text-lg">{getFormattedPrice()}</Text>
+                <Text className="text-zinc-500"> / mes</Text>
+              </Text>
             </View>
           </Animated.View>
 
-          <Animated.View entering={FadeInUp.delay(1000).duration(600)} className="mt-4">
-            <Text className="text-zinc-500 text-center text-sm">
-              Ahorra hasta <Text className="text-red-500 font-bold">S/ 870</Text> al mes frente a
-              contratar todo por separado
-            </Text>
+          {/* Scroll Indicator */}
+          <Animated.View
+            entering={FadeInUp.delay(1300).duration(800)}
+            className="absolute bottom-10"
+          >
+            <View className="items-center">
+              <Text className="text-zinc-600 text-xs uppercase tracking-widest mb-2">
+                Descubre más
+              </Text>
+              <Animated.View
+                style={{
+                  ...floatStyle,
+                }}
+              >
+                <ChevronRight
+                  size={24}
+                  color="#52525B"
+                  style={{ transform: [{ rotate: '90deg' }] }}
+                />
+              </Animated.View>
+            </View>
           </Animated.View>
         </View>
-      </View>
 
-      {/* ================================================================== */}
-      {/* FEATURES GRID - UTILITY FOCUSED */}
-      {/* ================================================================== */}
-      <View
-        className="bg-black relative overflow-hidden"
-        style={{ paddingHorizontal: 16, paddingVertical: SCREEN_WIDTH < 768 ? 48 : 96 }}
-      >
-        {/* Background Elements */}
-        <GlowOrb color={PREMIUM_COLORS.fireRed} size={400} top="20%" left="10%" delay={500} />
-        <GlowOrb color={PREMIUM_COLORS.fireOrange} size={300} top="70%" left="80%" delay={1500} />
-
-        <Animated.View
-          entering={FadeInUp.duration(600)}
-          className="items-center"
-          style={{ marginBottom: SCREEN_WIDTH < 768 ? 32 : 64 }}
-        >
-          <View className="flex-row items-center gap-3 mb-4">
-            <Sparkles size={20} color={PREMIUM_COLORS.fireRed} />
-            <Text
-              className="text-red-500 font-mono tracking-[0.3em] uppercase"
-              style={{ fontSize: SCREEN_WIDTH < 640 ? 11 : 14 }}
-            >
-              Herramientas
-            </Text>
-            <Sparkles size={20} color={PREMIUM_COLORS.fireRed} />
-          </View>
-          <Text
-            className="text-white font-bold text-center max-w-2xl leading-tight px-2"
-            style={{ fontSize: SCREEN_WIDTH < 640 ? 22 : SCREEN_WIDTH < 768 ? 32 : 40 }}
+        {/* ================================================================== */}
+        {/* STATS SECTION */}
+        {/* ================================================================== */}
+        <View className="px-6 py-16 bg-zinc-950/50">
+          <View
+            className="flex-row flex-wrap justify-center items-center gap-8 md:gap-16"
+            style={{ maxWidth: 1000, alignSelf: 'center' }}
           >
-            Configura <Text style={{ color: PREMIUM_COLORS.fireRed }}>cada detalle</Text> de tu
-            entrenamiento
-          </Text>
-          <Text className="text-zinc-400 text-center mt-4 max-w-xl px-4">
-            Desde el calentamiento hasta el último suplemento del día. TRENS te da control total
-            sobre cada variable de tu rendimiento.
-          </Text>
-        </Animated.View>
-
-        <View
-          className="flex-row flex-wrap justify-center items-stretch"
-          style={{ maxWidth: 1300, alignSelf: 'center', gap: 12, paddingHorizontal: 4 }}
-        >
-          <PremiumFeatureCard
-            icon={Dumbbell}
-            title="Rutinas a Tu Medida"
-            description="Constructor con +500 ejercicios, días rotacionales automáticos, 4 tipos de series (calentamiento, aproximación, efectiva, fallo). Configura peso, reps, RIR, tempo y descanso en cada serie. Hasta 2 entrenamientos por día. Drag & drop para reorganizar."
-            delay={100}
-            index={0}
-          />
-          <PremiumFeatureCard
-            icon={Utensils}
-            title="Plan Nutricional Completo"
-            description="Planifica cada comida por horario con ingredientes detallados y gramos exactos. Múltiples opciones por comida para variar tu dieta. Macros calculados automáticamente por inteligencia artificial. Ajuste dinámico según tu objetivo: volumen, definición o mantenimiento."
-            delay={150}
-            index={1}
-          />
-          <PremiumFeatureCard
-            icon={Pill}
-            title="Stack de Suplementos Ilimitado"
-            description="Agrega cualquier suplemento: pastillas, polvo, líquido, inyectables. Configura múltiples horarios y dosis específicas por día. Pre-workout, intra-workout, post-workout, antes de dormir — todo organizado en tu timeline diario integrado con tu plan."
-            delay={200}
-            index={2}
-          />
-          <PremiumFeatureCard
-            icon={Timer}
-            title="Cardio Blocks"
-            description="Agrega varios bloques de cardio separados a tu día: HIIT, steady-state, caminata, bicicleta. Cada uno con duración, intensidad y notas. Combínalos con tus entrenamientos de fuerza para un control total de tu volumen de trabajo."
-            delay={250}
-            index={3}
-          />
-          <PremiumFeatureCard
-            icon={Camera}
-            title="Cámara PRO 9:16"
-            description="Graba cada set en formato vertical profesional 9:16. Flash, cámara frontal/trasera, compresión inteligente. Graba sin detener tu música — si tienes Spotify conectado, controla la reproducción directamente desde PRO sin salir de la grabación."
-            delay={300}
-            index={4}
-          />
-
-          <PremiumFeatureCard
-            icon={Dna}
-            title="ADN Atlético"
-            description="Tu perfil completo: medidas corporales (peso, grasa, masa muscular), récords personales, macros objetivo, fotos de progreso con comparativas en timeline, badges y stats de volumen semanal. TrensID Card compartible."
-            delay={400}
-            index={6}
-          />
-          <PremiumFeatureCard
-            icon={TrendingUp}
-            title="Progreso Visual"
-            description="Sube fotos de progreso y compáralas en timeline con slider lado a lado. Ve tu transformación mes a mes con datos de peso, grasa corporal y masa muscular. Cada foto se vincula a tus métricas de ese momento."
-            delay={450}
-            index={7}
-          />
-          <PremiumFeatureCard
-            icon={BarChart3}
-            title="Macros Inteligentes"
-            description="Calorías, proteína, carbs y grasa calculados automáticamente según tu peso, altura, edad, nivel de actividad y objetivo. Se ajustan en tiempo real cuando modificas tu plan de comidas. Dashboard visual con anillos de progreso diario."
-            delay={500}
-            index={8}
-          />
-          <PremiumFeatureCard
-            icon={ShoppingCart}
-            title="Lista de Compras"
-            description="Se genera automáticamente desde tus comidas planificadas. Agrupa todos los ingredientes de la semana por categoría. Lleva al supermercado exactamente lo que necesitas. Sin desperdiciar, sin olvidar nada."
-            delay={550}
-            index={9}
-          />
-          <PremiumFeatureCard
-            icon={Music}
-            title="Spotify Sync"
-            description="Conecta tu Spotify Premium y la canción que suena durante tu set se sincroniza automáticamente con tu video: nombre del track, artista, carátula y posición exacta. Control de reproducción integrado en la app."
-            delay={600}
-            index={10}
-          />
-          <PremiumFeatureCard
-            icon={BellRing}
-            title="Notificaciones Smart"
-            description="Recordatorios automáticos de entrenamiento, alertas de suplementos programadas a la hora exacta, avisos de comidas y notificaciones de la comunidad. 100% personalizables para que nunca se te pase nada."
-            delay={650}
-            index={11}
-          />
+            <StatCounter value="10K" suffix="+" label="Atletas Activos" delay={100} />
+            <View className="w-px h-12 bg-zinc-800 hidden md:flex" />
+            <StatCounter value="500K" suffix="+" label="Sets Grabados" delay={200} />
+            <View className="w-px h-12 bg-zinc-800 hidden md:flex" />
+            <StatCounter value="98" suffix="%" label="Satisfacción" delay={300} />
+          </View>
         </View>
 
         {/* ================================================================== */}
-        {/* PARA QUIÉN ES TRENS */}
+        {/* PHONE VIDEO DEMO */}
         {/* ================================================================== */}
+        <PhoneVideoDemo />
         <View
-          className="mt-20 items-center"
-          style={{ maxWidth: 1000, alignSelf: 'center', width: '100%' }}
+          className="bg-black relative overflow-hidden"
+          style={{ paddingHorizontal: 16, paddingVertical: SCREEN_WIDTH < 768 ? 48 : 80 }}
         >
-          <Animated.View
-            entering={FadeInUp.delay(700).duration(600)}
-            className="items-center mb-10"
-          >
+          <GlowOrb color="#991B1B" size={400} top="50%" left="50%" delay={0} />
+
+          <Animated.View entering={FadeInUp.duration(600)} className="items-center mb-10">
             <Text
               className="text-red-500 font-mono tracking-[0.3em] uppercase mb-4"
               style={{ fontSize: SCREEN_WIDTH < 640 ? 11 : 14 }}
             >
-              ¿Para quién es?
+              ¿Cuánto gastas cada mes?
             </Text>
             <Text
-              className="text-white font-bold text-center px-2"
-              style={{ fontSize: SCREEN_WIDTH < 640 ? 22 : SCREEN_WIDTH < 768 ? 28 : 36 }}
+              className="text-white font-bold text-center max-w-2xl px-2"
+              style={{ fontSize: SCREEN_WIDTH < 640 ? 22 : SCREEN_WIDTH < 768 ? 32 : 40 }}
             >
-              Si quieres <Text style={{ color: PREMIUM_COLORS.fireRed }}>resultados reales</Text>,
-              necesitas un sistema real
+              Todo lo que necesitas,{' '}
+              <Text style={{ color: PREMIUM_COLORS.fireRed }}>por una fracción del costo</Text>
             </Text>
           </Animated.View>
 
           <View
-            className="flex-row flex-wrap justify-center gap-4"
-            style={{ paddingHorizontal: 8 }}
+            className="items-center"
+            style={{ maxWidth: 700, alignSelf: 'center', width: '100%' }}
           >
-            {/* Card 1: Quiere ordenarse */}
-            <Animated.View
-              entering={FadeInUp.delay(800).duration(600)}
-              className="bg-zinc-900/40 border border-zinc-800/40 rounded-2xl p-6"
-              style={{ width: SCREEN_WIDTH < 640 ? '100%' : 460, maxWidth: 460 }}
-            >
-              <View className="flex-row items-center gap-3 mb-4">
-                <LinearGradient
-                  colors={[PREMIUM_COLORS.fireRed, PREMIUM_COLORS.fireOrange]}
-                  className="w-12 h-12 rounded-2xl items-center justify-center"
-                >
-                  <Target size={24} color="white" />
-                </LinearGradient>
-                <Text className="text-white font-bold text-lg">Quieres ordenarte</Text>
-              </View>
-              <Text className="text-zinc-400 text-sm leading-relaxed mb-4">
-                Entrenas pero no tienes estructura. Un día haces pecho, otro improvias pierna. Comes
-                lo que hay. No sabes qué suplementos tomar ni cuándo. No llevas registro de nada.
-              </Text>
-              <View className="gap-2">
-                {[
-                  'Rutina armada por días con rotación automática',
-                  'Plan de comidas con horarios y macros calculados',
-                  'Stack de suplementos con alertas de horario',
-                  'Lista de compras generada de tu plan',
-                  'Fotos de progreso para ver tu transformación',
-                ].map((item, i) => (
-                  <View key={i} className="flex-row items-center gap-2">
-                    <Check size={14} color={PREMIUM_COLORS.fireRed} />
-                    <Text className="text-zinc-300 text-sm">{item}</Text>
-                  </View>
-                ))}
-              </View>
-            </Animated.View>
-
-            {/* Card 2: Atleta competitivo */}
-            <Animated.View
-              entering={FadeInUp.delay(900).duration(600)}
-              className="bg-zinc-900/40 border border-red-600/20 rounded-2xl p-6"
-              style={{ width: SCREEN_WIDTH < 640 ? '100%' : 460, maxWidth: 460 }}
-            >
-              <View className="flex-row items-center gap-3 mb-4">
-                <LinearGradient
-                  colors={[PREMIUM_COLORS.fireRed, '#B91C1C']}
-                  className="w-12 h-12 rounded-2xl items-center justify-center"
-                >
-                  <Flame size={24} color="white" />
-                </LinearGradient>
-                <Text className="text-white font-bold text-lg">Atleta competitivo</Text>
-              </View>
-              <Text className="text-zinc-400 text-sm leading-relaxed mb-4">
-                Necesitas control absoluto sobre cada variable: peso, reps, RIR, tempo, descanso.
-                Dos sesiones al día, cardio específico, suplementación precisa al minuto.
-              </Text>
-              <View className="gap-2">
-                {[
-                  '2 entrenamientos al día con series detalladas',
-                  'RIR, tempo (excéntrica-concéntrica), descanso configurable',
-                  'Múltiples cardios con intensidad y duración',
-                  'Cámara PRO 9:16 con Spotify integrado',
-                  'Graba sin detener tu música',
-                  'Control de reproducción desde la grabación',
-                ].map((item, i) => (
-                  <View key={i} className="flex-row items-center gap-2">
-                    <Check size={14} color={PREMIUM_COLORS.fireRed} />
-                    <Text className="text-zinc-300 text-sm">{item}</Text>
-                  </View>
-                ))}
-              </View>
-            </Animated.View>
-          </View>
-        </View>
-
-        {/* ================================================================== */}
-        {/* DEEP DIVE: NIVEL DE DETALLE */}
-        {/* ================================================================== */}
-        <View
-          className="mt-20 items-center"
-          style={{ maxWidth: 1000, alignSelf: 'center', width: '100%' }}
-        >
-          <Animated.View
-            entering={FadeInUp.delay(1000).duration(600)}
-            className="items-center mb-10"
-          >
-            <Text
-              className="text-red-500 font-mono tracking-[0.3em] uppercase mb-4"
-              style={{ fontSize: SCREEN_WIDTH < 640 ? 11 : 14 }}
-            >
-              Nivel de detalle
-            </Text>
-            <Text
-              className="text-white font-bold text-center px-2"
-              style={{ fontSize: SCREEN_WIDTH < 640 ? 22 : SCREEN_WIDTH < 768 ? 28 : 36 }}
-            >
-              Cada serie, cada comida, cada suplemento —{' '}
-              <Text style={{ color: PREMIUM_COLORS.fireRed }}>configurable</Text>
-            </Text>
-          </Animated.View>
-
-          <View className="flex-row flex-wrap justify-center gap-3 px-4">
+            {/* Cost comparison rows */}
             {[
-              {
-                icon: Dumbbell,
-                title: 'POR SERIE',
-                items: [
-                  'Peso en kg/lb',
-                  'Repeticiones',
-                  'RIR (Reps In Reserve)',
-                  'Tempo (ecc-bot-con-top)',
-                  'Tiempo de descanso',
-                  'Tipo: calentamiento / efectiva / fallo',
-                ],
-                color: '#DC2626',
-              },
-              {
-                icon: Utensils,
-                title: 'POR COMIDA',
-                items: [
-                  'Horario específico',
-                  'Ingredientes con gramos',
-                  'Macros automáticos (kcal/P/C/G)',
-                  'Múltiples opciones por slot',
-                  'Sugerencias de sustitución',
-                  'Detección de alérgenos',
-                ],
-                color: '#F97316',
-              },
-              {
-                icon: Pill,
-                title: 'POR SUPLEMENTO',
-                items: [
-                  'Tipo: pastilla / polvo / líquido',
-                  'Dosis específica',
-                  'Múltiples horarios al día',
-                  'Notas de uso',
-                  'Timeline integrado',
-                  'Alertas programables',
-                ],
-                color: '#FBBF24',
-              },
-            ].map((block, i) => (
+              { label: 'Entrenador Personal', price: 'S/ 300 - 500', emoji: '🏋️' },
+              { label: 'Nutricionista', price: 'S/ 150 - 300', emoji: '🥗' },
+              { label: 'Apps de fitness (varias)', price: 'S/ 30 - 60', emoji: '📱' },
+              { label: 'App de grabación/edición', price: 'S/ 20 - 40', emoji: '🎬' },
+              { label: 'Rastreo de suplementos', price: 'S/ 15 - 30', emoji: '💊' },
+            ].map((item, i) => (
               <Animated.View
                 key={i}
-                entering={FadeInUp.delay(1100 + i * 100).duration(500)}
-                className="bg-zinc-900/40 border border-zinc-800/40 rounded-2xl p-5"
-                style={{ width: SCREEN_WIDTH < 640 ? '100%' : 300 }}
+                entering={FadeInLeft.delay(200 + i * 100).duration(500)}
+                className="flex-row items-center justify-between w-full py-4 border-b border-zinc-800/50"
               >
-                <View className="flex-row items-center gap-3 mb-4">
-                  <View
-                    className="w-10 h-10 rounded-xl items-center justify-center"
-                    style={{ backgroundColor: `${block.color}20` }}
-                  >
-                    <block.icon size={20} color={block.color} />
-                  </View>
-                  <Text className="text-white font-bold font-mono text-sm">{block.title}</Text>
+                <View className="flex-row items-center gap-3">
+                  <Text style={{ fontSize: 20 }}>{item.emoji}</Text>
+                  <Text className="text-zinc-300 text-base">{item.label}</Text>
                 </View>
-                <View className="gap-2">
-                  {block.items.map((item, j) => (
-                    <View key={j} className="flex-row items-center gap-2">
-                      <View
-                        className="w-1.5 h-1.5 rounded-full"
-                        style={{ backgroundColor: block.color }}
-                      />
-                      <Text className="text-zinc-400 text-xs">{item}</Text>
-                    </View>
-                  ))}
-                </View>
+                <Text className="text-zinc-500 text-base line-through font-mono">{item.price}</Text>
               </Animated.View>
             ))}
-          </View>
 
-          {/* IA mention — single, subtle */}
-          <Animated.View
-            entering={FadeInUp.delay(1400).duration(600)}
-            className="mt-8 items-center"
-          >
-            <View className="bg-zinc-900/30 border border-zinc-800/30 rounded-2xl px-6 py-4 flex-row items-center gap-4 max-w-lg">
-              <Brain size={24} color={PREMIUM_COLORS.fireRed} />
-              <View className="flex-1">
-                <Text className="text-white font-bold text-sm">Asistente IA integrado</Text>
-                <Text className="text-zinc-500 text-xs mt-1">
-                  HANK puede crear rutinas, calcular macros, sugerir ejercicios y ajustar tu plan —
-                  por texto o voz.
-                </Text>
+            {/* Total comparison */}
+            <Animated.View
+              entering={FadeInUp.delay(800).duration(600)}
+              className="w-full mt-6 p-6 rounded-2xl border-2 border-red-600/30 bg-red-950/20"
+            >
+              <View className="flex-row items-center justify-between">
+                <View className="flex-row items-center gap-3">
+                  <Flame size={24} color={PREMIUM_COLORS.fireRed} fill={PREMIUM_COLORS.fireRed} />
+                  <View>
+                    <Text className="text-white text-lg font-bold">TRENS PRO</Text>
+                    <Text className="text-zinc-400 text-sm">Todo incluido en una sola app</Text>
+                  </View>
+                </View>
+                <View className="items-end">
+                  <Text
+                    className="text-white text-2xl font-bold"
+                    style={{
+                      textShadowColor: PREMIUM_COLORS.glowRed,
+                      textShadowOffset: { width: 0, height: 2 },
+                      textShadowRadius: 12,
+                    }}
+                  >
+                    S/ 59.90
+                  </Text>
+                  <Text className="text-zinc-500 text-xs">/ mes</Text>
+                </View>
               </View>
-            </View>
-          </Animated.View>
+            </Animated.View>
+
+            <Animated.View entering={FadeInUp.delay(1000).duration(600)} className="mt-4">
+              <Text className="text-zinc-500 text-center text-sm">
+                Ahorra hasta <Text className="text-red-500 font-bold">S/ 870</Text> al mes frente a
+                contratar todo por separado
+              </Text>
+            </Animated.View>
+          </View>
         </View>
 
         {/* ================================================================== */}
-        {/* TRENS SHOP SECTION */}
+        {/* FEATURES GRID - UTILITY FOCUSED */}
         {/* ================================================================== */}
         <View
-          className="mt-24 items-center"
-          style={{ maxWidth: 1200, alignSelf: 'center', width: '100%' }}
+          className="bg-black relative overflow-hidden"
+          style={{ paddingHorizontal: 16, paddingVertical: SCREEN_WIDTH < 768 ? 48 : 96 }}
         >
+          {/* Background Elements */}
+          <GlowOrb color={PREMIUM_COLORS.fireRed} size={400} top="20%" left="10%" delay={500} />
+          <GlowOrb color={PREMIUM_COLORS.fireOrange} size={300} top="70%" left="80%" delay={1500} />
+
           <Animated.View
-            entering={FadeInUp.delay(200).duration(600)}
-            className="items-center mb-10"
+            entering={FadeInUp.duration(600)}
+            className="items-center"
+            style={{ marginBottom: SCREEN_WIDTH < 768 ? 32 : 64 }}
           >
             <View className="flex-row items-center gap-3 mb-4">
-              <ShoppingCart size={20} color={PREMIUM_COLORS.fireRed} />
+              <Sparkles size={20} color={PREMIUM_COLORS.fireRed} />
               <Text
                 className="text-red-500 font-mono tracking-[0.3em] uppercase"
                 style={{ fontSize: SCREEN_WIDTH < 640 ? 11 : 14 }}
               >
-                TRENS Shop
+                Herramientas
               </Text>
-              <ShoppingCart size={20} color={PREMIUM_COLORS.fireRed} />
+              <Sparkles size={20} color={PREMIUM_COLORS.fireRed} />
             </View>
             <Text
-              className="text-white font-bold text-center max-w-3xl leading-tight px-2"
-              style={{ fontSize: SCREEN_WIDTH < 640 ? 22 : SCREEN_WIDTH < 768 ? 32 : 44 }}
+              className="text-white font-bold text-center max-w-2xl leading-tight px-2"
+              style={{ fontSize: SCREEN_WIDTH < 640 ? 22 : SCREEN_WIDTH < 768 ? 32 : 40 }}
             >
-              La <Text style={{ color: PREMIUM_COLORS.fireRed }}>tienda integrada</Text> con los
-              mejores precios del mercado
+              Configura <Text style={{ color: PREMIUM_COLORS.fireRed }}>cada detalle</Text> de tu
+              entrenamiento
             </Text>
-            <Text
-              className="text-zinc-400 text-center mt-4 max-w-2xl px-4"
-              style={{ fontSize: SCREEN_WIDTH < 640 ? 14 : 16 }}
-            >
-              Suplementos, equipamiento, ropa técnica y accesorios premium — todo dentro de la app.
-              Compra directamente con tu tarjeta guardada en segundos.
-            </Text>
-          </Animated.View>
-
-          {/* Free shipping highlight banner */}
-          <Animated.View
-            entering={FadeInUp.delay(300).duration(700)}
-            style={{
-              width: '100%',
-              maxWidth: 900,
-              borderRadius: 24,
-              overflow: 'hidden',
-              borderWidth: 1,
-              borderColor: 'rgba(250, 204, 21, 0.4)',
-              marginBottom: 32,
-            }}
-          >
-            <LinearGradient
-              colors={['rgba(250, 204, 21, 0.18)', 'rgba(220, 38, 38, 0.12)', 'rgba(0, 0, 0, 0.6)']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={{ padding: SCREEN_WIDTH < 640 ? 20 : 32 }}
-            >
-              <View className={SCREEN_WIDTH < 640 ? 'items-center' : 'flex-row items-center gap-6'}>
-                <View
-                  style={{
-                    width: 72,
-                    height: 72,
-                    borderRadius: 20,
-                    backgroundColor: 'rgba(250, 204, 21, 0.15)',
-                    borderWidth: 1,
-                    borderColor: 'rgba(250, 204, 21, 0.5)',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    marginBottom: SCREEN_WIDTH < 640 ? 16 : 0,
-                  }}
-                >
-                  <Truck size={36} color="#FACC15" />
-                </View>
-                <View className={SCREEN_WIDTH < 640 ? 'items-center' : 'flex-1'}>
-                  <View className="flex-row items-center gap-2 mb-2">
-                    <Crown size={16} color="#FACC15" fill="#FACC15" />
-                    <Text
-                      className="text-yellow-400 font-mono uppercase tracking-widest"
-                      style={{ fontSize: 11 }}
-                    >
-                      Beneficio PRO exclusivo
-                    </Text>
-                  </View>
-                  <Text
-                    className="text-white font-bold"
-                    style={{
-                      fontSize: SCREEN_WIDTH < 640 ? 22 : 28,
-                      textAlign: SCREEN_WIDTH < 640 ? 'center' : 'left',
-                    }}
-                  >
-                    Envío <Text style={{ color: '#FACC15' }}>GRATIS</Text> a todo el Perú
-                  </Text>
-                  <Text
-                    className="text-zinc-300 mt-2"
-                    style={{
-                      fontSize: SCREEN_WIDTH < 640 ? 13 : 15,
-                      textAlign: SCREEN_WIDTH < 640 ? 'center' : 'left',
-                    }}
-                  >
-                    Suscríbete a TRENS PRO y recibe cualquier producto físico de la tienda sin pagar
-                    envío. De Lima a Iquitos, de Tacna a Tumbes.
-                  </Text>
-                </View>
-              </View>
-            </LinearGradient>
-          </Animated.View>
-
-          {/* SHOP benefits grid */}
-          <View className="flex-row flex-wrap justify-center" style={{ gap: 12, width: '100%' }}>
-            <Animated.View
-              entering={FadeInUp.delay(400).duration(600)}
-              style={{
-                flexBasis: SCREEN_WIDTH < 768 ? '100%' : SCREEN_WIDTH < 1024 ? '48%' : '23.5%',
-                minWidth: 240,
-              }}
-            >
-              <View className="bg-zinc-900/40 border border-zinc-800 rounded-2xl p-5 h-full">
-                <View
-                  style={{
-                    width: 44,
-                    height: 44,
-                    borderRadius: 12,
-                    backgroundColor: 'rgba(220, 38, 38, 0.15)',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    marginBottom: 12,
-                  }}
-                >
-                  <Tag size={22} color={PREMIUM_COLORS.fireRed} />
-                </View>
-                <Text className="text-white font-bold text-base mb-1">Mejores precios</Text>
-                <Text className="text-zinc-400 text-sm leading-5">
-                  Negociamos directo con marcas para ofrecerte precios por debajo del mercado.
-                </Text>
-              </View>
-            </Animated.View>
-
-            <Animated.View
-              entering={FadeInUp.delay(500).duration(600)}
-              style={{
-                flexBasis: SCREEN_WIDTH < 768 ? '100%' : SCREEN_WIDTH < 1024 ? '48%' : '23.5%',
-                minWidth: 240,
-              }}
-            >
-              <View className="bg-zinc-900/40 border border-zinc-800 rounded-2xl p-5 h-full">
-                <View
-                  style={{
-                    width: 44,
-                    height: 44,
-                    borderRadius: 12,
-                    backgroundColor: 'rgba(220, 38, 38, 0.15)',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    marginBottom: 12,
-                  }}
-                >
-                  <Package size={22} color={PREMIUM_COLORS.fireRed} />
-                </View>
-                <Text className="text-white font-bold text-base mb-1">Productos seleccionados</Text>
-                <Text className="text-zinc-400 text-sm leading-5">
-                  Solo lo que realmente funciona: suplementos, ropa técnica y equipamiento probado.
-                </Text>
-              </View>
-            </Animated.View>
-
-            <Animated.View
-              entering={FadeInUp.delay(600).duration(600)}
-              style={{
-                flexBasis: SCREEN_WIDTH < 768 ? '100%' : SCREEN_WIDTH < 1024 ? '48%' : '23.5%',
-                minWidth: 240,
-              }}
-            >
-              <View className="bg-zinc-900/40 border border-zinc-800 rounded-2xl p-5 h-full">
-                <View
-                  style={{
-                    width: 44,
-                    height: 44,
-                    borderRadius: 12,
-                    backgroundColor: 'rgba(220, 38, 38, 0.15)',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    marginBottom: 12,
-                  }}
-                >
-                  <ShieldCheck size={22} color={PREMIUM_COLORS.fireRed} />
-                </View>
-                <Text className="text-white font-bold text-base mb-1">Pago seguro</Text>
-                <Text className="text-zinc-400 text-sm leading-5">
-                  Compra con tarjeta tokenizada. Sin volver a ingresar datos. Procesado por OpenPay.
-                </Text>
-              </View>
-            </Animated.View>
-
-            <Animated.View
-              entering={FadeInUp.delay(700).duration(600)}
-              style={{
-                flexBasis: SCREEN_WIDTH < 768 ? '100%' : SCREEN_WIDTH < 1024 ? '48%' : '23.5%',
-                minWidth: 240,
-              }}
-            >
-              <View className="bg-zinc-900/40 border border-zinc-800 rounded-2xl p-5 h-full">
-                <View
-                  style={{
-                    width: 44,
-                    height: 44,
-                    borderRadius: 12,
-                    backgroundColor: 'rgba(220, 38, 38, 0.15)',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    marginBottom: 12,
-                  }}
-                >
-                  <MapPin size={22} color={PREMIUM_COLORS.fireRed} />
-                </View>
-                <Text className="text-white font-bold text-base mb-1">Cobertura nacional</Text>
-                <Text className="text-zinc-400 text-sm leading-5">
-                  Entregas a todo el Perú. Tracking en tiempo real desde tu cuenta.
-                </Text>
-              </View>
-            </Animated.View>
-          </View>
-        </View>
-
-        {/* ================================================================== */}
-        {/* PLATFORM SECTION */}
-        {/* ================================================================== */}
-        <View
-          className="mt-16 items-center"
-          style={{ maxWidth: 800, alignSelf: 'center', width: '100%' }}
-        >
-          <Animated.View
-            entering={FadeInUp.delay(1500).duration(600)}
-            className="items-center mb-6"
-          >
-            <Text
-              className="text-white font-bold text-center"
-              style={{ fontSize: SCREEN_WIDTH < 640 ? 18 : 24 }}
-            >
-              Disponible en{' '}
-              <Text style={{ color: PREMIUM_COLORS.fireRed }}>todas las plataformas</Text>
-            </Text>
-          </Animated.View>
-          <View className="flex-row flex-wrap justify-center gap-4">
-            {[
-              { icon: Smartphone, name: 'iOS', sub: 'App Store' },
-              { icon: Smartphone, name: 'Android', sub: 'Google Play' },
-              { icon: Globe, name: 'Web', sub: 'trens.app (PWA)' },
-            ].map((platform, i) => (
-              <View
-                key={i}
-                className="bg-zinc-900/40 border border-zinc-800/40 rounded-xl px-5 py-3 flex-row items-center gap-3"
-              >
-                <platform.icon size={20} color={PREMIUM_COLORS.fireRed} />
-                <View>
-                  <Text className="text-white font-bold text-sm">{platform.name}</Text>
-                  <Text className="text-zinc-500 text-xs">{platform.sub}</Text>
-                </View>
-              </View>
-            ))}
-          </View>
-        </View>
-        {/* ================================================================== */}
-        {/* HOW IT WORKS */}
-        {/* ================================================================== */}
-        <View
-          className="mt-20 items-center"
-          style={{ maxWidth: 1000, alignSelf: 'center', width: '100%' }}
-        >
-          <Animated.View
-            entering={FadeInUp.delay(1600).duration(600)}
-            className="items-center mb-10"
-          >
-            <Text
-              className="text-red-500 font-mono tracking-[0.3em] uppercase mb-4"
-              style={{ fontSize: SCREEN_WIDTH < 640 ? 11 : 14 }}
-            >
-              3 pasos
-            </Text>
-            <Text
-              className="text-white font-bold text-center px-2"
-              style={{ fontSize: SCREEN_WIDTH < 640 ? 22 : 32 }}
-            >
-              Empieza en <Text style={{ color: PREMIUM_COLORS.fireRed }}>menos de 2 minutos</Text>
+            <Text className="text-zinc-400 text-center mt-4 max-w-xl px-4">
+              Desde el calentamiento hasta el último suplemento del día. TRENS te da control total
+              sobre cada variable de tu rendimiento.
             </Text>
           </Animated.View>
 
           <View
-            className="flex-row flex-wrap justify-center gap-4"
-            style={{ paddingHorizontal: 8 }}
+            className="flex-row flex-wrap justify-center items-stretch"
+            style={{ maxWidth: 1300, alignSelf: 'center', gap: 12, paddingHorizontal: 4 }}
+          >
+            <PremiumFeatureCard
+              icon={Dumbbell}
+              title="Rutinas a Tu Medida"
+              description="Constructor con +500 ejercicios, días rotacionales automáticos, 4 tipos de series (calentamiento, aproximación, efectiva, fallo). Configura peso, reps, RIR, tempo y descanso en cada serie. Hasta 2 entrenamientos por día. Drag & drop para reorganizar."
+              delay={100}
+              index={0}
+            />
+            <PremiumFeatureCard
+              icon={Utensils}
+              title="Plan Nutricional Completo"
+              description="Planifica cada comida por horario con ingredientes detallados y gramos exactos. Múltiples opciones por comida para variar tu dieta. Macros calculados automáticamente por inteligencia artificial. Ajuste dinámico según tu objetivo: volumen, definición o mantenimiento."
+              delay={150}
+              index={1}
+            />
+            <PremiumFeatureCard
+              icon={Pill}
+              title="Stack de Suplementos Ilimitado"
+              description="Agrega cualquier suplemento: pastillas, polvo, líquido, inyectables. Configura múltiples horarios y dosis específicas por día. Pre-workout, intra-workout, post-workout, antes de dormir — todo organizado en tu timeline diario integrado con tu plan."
+              delay={200}
+              index={2}
+            />
+            <PremiumFeatureCard
+              icon={Timer}
+              title="Cardio Blocks"
+              description="Agrega varios bloques de cardio separados a tu día: HIIT, steady-state, caminata, bicicleta. Cada uno con duración, intensidad y notas. Combínalos con tus entrenamientos de fuerza para un control total de tu volumen de trabajo."
+              delay={250}
+              index={3}
+            />
+            <PremiumFeatureCard
+              icon={Camera}
+              title="Cámara PRO 9:16"
+              description="Graba cada set en formato vertical profesional 9:16. Flash, cámara frontal/trasera, compresión inteligente. Graba sin detener tu música — si tienes Spotify conectado, controla la reproducción directamente desde PRO sin salir de la grabación."
+              delay={300}
+              index={4}
+            />
+
+            <PremiumFeatureCard
+              icon={Dna}
+              title="ADN Atlético"
+              description="Tu perfil completo: medidas corporales (peso, grasa, masa muscular), récords personales, macros objetivo, fotos de progreso con comparativas en timeline, badges y stats de volumen semanal. TrensID Card compartible."
+              delay={400}
+              index={6}
+            />
+            <PremiumFeatureCard
+              icon={TrendingUp}
+              title="Progreso Visual"
+              description="Sube fotos de progreso y compáralas en timeline con slider lado a lado. Ve tu transformación mes a mes con datos de peso, grasa corporal y masa muscular. Cada foto se vincula a tus métricas de ese momento."
+              delay={450}
+              index={7}
+            />
+            <PremiumFeatureCard
+              icon={BarChart3}
+              title="Macros Inteligentes"
+              description="Calorías, proteína, carbs y grasa calculados automáticamente según tu peso, altura, edad, nivel de actividad y objetivo. Se ajustan en tiempo real cuando modificas tu plan de comidas. Dashboard visual con anillos de progreso diario."
+              delay={500}
+              index={8}
+            />
+            <PremiumFeatureCard
+              icon={ShoppingCart}
+              title="Lista de Compras"
+              description="Se genera automáticamente desde tus comidas planificadas. Agrupa todos los ingredientes de la semana por categoría. Lleva al supermercado exactamente lo que necesitas. Sin desperdiciar, sin olvidar nada."
+              delay={550}
+              index={9}
+            />
+            <PremiumFeatureCard
+              icon={Music}
+              title="Spotify Sync"
+              description="Conecta tu Spotify Premium y la canción que suena durante tu set se sincroniza automáticamente con tu video: nombre del track, artista, carátula y posición exacta. Control de reproducción integrado en la app."
+              delay={600}
+              index={10}
+            />
+            <PremiumFeatureCard
+              icon={BellRing}
+              title="Notificaciones Smart"
+              description="Recordatorios automáticos de entrenamiento, alertas de suplementos programadas a la hora exacta, avisos de comidas y notificaciones de la comunidad. 100% personalizables para que nunca se te pase nada."
+              delay={650}
+              index={11}
+            />
+          </View>
+
+          {/* ================================================================== */}
+          {/* PARA QUIÉN ES TRENS */}
+          {/* ================================================================== */}
+          <View
+            className="mt-20 items-center"
+            style={{ maxWidth: 1000, alignSelf: 'center', width: '100%' }}
+          >
+            <Animated.View
+              entering={FadeInUp.delay(700).duration(600)}
+              className="items-center mb-10"
+            >
+              <Text
+                className="text-red-500 font-mono tracking-[0.3em] uppercase mb-4"
+                style={{ fontSize: SCREEN_WIDTH < 640 ? 11 : 14 }}
+              >
+                ¿Para quién es?
+              </Text>
+              <Text
+                className="text-white font-bold text-center px-2"
+                style={{ fontSize: SCREEN_WIDTH < 640 ? 22 : SCREEN_WIDTH < 768 ? 28 : 36 }}
+              >
+                Si quieres <Text style={{ color: PREMIUM_COLORS.fireRed }}>resultados reales</Text>,
+                necesitas un sistema real
+              </Text>
+            </Animated.View>
+
+            <View
+              className="flex-row flex-wrap justify-center gap-4"
+              style={{ paddingHorizontal: 8 }}
+            >
+              {/* Card 1: Quiere ordenarse */}
+              <Animated.View
+                entering={FadeInUp.delay(800).duration(600)}
+                className="bg-zinc-900/40 border border-zinc-800/40 rounded-2xl p-6"
+                style={{ width: SCREEN_WIDTH < 640 ? '100%' : 460, maxWidth: 460 }}
+              >
+                <View className="flex-row items-center gap-3 mb-4">
+                  <LinearGradient
+                    colors={[PREMIUM_COLORS.fireRed, PREMIUM_COLORS.fireOrange]}
+                    className="w-12 h-12 rounded-2xl items-center justify-center"
+                  >
+                    <Target size={24} color="white" />
+                  </LinearGradient>
+                  <Text className="text-white font-bold text-lg">Quieres ordenarte</Text>
+                </View>
+                <Text className="text-zinc-400 text-sm leading-relaxed mb-4">
+                  Entrenas pero no tienes estructura. Un día haces pecho, otro improvias pierna.
+                  Comes lo que hay. No sabes qué suplementos tomar ni cuándo. No llevas registro de
+                  nada.
+                </Text>
+                <View className="gap-2">
+                  {[
+                    'Rutina armada por días con rotación automática',
+                    'Plan de comidas con horarios y macros calculados',
+                    'Stack de suplementos con alertas de horario',
+                    'Lista de compras generada de tu plan',
+                    'Fotos de progreso para ver tu transformación',
+                  ].map((item, i) => (
+                    <View key={i} className="flex-row items-center gap-2">
+                      <Check size={14} color={PREMIUM_COLORS.fireRed} />
+                      <Text className="text-zinc-300 text-sm">{item}</Text>
+                    </View>
+                  ))}
+                </View>
+              </Animated.View>
+
+              {/* Card 2: Atleta competitivo */}
+              <Animated.View
+                entering={FadeInUp.delay(900).duration(600)}
+                className="bg-zinc-900/40 border border-red-600/20 rounded-2xl p-6"
+                style={{ width: SCREEN_WIDTH < 640 ? '100%' : 460, maxWidth: 460 }}
+              >
+                <View className="flex-row items-center gap-3 mb-4">
+                  <LinearGradient
+                    colors={[PREMIUM_COLORS.fireRed, '#B91C1C']}
+                    className="w-12 h-12 rounded-2xl items-center justify-center"
+                  >
+                    <Flame size={24} color="white" />
+                  </LinearGradient>
+                  <Text className="text-white font-bold text-lg">Atleta competitivo</Text>
+                </View>
+                <Text className="text-zinc-400 text-sm leading-relaxed mb-4">
+                  Necesitas control absoluto sobre cada variable: peso, reps, RIR, tempo, descanso.
+                  Dos sesiones al día, cardio específico, suplementación precisa al minuto.
+                </Text>
+                <View className="gap-2">
+                  {[
+                    '2 entrenamientos al día con series detalladas',
+                    'RIR, tempo (excéntrica-concéntrica), descanso configurable',
+                    'Múltiples cardios con intensidad y duración',
+                    'Cámara PRO 9:16 con Spotify integrado',
+                    'Graba sin detener tu música',
+                    'Control de reproducción desde la grabación',
+                  ].map((item, i) => (
+                    <View key={i} className="flex-row items-center gap-2">
+                      <Check size={14} color={PREMIUM_COLORS.fireRed} />
+                      <Text className="text-zinc-300 text-sm">{item}</Text>
+                    </View>
+                  ))}
+                </View>
+              </Animated.View>
+            </View>
+          </View>
+
+          {/* ================================================================== */}
+          {/* DEEP DIVE: NIVEL DE DETALLE */}
+          {/* ================================================================== */}
+          <View
+            className="mt-20 items-center"
+            style={{ maxWidth: 1000, alignSelf: 'center', width: '100%' }}
+          >
+            <Animated.View
+              entering={FadeInUp.delay(1000).duration(600)}
+              className="items-center mb-10"
+            >
+              <Text
+                className="text-red-500 font-mono tracking-[0.3em] uppercase mb-4"
+                style={{ fontSize: SCREEN_WIDTH < 640 ? 11 : 14 }}
+              >
+                Nivel de detalle
+              </Text>
+              <Text
+                className="text-white font-bold text-center px-2"
+                style={{ fontSize: SCREEN_WIDTH < 640 ? 22 : SCREEN_WIDTH < 768 ? 28 : 36 }}
+              >
+                Cada serie, cada comida, cada suplemento —{' '}
+                <Text style={{ color: PREMIUM_COLORS.fireRed }}>configurable</Text>
+              </Text>
+            </Animated.View>
+
+            <View className="flex-row flex-wrap justify-center gap-3 px-4">
+              {[
+                {
+                  icon: Dumbbell,
+                  title: 'POR SERIE',
+                  items: [
+                    'Peso en kg/lb',
+                    'Repeticiones',
+                    'RIR (Reps In Reserve)',
+                    'Tempo (ecc-bot-con-top)',
+                    'Tiempo de descanso',
+                    'Tipo: calentamiento / efectiva / fallo',
+                  ],
+                  color: '#DC2626',
+                },
+                {
+                  icon: Utensils,
+                  title: 'POR COMIDA',
+                  items: [
+                    'Horario específico',
+                    'Ingredientes con gramos',
+                    'Macros automáticos (kcal/P/C/G)',
+                    'Múltiples opciones por slot',
+                    'Sugerencias de sustitución',
+                    'Detección de alérgenos',
+                  ],
+                  color: '#F97316',
+                },
+                {
+                  icon: Pill,
+                  title: 'POR SUPLEMENTO',
+                  items: [
+                    'Tipo: pastilla / polvo / líquido',
+                    'Dosis específica',
+                    'Múltiples horarios al día',
+                    'Notas de uso',
+                    'Timeline integrado',
+                    'Alertas programables',
+                  ],
+                  color: '#FBBF24',
+                },
+              ].map((block, i) => (
+                <Animated.View
+                  key={i}
+                  entering={FadeInUp.delay(1100 + i * 100).duration(500)}
+                  className="bg-zinc-900/40 border border-zinc-800/40 rounded-2xl p-5"
+                  style={{ width: SCREEN_WIDTH < 640 ? '100%' : 300 }}
+                >
+                  <View className="flex-row items-center gap-3 mb-4">
+                    <View
+                      className="w-10 h-10 rounded-xl items-center justify-center"
+                      style={{ backgroundColor: `${block.color}20` }}
+                    >
+                      <block.icon size={20} color={block.color} />
+                    </View>
+                    <Text className="text-white font-bold font-mono text-sm">{block.title}</Text>
+                  </View>
+                  <View className="gap-2">
+                    {block.items.map((item, j) => (
+                      <View key={j} className="flex-row items-center gap-2">
+                        <View
+                          className="w-1.5 h-1.5 rounded-full"
+                          style={{ backgroundColor: block.color }}
+                        />
+                        <Text className="text-zinc-400 text-xs">{item}</Text>
+                      </View>
+                    ))}
+                  </View>
+                </Animated.View>
+              ))}
+            </View>
+
+            {/* IA mention — single, subtle */}
+            <Animated.View
+              entering={FadeInUp.delay(1400).duration(600)}
+              className="mt-8 items-center"
+            >
+              <View className="bg-zinc-900/30 border border-zinc-800/30 rounded-2xl px-6 py-4 flex-row items-center gap-4 max-w-lg">
+                <Brain size={24} color={PREMIUM_COLORS.fireRed} />
+                <View className="flex-1">
+                  <Text className="text-white font-bold text-sm">Asistente IA integrado</Text>
+                  <Text className="text-zinc-500 text-xs mt-1">
+                    HANK puede crear rutinas, calcular macros, sugerir ejercicios y ajustar tu plan
+                    — por texto o voz.
+                  </Text>
+                </View>
+              </View>
+            </Animated.View>
+          </View>
+
+          {/* ================================================================== */}
+          {/* TRENS SHOP SECTION */}
+          {/* ================================================================== */}
+          <View
+            className="mt-24 items-center"
+            style={{ maxWidth: 1200, alignSelf: 'center', width: '100%' }}
+          >
+            <Animated.View
+              entering={FadeInUp.delay(200).duration(600)}
+              className="items-center mb-10"
+            >
+              <View className="flex-row items-center gap-3 mb-4">
+                <ShoppingCart size={20} color={PREMIUM_COLORS.fireRed} />
+                <Text
+                  className="text-red-500 font-mono tracking-[0.3em] uppercase"
+                  style={{ fontSize: SCREEN_WIDTH < 640 ? 11 : 14 }}
+                >
+                  TRENS Shop
+                </Text>
+                <ShoppingCart size={20} color={PREMIUM_COLORS.fireRed} />
+              </View>
+              <Text
+                className="text-white font-bold text-center max-w-3xl leading-tight px-2"
+                style={{ fontSize: SCREEN_WIDTH < 640 ? 22 : SCREEN_WIDTH < 768 ? 32 : 44 }}
+              >
+                La <Text style={{ color: PREMIUM_COLORS.fireRed }}>tienda integrada</Text> con los
+                mejores precios del mercado
+              </Text>
+              <Text
+                className="text-zinc-400 text-center mt-4 max-w-2xl px-4"
+                style={{ fontSize: SCREEN_WIDTH < 640 ? 14 : 16 }}
+              >
+                Suplementos, equipamiento, ropa técnica y accesorios premium — todo dentro de la
+                app. Compra directamente con tu tarjeta guardada en segundos.
+              </Text>
+            </Animated.View>
+
+            {/* Free shipping highlight banner */}
+            <Animated.View
+              entering={FadeInUp.delay(300).duration(700)}
+              style={{
+                width: '100%',
+                maxWidth: 900,
+                borderRadius: 24,
+                overflow: 'hidden',
+                borderWidth: 1,
+                borderColor: 'rgba(250, 204, 21, 0.4)',
+                marginBottom: 32,
+              }}
+            >
+              <LinearGradient
+                colors={[
+                  'rgba(250, 204, 21, 0.18)',
+                  'rgba(220, 38, 38, 0.12)',
+                  'rgba(0, 0, 0, 0.6)',
+                ]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={{ padding: SCREEN_WIDTH < 640 ? 20 : 32 }}
+              >
+                <View
+                  className={SCREEN_WIDTH < 640 ? 'items-center' : 'flex-row items-center gap-6'}
+                >
+                  <View
+                    style={{
+                      width: 72,
+                      height: 72,
+                      borderRadius: 20,
+                      backgroundColor: 'rgba(250, 204, 21, 0.15)',
+                      borderWidth: 1,
+                      borderColor: 'rgba(250, 204, 21, 0.5)',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      marginBottom: SCREEN_WIDTH < 640 ? 16 : 0,
+                    }}
+                  >
+                    <Truck size={36} color="#FACC15" />
+                  </View>
+                  <View className={SCREEN_WIDTH < 640 ? 'items-center' : 'flex-1'}>
+                    <View className="flex-row items-center gap-2 mb-2">
+                      <Crown size={16} color="#FACC15" fill="#FACC15" />
+                      <Text
+                        className="text-yellow-400 font-mono uppercase tracking-widest"
+                        style={{ fontSize: 11 }}
+                      >
+                        Beneficio PRO exclusivo
+                      </Text>
+                    </View>
+                    <Text
+                      className="text-white font-bold"
+                      style={{
+                        fontSize: SCREEN_WIDTH < 640 ? 22 : 28,
+                        textAlign: SCREEN_WIDTH < 640 ? 'center' : 'left',
+                      }}
+                    >
+                      Envío <Text style={{ color: '#FACC15' }}>GRATIS</Text> a todo el Perú
+                    </Text>
+                    <Text
+                      className="text-zinc-300 mt-2"
+                      style={{
+                        fontSize: SCREEN_WIDTH < 640 ? 13 : 15,
+                        textAlign: SCREEN_WIDTH < 640 ? 'center' : 'left',
+                      }}
+                    >
+                      Suscríbete a TRENS PRO y recibe cualquier producto físico de la tienda sin
+                      pagar envío. De Lima a Iquitos, de Tacna a Tumbes.
+                    </Text>
+                  </View>
+                </View>
+              </LinearGradient>
+            </Animated.View>
+
+            {/* SHOP benefits grid */}
+            <View className="flex-row flex-wrap justify-center" style={{ gap: 12, width: '100%' }}>
+              <Animated.View
+                entering={FadeInUp.delay(400).duration(600)}
+                style={{
+                  flexBasis: SCREEN_WIDTH < 768 ? '100%' : SCREEN_WIDTH < 1024 ? '48%' : '23.5%',
+                  minWidth: 240,
+                }}
+              >
+                <View className="bg-zinc-900/40 border border-zinc-800 rounded-2xl p-5 h-full">
+                  <View
+                    style={{
+                      width: 44,
+                      height: 44,
+                      borderRadius: 12,
+                      backgroundColor: 'rgba(220, 38, 38, 0.15)',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      marginBottom: 12,
+                    }}
+                  >
+                    <Tag size={22} color={PREMIUM_COLORS.fireRed} />
+                  </View>
+                  <Text className="text-white font-bold text-base mb-1">Mejores precios</Text>
+                  <Text className="text-zinc-400 text-sm leading-5">
+                    Negociamos directo con marcas para ofrecerte precios por debajo del mercado.
+                  </Text>
+                </View>
+              </Animated.View>
+
+              <Animated.View
+                entering={FadeInUp.delay(500).duration(600)}
+                style={{
+                  flexBasis: SCREEN_WIDTH < 768 ? '100%' : SCREEN_WIDTH < 1024 ? '48%' : '23.5%',
+                  minWidth: 240,
+                }}
+              >
+                <View className="bg-zinc-900/40 border border-zinc-800 rounded-2xl p-5 h-full">
+                  <View
+                    style={{
+                      width: 44,
+                      height: 44,
+                      borderRadius: 12,
+                      backgroundColor: 'rgba(220, 38, 38, 0.15)',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      marginBottom: 12,
+                    }}
+                  >
+                    <Package size={22} color={PREMIUM_COLORS.fireRed} />
+                  </View>
+                  <Text className="text-white font-bold text-base mb-1">
+                    Productos seleccionados
+                  </Text>
+                  <Text className="text-zinc-400 text-sm leading-5">
+                    Solo lo que realmente funciona: suplementos, ropa técnica y equipamiento
+                    probado.
+                  </Text>
+                </View>
+              </Animated.View>
+
+              <Animated.View
+                entering={FadeInUp.delay(600).duration(600)}
+                style={{
+                  flexBasis: SCREEN_WIDTH < 768 ? '100%' : SCREEN_WIDTH < 1024 ? '48%' : '23.5%',
+                  minWidth: 240,
+                }}
+              >
+                <View className="bg-zinc-900/40 border border-zinc-800 rounded-2xl p-5 h-full">
+                  <View
+                    style={{
+                      width: 44,
+                      height: 44,
+                      borderRadius: 12,
+                      backgroundColor: 'rgba(220, 38, 38, 0.15)',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      marginBottom: 12,
+                    }}
+                  >
+                    <ShieldCheck size={22} color={PREMIUM_COLORS.fireRed} />
+                  </View>
+                  <Text className="text-white font-bold text-base mb-1">Pago seguro</Text>
+                  <Text className="text-zinc-400 text-sm leading-5">
+                    Compra con tarjeta tokenizada. Sin volver a ingresar datos. Procesado por
+                    OpenPay.
+                  </Text>
+                </View>
+              </Animated.View>
+
+              <Animated.View
+                entering={FadeInUp.delay(700).duration(600)}
+                style={{
+                  flexBasis: SCREEN_WIDTH < 768 ? '100%' : SCREEN_WIDTH < 1024 ? '48%' : '23.5%',
+                  minWidth: 240,
+                }}
+              >
+                <View className="bg-zinc-900/40 border border-zinc-800 rounded-2xl p-5 h-full">
+                  <View
+                    style={{
+                      width: 44,
+                      height: 44,
+                      borderRadius: 12,
+                      backgroundColor: 'rgba(220, 38, 38, 0.15)',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      marginBottom: 12,
+                    }}
+                  >
+                    <MapPin size={22} color={PREMIUM_COLORS.fireRed} />
+                  </View>
+                  <Text className="text-white font-bold text-base mb-1">Cobertura nacional</Text>
+                  <Text className="text-zinc-400 text-sm leading-5">
+                    Entregas a todo el Perú. Tracking en tiempo real desde tu cuenta.
+                  </Text>
+                </View>
+              </Animated.View>
+            </View>
+          </View>
+
+          {/* ================================================================== */}
+          {/* PLATFORM SECTION */}
+          {/* ================================================================== */}
+          <View
+            className="mt-16 items-center"
+            style={{ maxWidth: 800, alignSelf: 'center', width: '100%' }}
+          >
+            <Animated.View
+              entering={FadeInUp.delay(1500).duration(600)}
+              className="items-center mb-6"
+            >
+              <Text
+                className="text-white font-bold text-center"
+                style={{ fontSize: SCREEN_WIDTH < 640 ? 18 : 24 }}
+              >
+                Disponible en{' '}
+                <Text style={{ color: PREMIUM_COLORS.fireRed }}>todas las plataformas</Text>
+              </Text>
+            </Animated.View>
+            <View className="flex-row flex-wrap justify-center gap-4">
+              {[
+                { icon: Smartphone, name: 'iOS', sub: 'App Store' },
+                { icon: Smartphone, name: 'Android', sub: 'Google Play' },
+                { icon: Globe, name: 'Web', sub: 'trens.app (PWA)' },
+              ].map((platform, i) => (
+                <View
+                  key={i}
+                  className="bg-zinc-900/40 border border-zinc-800/40 rounded-xl px-5 py-3 flex-row items-center gap-3"
+                >
+                  <platform.icon size={20} color={PREMIUM_COLORS.fireRed} />
+                  <View>
+                    <Text className="text-white font-bold text-sm">{platform.name}</Text>
+                    <Text className="text-zinc-500 text-xs">{platform.sub}</Text>
+                  </View>
+                </View>
+              ))}
+            </View>
+          </View>
+          {/* ================================================================== */}
+          {/* HOW IT WORKS */}
+          {/* ================================================================== */}
+          <View
+            className="mt-20 items-center"
+            style={{ maxWidth: 1000, alignSelf: 'center', width: '100%' }}
+          >
+            <Animated.View
+              entering={FadeInUp.delay(1600).duration(600)}
+              className="items-center mb-10"
+            >
+              <Text
+                className="text-red-500 font-mono tracking-[0.3em] uppercase mb-4"
+                style={{ fontSize: SCREEN_WIDTH < 640 ? 11 : 14 }}
+              >
+                3 pasos
+              </Text>
+              <Text
+                className="text-white font-bold text-center px-2"
+                style={{ fontSize: SCREEN_WIDTH < 640 ? 22 : 32 }}
+              >
+                Empieza en <Text style={{ color: PREMIUM_COLORS.fireRed }}>menos de 2 minutos</Text>
+              </Text>
+            </Animated.View>
+
+            <View
+              className="flex-row flex-wrap justify-center gap-4"
+              style={{ paddingHorizontal: 8 }}
+            >
+              {[
+                {
+                  step: '01',
+                  title: 'Crea tu cuenta',
+                  desc: 'Registrate con email y tarjeta. Acceso inmediato a todos los módulos desde el primer segundo.',
+                  icon: User,
+                },
+                {
+                  step: '02',
+                  title: 'Arma tu plan',
+                  desc: 'Configura tu rutina por días, tu plan de comidas por horario, tu stack de suplementos y tus cardios. Todo queda guardado y listo.',
+                  icon: Dna,
+                },
+                {
+                  step: '03',
+                  title: 'Entrena y registra',
+                  desc: 'Graba tus sets, trackea tu nutrición, recibe alertas de suplementos, ve tu progreso crecer día a día y rompe récords.',
+                  icon: Flame,
+                },
+              ].map((item, i) => (
+                <Animated.View
+                  key={i}
+                  entering={FadeInUp.delay(1700 + i * 150).duration(500)}
+                  className="bg-zinc-900/40 border border-zinc-800/40 rounded-2xl p-6 items-center"
+                  style={{ width: SCREEN_WIDTH < 640 ? '100%' : 280 }}
+                >
+                  <LinearGradient
+                    colors={[PREMIUM_COLORS.fireRed, PREMIUM_COLORS.fireOrange]}
+                    className="w-14 h-14 rounded-2xl items-center justify-center mb-4"
+                  >
+                    <Text className="text-white text-xl font-bold font-mono">{item.step}</Text>
+                  </LinearGradient>
+                  <Text className="text-white font-bold text-lg mb-2">{item.title}</Text>
+                  <Text className="text-zinc-400 text-sm text-center leading-relaxed">
+                    {item.desc}
+                  </Text>
+                </Animated.View>
+              ))}
+            </View>
+          </View>
+        </View>
+
+        {/* ================================================================== */}
+        {/* TESTIMONIALS SECTION */}
+        {/* ================================================================== */}
+        <View
+          className="bg-zinc-950 relative overflow-hidden"
+          style={{ paddingHorizontal: 16, paddingVertical: SCREEN_WIDTH < 768 ? 48 : 96 }}
+        >
+          <Animated.View
+            entering={FadeInUp.duration(600)}
+            className="items-center"
+            style={{ marginBottom: SCREEN_WIDTH < 768 ? 24 : 48 }}
+          >
+            <View className="flex-row items-center gap-3 mb-4">
+              <Heart size={20} color={PREMIUM_COLORS.fireRed} fill={PREMIUM_COLORS.fireRed} />
+              <Text
+                className="text-red-500 font-mono tracking-[0.3em] uppercase"
+                style={{ fontSize: SCREEN_WIDTH < 640 ? 11 : 14 }}
+              >
+                Testimonios
+              </Text>
+            </View>
+            <Text
+              className="text-white font-bold text-center px-2"
+              style={{ fontSize: SCREEN_WIDTH < 640 ? 20 : SCREEN_WIDTH < 768 ? 28 : 40 }}
+            >
+              Lo que dicen nuestros atletas
+            </Text>
+          </Animated.View>
+
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ paddingHorizontal: 16, gap: 12 }}
+          >
+            <TestimonialCard
+              name="Carlos Mendoza"
+              role="Powerlifter · Lima"
+              text="Tengo cada serie de mi rutina configurada al detalle: peso, reps, RIR, tempo. La detección automática de récords me tiene motivado al máximo. Subí 15kg en mi sentadilla en 3 meses gracias a trackear todo."
+              delay={100}
+            />
+            <TestimonialCard
+              name="María Fernández"
+              role="Fitness Coach · Arequipa"
+              text="El plan nutricional con macros automáticos me ahorró S/ 200 mensuales en nutricionista. Configuro cada comida con gramos exactos y la lista de compras se genera sola. Oro puro para mi prep."
+              delay={200}
+            />
+            <TestimonialCard
+              name="Diego Ramírez"
+              role="Personal Trainer · Trujillo"
+              text="Uso TRENS con 12 clientes. 2 entrenamientos al día, cardios separados, suplementación con horarios. El nivel de detalle que tiene esta app no lo he visto en ninguna otra. Y el feed los mantiene motivados."
+              delay={300}
+            />
+            <TestimonialCard
+              name="Ana Torres"
+              role="Bodybuilder · Cusco"
+              text="Las fotos de progreso con comparativas timeline son un game-changer. Puedo ver mi transformación semana a semana con datos de grasa corporal. 4 PRs detectados automáticamente que ni sabía que había roto."
+              delay={400}
+            />
+            <TestimonialCard
+              name="Rodrigo Chávez"
+              role="Atleta Natural · Lima"
+              text="Mi stack de suplementos es extenso: creatina, proteína, omega-3, multivitamínico, ZMA... TRENS me organiza todo con horarios y dosis. Cada pastilla, cada polvo, todo en su timeline. Nunca me olvidé de nada."
+              delay={500}
+            />
+          </ScrollView>
+        </View>
+
+        {/* ================================================================== */}
+        {/* FAQ SECTION */}
+        {/* ================================================================== */}
+        <View
+          className="bg-black"
+          style={{ paddingHorizontal: 16, paddingVertical: SCREEN_WIDTH < 768 ? 48 : 80 }}
+        >
+          <Animated.View entering={FadeInUp.duration(600)} className="items-center mb-10">
+            <Text
+              className="text-red-500 font-mono tracking-[0.3em] uppercase mb-4"
+              style={{ fontSize: SCREEN_WIDTH < 640 ? 11 : 14 }}
+            >
+              Preguntas Frecuentes
+            </Text>
+            <Text
+              className="text-white font-bold text-center px-2"
+              style={{ fontSize: SCREEN_WIDTH < 640 ? 22 : SCREEN_WIDTH < 768 ? 28 : 36 }}
+            >
+              Todo lo que necesitas saber
+            </Text>
+          </Animated.View>
+
+          <View
+            className="items-center"
+            style={{ maxWidth: 700, alignSelf: 'center', width: '100%' }}
           >
             {[
               {
-                step: '01',
-                title: 'Crea tu cuenta',
-                desc: 'Registrate con email y tarjeta. Acceso inmediato a todos los módulos desde el primer segundo.',
-                icon: User,
+                q: '¿Puedo cancelar cuando quiera?',
+                a: 'Sí. Sin penalidades, sin preguntas, sin letras chicas. Cancela desde tu perfil en cualquier momento y no se te cobra el siguiente mes.',
               },
               {
-                step: '02',
-                title: 'Arma tu plan',
-                desc: 'Configura tu rutina por días, tu plan de comidas por horario, tu stack de suplementos y tus cardios. Todo queda guardado y listo.',
-                icon: Dna,
+                q: '¿En qué dispositivos funciona TRENS?',
+                a: 'iPhone (iOS 15+), Android (10+) y cualquier navegador moderno como PWA. Tu cuenta se sincroniza en todos tus dispositivos automáticamente.',
               },
               {
-                step: '03',
-                title: 'Entrena y registra',
-                desc: 'Graba tus sets, trackea tu nutrición, recibe alertas de suplementos, ve tu progreso crecer día a día y rompe récords.',
-                icon: Flame,
+                q: '¿Puedo poner 2 entrenamientos en un solo día?',
+                a: 'Sí. Puedes configurar sesiones de mañana y tarde con ejercicios independientes. Además puedes agregar múltiples bloques de cardio separados al mismo día.',
+              },
+              {
+                q: '¿TRENS sirve para principiantes?',
+                a: 'Absolutamente. Puedes empezar con rutinas simples e ir agregando complejidad. El sistema de días rotacionales y la configuración por serie te ayudan a llevar orden desde el primer día.',
+              },
+              {
+                q: '¿Qué tan detallado puedo configurar cada serie?',
+                a: 'Cada serie tiene: peso, repeticiones, tipo (calentamiento, aproximación, efectiva, fallo), RIR, tempo (eccéntrica-fondo-concéntrica-top) y tiempo de descanso. Control total.',
+              },
+              {
+                q: '¿Qué métodos de pago aceptan?',
+                a: 'Visa, Mastercard y American Express. El pago se procesa de forma segura con Openpay (certificación PCI DSS). También aceptamos pagos nativos en App Store y Google Play.',
+              },
+              {
+                q: '¿Puedo usar TRENS solo para nutrición, sin hacer gym?',
+                a: 'Sí. El módulo PLAN funciona independientemente. Puedes planificar comidas, calcular macros, gestionar suplementos y generar listas de compras sin necesidad de usar el módulo GYM.',
+              },
+              {
+                q: '¿La lista de compras se genera automáticamente?',
+                a: 'Sí. A partir de todas las comidas e ingredientes de tu plan semanal, TRENS genera una lista de compras agrupada por categoría. Solo la abres en el supermercado y listo.',
               },
             ].map((item, i) => (
               <Animated.View
                 key={i}
-                entering={FadeInUp.delay(1700 + i * 150).duration(500)}
-                className="bg-zinc-900/40 border border-zinc-800/40 rounded-2xl p-6 items-center"
-                style={{ width: SCREEN_WIDTH < 640 ? '100%' : 280 }}
+                entering={FadeInUp.delay(100 + i * 80).duration(500)}
+                className="w-full border-b border-zinc-800/50 py-5"
               >
-                <LinearGradient
-                  colors={[PREMIUM_COLORS.fireRed, PREMIUM_COLORS.fireOrange]}
-                  className="w-14 h-14 rounded-2xl items-center justify-center mb-4"
-                >
-                  <Text className="text-white text-xl font-bold font-mono">{item.step}</Text>
-                </LinearGradient>
-                <Text className="text-white font-bold text-lg mb-2">{item.title}</Text>
-                <Text className="text-zinc-400 text-sm text-center leading-relaxed">
-                  {item.desc}
-                </Text>
+                <Text className="text-white font-bold text-base mb-2">{item.q}</Text>
+                <Text className="text-zinc-400 text-sm leading-relaxed">{item.a}</Text>
               </Animated.View>
             ))}
           </View>
         </View>
-      </View>
 
-      {/* ================================================================== */}
-      {/* TESTIMONIALS SECTION */}
-      {/* ================================================================== */}
-      <View
-        className="bg-zinc-950 relative overflow-hidden"
-        style={{ paddingHorizontal: 16, paddingVertical: SCREEN_WIDTH < 768 ? 48 : 96 }}
-      >
-        <Animated.View
-          entering={FadeInUp.duration(600)}
-          className="items-center"
-          style={{ marginBottom: SCREEN_WIDTH < 768 ? 24 : 48 }}
-        >
-          <View className="flex-row items-center gap-3 mb-4">
-            <Heart size={20} color={PREMIUM_COLORS.fireRed} fill={PREMIUM_COLORS.fireRed} />
-            <Text
-              className="text-red-500 font-mono tracking-[0.3em] uppercase"
-              style={{ fontSize: SCREEN_WIDTH < 640 ? 11 : 14 }}
-            >
-              Testimonios
-            </Text>
-          </View>
-          <Text
-            className="text-white font-bold text-center px-2"
-            style={{ fontSize: SCREEN_WIDTH < 640 ? 20 : SCREEN_WIDTH < 768 ? 28 : 40 }}
-          >
-            Lo que dicen nuestros atletas
-          </Text>
-        </Animated.View>
-
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={{ paddingHorizontal: 16, gap: 12 }}
-        >
-          <TestimonialCard
-            name="Carlos Mendoza"
-            role="Powerlifter · Lima"
-            text="Tengo cada serie de mi rutina configurada al detalle: peso, reps, RIR, tempo. La detección automática de récords me tiene motivado al máximo. Subí 15kg en mi sentadilla en 3 meses gracias a trackear todo."
-            delay={100}
-          />
-          <TestimonialCard
-            name="María Fernández"
-            role="Fitness Coach · Arequipa"
-            text="El plan nutricional con macros automáticos me ahorró S/ 200 mensuales en nutricionista. Configuro cada comida con gramos exactos y la lista de compras se genera sola. Oro puro para mi prep."
-            delay={200}
-          />
-          <TestimonialCard
-            name="Diego Ramírez"
-            role="Personal Trainer · Trujillo"
-            text="Uso TRENS con 12 clientes. 2 entrenamientos al día, cardios separados, suplementación con horarios. El nivel de detalle que tiene esta app no lo he visto en ninguna otra. Y el feed los mantiene motivados."
-            delay={300}
-          />
-          <TestimonialCard
-            name="Ana Torres"
-            role="Bodybuilder · Cusco"
-            text="Las fotos de progreso con comparativas timeline son un game-changer. Puedo ver mi transformación semana a semana con datos de grasa corporal. 4 PRs detectados automáticamente que ni sabía que había roto."
-            delay={400}
-          />
-          <TestimonialCard
-            name="Rodrigo Chávez"
-            role="Atleta Natural · Lima"
-            text="Mi stack de suplementos es extenso: creatina, proteína, omega-3, multivitamínico, ZMA... TRENS me organiza todo con horarios y dosis. Cada pastilla, cada polvo, todo en su timeline. Nunca me olvidé de nada."
-            delay={500}
-          />
-        </ScrollView>
-      </View>
-
-      {/* ================================================================== */}
-      {/* FAQ SECTION */}
-      {/* ================================================================== */}
-      <View
-        className="bg-black"
-        style={{ paddingHorizontal: 16, paddingVertical: SCREEN_WIDTH < 768 ? 48 : 80 }}
-      >
-        <Animated.View entering={FadeInUp.duration(600)} className="items-center mb-10">
-          <Text
-            className="text-red-500 font-mono tracking-[0.3em] uppercase mb-4"
-            style={{ fontSize: SCREEN_WIDTH < 640 ? 11 : 14 }}
-          >
-            Preguntas Frecuentes
-          </Text>
-          <Text
-            className="text-white font-bold text-center px-2"
-            style={{ fontSize: SCREEN_WIDTH < 640 ? 22 : SCREEN_WIDTH < 768 ? 28 : 36 }}
-          >
-            Todo lo que necesitas saber
-          </Text>
-        </Animated.View>
-
+        {/* ================================================================== */}
+        {/* PRICING SECTION - PREMIUM */}
+        {/* ================================================================== */}
         <View
-          className="items-center"
-          style={{ maxWidth: 700, alignSelf: 'center', width: '100%' }}
+          nativeID="pricing-section"
+          className="px-4 md:px-6 py-24 bg-black relative overflow-hidden"
         >
-          {[
-            {
-              q: '¿Puedo cancelar cuando quiera?',
-              a: 'Sí. Sin penalidades, sin preguntas, sin letras chicas. Cancela desde tu perfil en cualquier momento y no se te cobra el siguiente mes.',
-            },
-            {
-              q: '¿En qué dispositivos funciona TRENS?',
-              a: 'iPhone (iOS 15+), Android (10+) y cualquier navegador moderno como PWA. Tu cuenta se sincroniza en todos tus dispositivos automáticamente.',
-            },
-            {
-              q: '¿Puedo poner 2 entrenamientos en un solo día?',
-              a: 'Sí. Puedes configurar sesiones de mañana y tarde con ejercicios independientes. Además puedes agregar múltiples bloques de cardio separados al mismo día.',
-            },
-            {
-              q: '¿TRENS sirve para principiantes?',
-              a: 'Absolutamente. Puedes empezar con rutinas simples e ir agregando complejidad. El sistema de días rotacionales y la configuración por serie te ayudan a llevar orden desde el primer día.',
-            },
-            {
-              q: '¿Qué tan detallado puedo configurar cada serie?',
-              a: 'Cada serie tiene: peso, repeticiones, tipo (calentamiento, aproximación, efectiva, fallo), RIR, tempo (eccéntrica-fondo-concéntrica-top) y tiempo de descanso. Control total.',
-            },
-            {
-              q: '¿Qué métodos de pago aceptan?',
-              a: 'Visa, Mastercard y American Express. El pago se procesa de forma segura con Openpay (certificación PCI DSS). También aceptamos pagos nativos en App Store y Google Play.',
-            },
-            {
-              q: '¿Puedo usar TRENS solo para nutrición, sin hacer gym?',
-              a: 'Sí. El módulo PLAN funciona independientemente. Puedes planificar comidas, calcular macros, gestionar suplementos y generar listas de compras sin necesidad de usar el módulo GYM.',
-            },
-            {
-              q: '¿La lista de compras se genera automáticamente?',
-              a: 'Sí. A partir de todas las comidas e ingredientes de tu plan semanal, TRENS genera una lista de compras agrupada por categoría. Solo la abres en el supermercado y listo.',
-            },
-          ].map((item, i) => (
-            <Animated.View
-              key={i}
-              entering={FadeInUp.delay(100 + i * 80).duration(500)}
-              className="w-full border-b border-zinc-800/50 py-5"
-            >
-              <Text className="text-white font-bold text-base mb-2">{item.q}</Text>
-              <Text className="text-zinc-400 text-sm leading-relaxed">{item.a}</Text>
-            </Animated.View>
-          ))}
-        </View>
-      </View>
+          {/* Background Effects */}
+          <GlowOrb color={PREMIUM_COLORS.fireRed} size={500} top="50%" left="50%" delay={0} />
 
-      {/* ================================================================== */}
-      {/* PRICING SECTION - PREMIUM */}
-      {/* ================================================================== */}
-      <View
-        nativeID="pricing-section"
-        className="px-4 md:px-6 py-24 bg-black relative overflow-hidden"
-      >
-        {/* Background Effects */}
-        <GlowOrb color={PREMIUM_COLORS.fireRed} size={500} top="50%" left="50%" delay={0} />
-
-        <Animated.View
-          entering={FadeInUp.duration(600)}
-          className="items-center mb-16 relative z-10"
-        >
-          <View className="flex-row items-center gap-3 mb-4">
-            <Crown size={20} color={PREMIUM_COLORS.fireYellow} />
-            <Text className="text-red-500 font-mono text-sm tracking-[0.3em] uppercase">
-              Suscripción
-            </Text>
-          </View>
-          <Text className="text-white text-4xl md:text-5xl font-bold text-center">
-            Un solo plan, <Text style={{ color: PREMIUM_COLORS.fireRed }}>todo incluido</Text>
-          </Text>
-          <Text className="text-zinc-400 text-center mt-4 max-w-lg">
-            Sin niveles confusos. Sin features bloqueadas. Pagas una vez y tienes acceso completo a
-            todas las herramientas, todos los módulos, y todas las actualizaciones futuras.
-          </Text>
-        </Animated.View>
-
-        <View
-          className="flex-row flex-wrap justify-center"
-          style={{
-            maxWidth: 1100,
-            alignSelf: 'center',
-            width: '100%',
-            paddingHorizontal: SCREEN_WIDTH < 640 ? 8 : 16,
-            gap: SCREEN_WIDTH < 640 ? 16 : 32,
-          }}
-        >
-          {/* Plan Card - Premium Design */}
           <Animated.View
-            entering={SlideInLeft.delay(200).duration(800).springify()}
+            entering={FadeInUp.duration(600)}
+            className="items-center mb-16 relative z-10"
+          >
+            <View className="flex-row items-center gap-3 mb-4">
+              <Crown size={20} color={PREMIUM_COLORS.fireYellow} />
+              <Text className="text-red-500 font-mono text-sm tracking-[0.3em] uppercase">
+                Suscripción
+              </Text>
+            </View>
+            <Text className="text-white text-4xl md:text-5xl font-bold text-center">
+              Un solo plan, <Text style={{ color: PREMIUM_COLORS.fireRed }}>todo incluido</Text>
+            </Text>
+            <Text className="text-zinc-400 text-center mt-4 max-w-lg">
+              Sin niveles confusos. Sin features bloqueadas. Pagas una vez y tienes acceso completo
+              a todas las herramientas, todos los módulos, y todas las actualizaciones futuras.
+            </Text>
+          </Animated.View>
+
+          <View
+            className="flex-row flex-wrap justify-center"
             style={{
-              width: SCREEN_WIDTH < 768 ? '100%' : undefined,
-              flex: SCREEN_WIDTH < 768 ? undefined : 1,
-              maxWidth: SCREEN_WIDTH < 768 ? '100%' : 420,
+              maxWidth: 1100,
+              alignSelf: 'center',
+              width: '100%',
+              paddingHorizontal: SCREEN_WIDTH < 640 ? 8 : 16,
+              gap: SCREEN_WIDTH < 640 ? 16 : 32,
             }}
           >
-            <View className="relative">
-              {/* Glow effect behind card */}
-              <View
-                style={{
-                  position: 'absolute',
-                  top: -20,
-                  left: -20,
-                  right: -20,
-                  bottom: -20,
-                  borderRadius: 40,
-                  backgroundColor: PREMIUM_COLORS.fireRed,
-                  opacity: 0.15,
-                }}
-                className="blur-3xl"
-              />
+            {/* Plan Card - Premium Design */}
+            <Animated.View
+              entering={SlideInLeft.delay(200).duration(800).springify()}
+              style={{
+                width: SCREEN_WIDTH < 768 ? '100%' : undefined,
+                flex: SCREEN_WIDTH < 768 ? undefined : 1,
+                maxWidth: SCREEN_WIDTH < 768 ? '100%' : 420,
+              }}
+            >
+              <View className="relative">
+                {/* Glow effect behind card */}
+                <View
+                  style={{
+                    position: 'absolute',
+                    top: -20,
+                    left: -20,
+                    right: -20,
+                    bottom: -20,
+                    borderRadius: 40,
+                    backgroundColor: PREMIUM_COLORS.fireRed,
+                    opacity: 0.15,
+                  }}
+                  className="blur-3xl"
+                />
 
-              <LinearGradient
-                colors={['#1a0808', '#0d0d0d']}
-                className="rounded-[32px] border-2 border-red-600/50 relative overflow-hidden"
-                style={{ padding: SCREEN_WIDTH < 640 ? 20 : 32 }}
-              >
-                {/* Premium badge */}
-                <View className="absolute top-0 right-0">
+                <LinearGradient
+                  colors={['#1a0808', '#0d0d0d']}
+                  className="rounded-[32px] border-2 border-red-600/50 relative overflow-hidden"
+                  style={{ padding: SCREEN_WIDTH < 640 ? 20 : 32 }}
+                >
+                  {/* Premium badge */}
+                  <View className="absolute top-0 right-0">
+                    <LinearGradient
+                      colors={[PREMIUM_COLORS.fireRed, PREMIUM_COLORS.fireOrange]}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      className="px-4 py-2 rounded-bl-2xl rounded-tr-[30px]"
+                    >
+                      <Text className="text-white text-xs font-bold tracking-widest">POPULAR</Text>
+                    </LinearGradient>
+                  </View>
+
+                  {/* Inner gradient */}
                   <LinearGradient
-                    colors={[PREMIUM_COLORS.fireRed, PREMIUM_COLORS.fireOrange]}
+                    colors={['rgba(220, 38, 38, 0.1)', 'transparent']}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 1 }}
-                    className="px-4 py-2 rounded-bl-2xl rounded-tr-[30px]"
-                  >
-                    <Text className="text-white text-xs font-bold tracking-widest">POPULAR</Text>
-                  </LinearGradient>
-                </View>
+                    style={{
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      borderRadius: 30,
+                    }}
+                  />
 
-                {/* Inner gradient */}
+                  <View className="flex-row items-center gap-3 mb-6">
+                    <Flame size={28} color={PREMIUM_COLORS.fireRed} fill={PREMIUM_COLORS.fireRed} />
+                    <Text className="text-white text-2xl font-bold">{planDetails.name}</Text>
+                  </View>
+
+                  <View className="flex-row items-baseline mb-2">
+                    <Text className="text-zinc-500 text-xl line-through mr-3">S/ 99.90</Text>
+                  </View>
+
+                  <View className="flex-row items-baseline mb-8">
+                    <Text
+                      className="text-white text-6xl font-bold"
+                      style={{
+                        textShadowColor: PREMIUM_COLORS.glowRed,
+                        textShadowOffset: { width: 0, height: 2 },
+                        textShadowRadius: 20,
+                      }}
+                    >
+                      S/ 59
+                    </Text>
+                    <Text className="text-white text-3xl font-bold">.90</Text>
+                    <Text className="text-zinc-500 text-lg ml-2">/ mes</Text>
+                  </View>
+
+                  <View className="mb-8">
+                    {planDetails.features.map((feature, index) => (
+                      <PricingFeature key={index} text={feature} delay={300 + index * 100} />
+                    ))}
+                  </View>
+
+                  <View className="bg-gradient-to-r from-red-900/30 to-orange-900/20 border border-red-600/20 rounded-2xl p-5">
+                    <View className="flex-row items-center justify-center gap-2 mb-2">
+                      <Shield size={18} color={PREMIUM_COLORS.fireRed} />
+                      <Text className="text-white text-sm font-bold">
+                        Pago 100% seguro con Openpay
+                      </Text>
+                    </View>
+                    <Text className="text-zinc-400 text-xs text-center leading-relaxed">
+                      Certificación PCI DSS • Encriptación SSL 256-bit
+                    </Text>
+                    <View className="h-px bg-zinc-800/50 my-3" />
+                    <Text className="text-zinc-400 text-xs text-center">
+                      ✓ Cancela cuando quieras, sin penalidad{'\n'}✓ Sin letras chicas ni cargos
+                      ocultos{'\n'}✓ Acceso total desde el primer día{'\n'}✓ Actualizaciones
+                      incluidas de por vida
+                    </Text>
+                  </View>
+                </LinearGradient>
+              </View>
+            </Animated.View>
+
+            {/* Form Card - Premium Design */}
+            <Animated.View
+              entering={SlideInRight.delay(400).duration(800).springify()}
+              style={{
+                width: SCREEN_WIDTH < 768 ? '100%' : undefined,
+                flex: SCREEN_WIDTH < 768 ? undefined : 1,
+                maxWidth: SCREEN_WIDTH < 768 ? '100%' : 480,
+              }}
+            >
+              <View
+                className="bg-zinc-900/40 backdrop-blur-2xl border border-zinc-800/50 rounded-[32px] relative overflow-hidden"
+                style={{ padding: SCREEN_WIDTH < 640 ? 20 : 32 }}
+              >
+                {/* Subtle inner gradient */}
                 <LinearGradient
-                  colors={['rgba(220, 38, 38, 0.1)', 'transparent']}
+                  colors={['rgba(255, 255, 255, 0.02)', 'transparent']}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 1 }}
                   style={{
@@ -2041,459 +2185,385 @@ export default function LandingPage() {
                   }}
                 />
 
-                <View className="flex-row items-center gap-3 mb-6">
-                  <Flame size={28} color={PREMIUM_COLORS.fireRed} fill={PREMIUM_COLORS.fireRed} />
-                  <Text className="text-white text-2xl font-bold">{planDetails.name}</Text>
+                <View className="flex-row items-center gap-3 mb-8">
+                  {step === 'info' ? (
+                    <User size={24} color={PREMIUM_COLORS.fireRed} />
+                  ) : (
+                    <CreditCard size={24} color={PREMIUM_COLORS.fireRed} />
+                  )}
+                  <Text className="text-white text-xl font-bold">
+                    {step === 'info' ? 'Crea tu cuenta' : 'Datos de pago'}
+                  </Text>
                 </View>
 
-                <View className="flex-row items-baseline mb-2">
-                  <Text className="text-zinc-500 text-xl line-through mr-3">S/ 99.90</Text>
+                {/* Step indicator */}
+                <View className="flex-row items-center gap-2 mb-6">
+                  <View
+                    className={`flex-1 h-1 rounded-full ${step === 'info' ? 'bg-red-600' : 'bg-zinc-700'}`}
+                  />
+                  <View
+                    className={`flex-1 h-1 rounded-full ${step === 'payment' ? 'bg-red-600' : 'bg-zinc-700'}`}
+                  />
                 </View>
 
-                <View className="flex-row items-baseline mb-8">
-                  <Text
-                    className="text-white text-6xl font-bold"
-                    style={{
-                      textShadowColor: PREMIUM_COLORS.glowRed,
-                      textShadowOffset: { width: 0, height: 2 },
-                      textShadowRadius: 20,
-                    }}
+                {error && (
+                  <Animated.View
+                    entering={FadeInDown.duration(300)}
+                    className="bg-red-900/30 border border-red-600/50 rounded-2xl p-4 mb-6"
                   >
-                    S/ 59
-                  </Text>
-                  <Text className="text-white text-3xl font-bold">.90</Text>
-                  <Text className="text-zinc-500 text-lg ml-2">/ mes</Text>
-                </View>
+                    <Text className="text-red-400 text-sm text-center">{error}</Text>
+                  </Animated.View>
+                )}
 
-                <View className="mb-8">
-                  {planDetails.features.map((feature, index) => (
-                    <PricingFeature key={index} text={feature} delay={300 + index * 100} />
-                  ))}
-                </View>
+                {step === 'info' ? (
+                  <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+                    <View data-form-type="registration">
+                      {/* Name */}
+                      <View className="mb-5">
+                        <Text className="text-zinc-400 text-sm mb-2 font-medium">
+                          Nombre completo
+                        </Text>
+                        <View className="flex-row items-center bg-zinc-800/50 backdrop-blur rounded-2xl px-4 border border-zinc-700/50">
+                          <User size={20} color="#71717a" />
+                          <TextInput
+                            value={name}
+                            onChangeText={setName}
+                            placeholder="Juan Pérez"
+                            placeholderTextColor="#52525b"
+                            className="flex-1 text-white py-4 px-3 text-base"
+                            autoCapitalize="words"
+                            autoComplete="name"
+                          />
+                        </View>
+                      </View>
 
-                <View className="bg-gradient-to-r from-red-900/30 to-orange-900/20 border border-red-600/20 rounded-2xl p-5">
-                  <View className="flex-row items-center justify-center gap-2 mb-2">
-                    <Shield size={18} color={PREMIUM_COLORS.fireRed} />
-                    <Text className="text-white text-sm font-bold">
-                      Pago 100% seguro con Openpay
-                    </Text>
-                  </View>
-                  <Text className="text-zinc-400 text-xs text-center leading-relaxed">
-                    Certificación PCI DSS • Encriptación SSL 256-bit
-                  </Text>
-                  <View className="h-px bg-zinc-800/50 my-3" />
-                  <Text className="text-zinc-400 text-xs text-center">
-                    ✓ Cancela cuando quieras, sin penalidad{'\n'}✓ Sin letras chicas ni cargos
-                    ocultos{'\n'}✓ Acceso total desde el primer día{'\n'}✓ Actualizaciones incluidas
-                    de por vida
-                  </Text>
-                </View>
-              </LinearGradient>
-            </View>
-          </Animated.View>
+                      {/* Email */}
+                      <View className="mb-5">
+                        <Text className="text-zinc-400 text-sm mb-2 font-medium">
+                          Correo electrónico
+                        </Text>
+                        <View className="flex-row items-center bg-zinc-800/50 backdrop-blur rounded-2xl px-4 border border-zinc-700/50">
+                          <Mail size={20} color="#71717a" />
+                          <TextInput
+                            value={email}
+                            onChangeText={setEmail}
+                            placeholder="tu@email.com"
+                            placeholderTextColor="#52525b"
+                            className="flex-1 text-white py-4 px-3 text-base"
+                            keyboardType="email-address"
+                            autoCapitalize="none"
+                            autoComplete="email"
+                          />
+                        </View>
+                      </View>
 
-          {/* Form Card - Premium Design */}
-          <Animated.View
-            entering={SlideInRight.delay(400).duration(800).springify()}
-            style={{
-              width: SCREEN_WIDTH < 768 ? '100%' : undefined,
-              flex: SCREEN_WIDTH < 768 ? undefined : 1,
-              maxWidth: SCREEN_WIDTH < 768 ? '100%' : 480,
-            }}
-          >
-            <View
-              className="bg-zinc-900/40 backdrop-blur-2xl border border-zinc-800/50 rounded-[32px] relative overflow-hidden"
-              style={{ padding: SCREEN_WIDTH < 640 ? 20 : 32 }}
-            >
-              {/* Subtle inner gradient */}
+                      {/* Phone */}
+                      <View className="mb-5">
+                        <Text className="text-zinc-400 text-sm mb-2 font-medium">Celular</Text>
+                        <PhoneInput
+                          value={phone}
+                          onChangeText={setPhone}
+                          selectedCountry={phoneCountry}
+                          onCountryChange={setPhoneCountry}
+                          placeholder="999 999 999"
+                          disabled={loading}
+                        />
+                      </View>
+
+                      {/* Password */}
+                      <View className="mb-8">
+                        <Text className="text-zinc-400 text-sm mb-2 font-medium">Contraseña</Text>
+                        <View className="flex-row items-center bg-zinc-800/50 backdrop-blur rounded-2xl px-4 border border-zinc-700/50">
+                          <Lock size={20} color="#71717a" />
+                          <TextInput
+                            value={password}
+                            onChangeText={setPassword}
+                            placeholder="Mínimo 6 caracteres"
+                            placeholderTextColor="#52525b"
+                            className="flex-1 text-white py-4 px-3 text-base"
+                            secureTextEntry={!showPassword}
+                            autoComplete="new-password"
+                          />
+                          <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
+                            {showPassword ? (
+                              <EyeOff size={20} color="#71717a" />
+                            ) : (
+                              <Eye size={20} color="#71717a" />
+                            )}
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    </View>
+
+                    {/* Continue Button */}
+                    <TouchableOpacity onPress={goToPayment} activeOpacity={0.9}>
+                      <LinearGradient
+                        colors={[PREMIUM_COLORS.fireRed, '#B91C1C']}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
+                        className="py-5 rounded-2xl flex-row items-center justify-center gap-3"
+                        style={{
+                          shadowColor: PREMIUM_COLORS.fireRed,
+                          shadowOffset: { width: 0, height: 6 },
+                          shadowOpacity: 0.4,
+                          shadowRadius: 12,
+                        }}
+                      >
+                        <Text className="text-white text-lg font-bold">Continuar</Text>
+                        <ArrowRight size={22} color="white" />
+                      </LinearGradient>
+                    </TouchableOpacity>
+                  </KeyboardAvoidingView>
+                ) : (
+                  <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+                    <View data-form-type="payment">
+                      {/* Card Number */}
+                      <View className="mb-5">
+                        <Text className="text-zinc-400 text-sm mb-2 font-medium">
+                          Número de tarjeta
+                        </Text>
+                        <View className="flex-row items-center bg-zinc-800/50 backdrop-blur rounded-2xl px-4 border border-zinc-700/50">
+                          <CreditCard size={20} color="#71717a" />
+                          <TextInput
+                            value={cardNumber}
+                            onChangeText={handleCardNumberChange}
+                            placeholder="4111 1111 1111 1111"
+                            placeholderTextColor="#52525b"
+                            className="flex-1 text-white py-4 px-3 font-mono text-base"
+                            keyboardType="number-pad"
+                            maxLength={19}
+                            autoComplete="cc-number"
+                          />
+                          {cardNumber.length > 0 && (
+                            <Text className="text-zinc-500 text-xs uppercase font-bold">
+                              {getCardBrand(cardNumber)}
+                            </Text>
+                          )}
+                        </View>
+                      </View>
+
+                      {/* Card Holder */}
+                      <View className="mb-5">
+                        <Text className="text-zinc-400 text-sm mb-2 font-medium">
+                          Nombre en la tarjeta
+                        </Text>
+                        <View className="flex-row items-center bg-zinc-800/50 backdrop-blur rounded-2xl px-4 border border-zinc-700/50">
+                          <User size={20} color="#71717a" />
+                          <TextInput
+                            value={cardName}
+                            onChangeText={(v) => setCardName(v.toUpperCase())}
+                            placeholder="JUAN PEREZ"
+                            placeholderTextColor="#52525b"
+                            className="flex-1 text-white py-4 px-3 text-base"
+                            autoCapitalize="characters"
+                            autoComplete="cc-name"
+                          />
+                        </View>
+                      </View>
+
+                      {/* Expiry + CVV */}
+                      <View className="flex-row gap-4 mb-8">
+                        <View className="flex-1">
+                          <Text className="text-zinc-400 text-sm mb-2 font-medium">
+                            Vencimiento
+                          </Text>
+                          <View className="flex-row items-center bg-zinc-800/50 backdrop-blur rounded-2xl px-4 border border-zinc-700/50">
+                            <TextInput
+                              value={expiry}
+                              onChangeText={handleExpiryChange}
+                              placeholder="MM/YY"
+                              placeholderTextColor="#52525b"
+                              className="flex-1 text-white py-4 font-mono text-center text-base"
+                              keyboardType="number-pad"
+                              maxLength={5}
+                              autoComplete="cc-exp"
+                            />
+                          </View>
+                        </View>
+                        <View className="flex-1">
+                          <Text className="text-zinc-400 text-sm mb-2 font-medium">CVV</Text>
+                          <View className="flex-row items-center bg-zinc-800/50 backdrop-blur rounded-2xl px-4 border border-zinc-700/50">
+                            <TextInput
+                              value={cvv}
+                              onChangeText={setCvv}
+                              placeholder="123"
+                              placeholderTextColor="#52525b"
+                              className="flex-1 text-white py-4 font-mono text-center text-base"
+                              keyboardType="number-pad"
+                              maxLength={4}
+                              secureTextEntry
+                              autoComplete="cc-csc"
+                            />
+                          </View>
+                        </View>
+                      </View>
+                    </View>
+
+                    {/* Back Button */}
+                    <TouchableOpacity
+                      onPress={() => setStep('info')}
+                      className="mb-4 py-2"
+                      activeOpacity={0.7}
+                    >
+                      <Text className="text-zinc-400 text-center">← Volver a mis datos</Text>
+                    </TouchableOpacity>
+
+                    {/* Subscribe Button */}
+                    <TouchableOpacity
+                      onPress={handleSubscribe}
+                      activeOpacity={0.9}
+                      disabled={loading}
+                    >
+                      <LinearGradient
+                        colors={
+                          loading ? ['#3f3f46', '#27272a'] : [PREMIUM_COLORS.fireRed, '#B91C1C']
+                        }
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
+                        className="py-5 rounded-2xl flex-row items-center justify-center gap-3"
+                        style={{
+                          shadowColor: loading ? 'transparent' : PREMIUM_COLORS.fireRed,
+                          shadowOffset: { width: 0, height: 6 },
+                          shadowOpacity: 0.4,
+                          shadowRadius: 12,
+                        }}
+                      >
+                        {loading ? (
+                          <ActivityIndicator color="white" />
+                        ) : (
+                          <>
+                            <Shield size={22} color="white" />
+                            <Text className="text-white text-lg font-bold">
+                              Pagar {getFormattedPrice()}
+                            </Text>
+                          </>
+                        )}
+                      </LinearGradient>
+                    </TouchableOpacity>
+
+                    {/* Security note */}
+                    <View className="flex-row items-center justify-center gap-2 mt-5">
+                      <Lock size={14} color="#52525b" />
+                      <Text className="text-zinc-500 text-xs">
+                        Pago seguro procesado por Openpay • SSL
+                      </Text>
+                    </View>
+                  </KeyboardAvoidingView>
+                )}
+              </View>
+            </Animated.View>
+          </View>
+        </View>
+
+        {/* ================================================================== */}
+        {/* CTA SECTION */}
+        {/* ================================================================== */}
+        <View className="px-6 py-20 bg-zinc-950 relative overflow-hidden">
+          <GlowOrb color={PREMIUM_COLORS.fireRed} size={600} top="50%" left="50%" delay={0} />
+
+          <Animated.View entering={FadeInUp.duration(800)} className="items-center relative z-10">
+            <Flame size={48} color={PREMIUM_COLORS.fireRed} fill={PREMIUM_COLORS.fireRed} />
+            <Text className="text-white text-4xl md:text-5xl font-bold text-center mt-6 mb-4">
+              Tu mejor versión empieza hoy
+            </Text>
+            <Text className="text-zinc-400 text-lg text-center mb-4 max-w-xl">
+              Deja de improvisar. Con TRENS ordenas tu rutina, tu nutrición, tus suplementos, tus
+              cardios y tu progreso en una sola plataforma. Cada detalle bajo control.
+            </Text>
+            <Text className="text-zinc-500 text-base text-center mb-8 max-w-md">
+              Solo <Text className="text-red-500 font-bold">{getFormattedPrice()}/mes</Text>.
+              Cancela cuando quieras. Sin compromiso.
+            </Text>
+
+            <TouchableOpacity onPress={scrollToPricing} activeOpacity={0.9}>
               <LinearGradient
-                colors={['rgba(255, 255, 255, 0.02)', 'transparent']}
+                colors={[PREMIUM_COLORS.fireRed, '#B91C1C']}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
+                className="px-12 py-5 rounded-2xl flex-row items-center gap-4"
                 style={{
-                  position: 'absolute',
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  bottom: 0,
-                  borderRadius: 30,
+                  shadowColor: PREMIUM_COLORS.fireRed,
+                  shadowOffset: { width: 0, height: 8 },
+                  shadowOpacity: 0.5,
+                  shadowRadius: 20,
                 }}
-              />
-
-              <View className="flex-row items-center gap-3 mb-8">
-                {step === 'info' ? (
-                  <User size={24} color={PREMIUM_COLORS.fireRed} />
-                ) : (
-                  <CreditCard size={24} color={PREMIUM_COLORS.fireRed} />
-                )}
-                <Text className="text-white text-xl font-bold">
-                  {step === 'info' ? 'Crea tu cuenta' : 'Datos de pago'}
-                </Text>
-              </View>
-
-              {/* Step indicator */}
-              <View className="flex-row items-center gap-2 mb-6">
-                <View
-                  className={`flex-1 h-1 rounded-full ${step === 'info' ? 'bg-red-600' : 'bg-zinc-700'}`}
-                />
-                <View
-                  className={`flex-1 h-1 rounded-full ${step === 'payment' ? 'bg-red-600' : 'bg-zinc-700'}`}
-                />
-              </View>
-
-              {error && (
-                <Animated.View
-                  entering={FadeInDown.duration(300)}
-                  className="bg-red-900/30 border border-red-600/50 rounded-2xl p-4 mb-6"
-                >
-                  <Text className="text-red-400 text-sm text-center">{error}</Text>
-                </Animated.View>
-              )}
-
-              {step === 'info' ? (
-                <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-                  <View data-form-type="registration">
-                    {/* Name */}
-                    <View className="mb-5">
-                      <Text className="text-zinc-400 text-sm mb-2 font-medium">
-                        Nombre completo
-                      </Text>
-                      <View className="flex-row items-center bg-zinc-800/50 backdrop-blur rounded-2xl px-4 border border-zinc-700/50">
-                        <User size={20} color="#71717a" />
-                        <TextInput
-                          value={name}
-                          onChangeText={setName}
-                          placeholder="Juan Pérez"
-                          placeholderTextColor="#52525b"
-                          className="flex-1 text-white py-4 px-3 text-base"
-                          autoCapitalize="words"
-                          autoComplete="name"
-                        />
-                      </View>
-                    </View>
-
-                    {/* Email */}
-                    <View className="mb-5">
-                      <Text className="text-zinc-400 text-sm mb-2 font-medium">
-                        Correo electrónico
-                      </Text>
-                      <View className="flex-row items-center bg-zinc-800/50 backdrop-blur rounded-2xl px-4 border border-zinc-700/50">
-                        <Mail size={20} color="#71717a" />
-                        <TextInput
-                          value={email}
-                          onChangeText={setEmail}
-                          placeholder="tu@email.com"
-                          placeholderTextColor="#52525b"
-                          className="flex-1 text-white py-4 px-3 text-base"
-                          keyboardType="email-address"
-                          autoCapitalize="none"
-                          autoComplete="email"
-                        />
-                      </View>
-                    </View>
-
-                    {/* Phone */}
-                    <View className="mb-5">
-                      <Text className="text-zinc-400 text-sm mb-2 font-medium">Celular</Text>
-                      <PhoneInput
-                        value={phone}
-                        onChangeText={setPhone}
-                        selectedCountry={phoneCountry}
-                        onCountryChange={setPhoneCountry}
-                        placeholder="999 999 999"
-                        disabled={loading}
-                      />
-                    </View>
-
-                    {/* Password */}
-                    <View className="mb-8">
-                      <Text className="text-zinc-400 text-sm mb-2 font-medium">Contraseña</Text>
-                      <View className="flex-row items-center bg-zinc-800/50 backdrop-blur rounded-2xl px-4 border border-zinc-700/50">
-                        <Lock size={20} color="#71717a" />
-                        <TextInput
-                          value={password}
-                          onChangeText={setPassword}
-                          placeholder="Mínimo 6 caracteres"
-                          placeholderTextColor="#52525b"
-                          className="flex-1 text-white py-4 px-3 text-base"
-                          secureTextEntry={!showPassword}
-                          autoComplete="new-password"
-                        />
-                        <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
-                          {showPassword ? (
-                            <EyeOff size={20} color="#71717a" />
-                          ) : (
-                            <Eye size={20} color="#71717a" />
-                          )}
-                        </TouchableOpacity>
-                      </View>
-                    </View>
-                  </View>
-
-                  {/* Continue Button */}
-                  <TouchableOpacity onPress={goToPayment} activeOpacity={0.9}>
-                    <LinearGradient
-                      colors={[PREMIUM_COLORS.fireRed, '#B91C1C']}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 1 }}
-                      className="py-5 rounded-2xl flex-row items-center justify-center gap-3"
-                      style={{
-                        shadowColor: PREMIUM_COLORS.fireRed,
-                        shadowOffset: { width: 0, height: 6 },
-                        shadowOpacity: 0.4,
-                        shadowRadius: 12,
-                      }}
-                    >
-                      <Text className="text-white text-lg font-bold">Continuar</Text>
-                      <ArrowRight size={22} color="white" />
-                    </LinearGradient>
-                  </TouchableOpacity>
-                </KeyboardAvoidingView>
-              ) : (
-                <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-                  <View data-form-type="payment">
-                    {/* Card Number */}
-                    <View className="mb-5">
-                      <Text className="text-zinc-400 text-sm mb-2 font-medium">
-                        Número de tarjeta
-                      </Text>
-                      <View className="flex-row items-center bg-zinc-800/50 backdrop-blur rounded-2xl px-4 border border-zinc-700/50">
-                        <CreditCard size={20} color="#71717a" />
-                        <TextInput
-                          value={cardNumber}
-                          onChangeText={handleCardNumberChange}
-                          placeholder="4111 1111 1111 1111"
-                          placeholderTextColor="#52525b"
-                          className="flex-1 text-white py-4 px-3 font-mono text-base"
-                          keyboardType="number-pad"
-                          maxLength={19}
-                          autoComplete="cc-number"
-                        />
-                        {cardNumber.length > 0 && (
-                          <Text className="text-zinc-500 text-xs uppercase font-bold">
-                            {getCardBrand(cardNumber)}
-                          </Text>
-                        )}
-                      </View>
-                    </View>
-
-                    {/* Card Holder */}
-                    <View className="mb-5">
-                      <Text className="text-zinc-400 text-sm mb-2 font-medium">
-                        Nombre en la tarjeta
-                      </Text>
-                      <View className="flex-row items-center bg-zinc-800/50 backdrop-blur rounded-2xl px-4 border border-zinc-700/50">
-                        <User size={20} color="#71717a" />
-                        <TextInput
-                          value={cardName}
-                          onChangeText={(v) => setCardName(v.toUpperCase())}
-                          placeholder="JUAN PEREZ"
-                          placeholderTextColor="#52525b"
-                          className="flex-1 text-white py-4 px-3 text-base"
-                          autoCapitalize="characters"
-                          autoComplete="cc-name"
-                        />
-                      </View>
-                    </View>
-
-                    {/* Expiry + CVV */}
-                    <View className="flex-row gap-4 mb-8">
-                      <View className="flex-1">
-                        <Text className="text-zinc-400 text-sm mb-2 font-medium">Vencimiento</Text>
-                        <View className="flex-row items-center bg-zinc-800/50 backdrop-blur rounded-2xl px-4 border border-zinc-700/50">
-                          <TextInput
-                            value={expiry}
-                            onChangeText={handleExpiryChange}
-                            placeholder="MM/YY"
-                            placeholderTextColor="#52525b"
-                            className="flex-1 text-white py-4 font-mono text-center text-base"
-                            keyboardType="number-pad"
-                            maxLength={5}
-                            autoComplete="cc-exp"
-                          />
-                        </View>
-                      </View>
-                      <View className="flex-1">
-                        <Text className="text-zinc-400 text-sm mb-2 font-medium">CVV</Text>
-                        <View className="flex-row items-center bg-zinc-800/50 backdrop-blur rounded-2xl px-4 border border-zinc-700/50">
-                          <TextInput
-                            value={cvv}
-                            onChangeText={setCvv}
-                            placeholder="123"
-                            placeholderTextColor="#52525b"
-                            className="flex-1 text-white py-4 font-mono text-center text-base"
-                            keyboardType="number-pad"
-                            maxLength={4}
-                            secureTextEntry
-                            autoComplete="cc-csc"
-                          />
-                        </View>
-                      </View>
-                    </View>
-                  </View>
-
-                  {/* Back Button */}
-                  <TouchableOpacity
-                    onPress={() => setStep('info')}
-                    className="mb-4 py-2"
-                    activeOpacity={0.7}
-                  >
-                    <Text className="text-zinc-400 text-center">← Volver a mis datos</Text>
-                  </TouchableOpacity>
-
-                  {/* Subscribe Button */}
-                  <TouchableOpacity
-                    onPress={handleSubscribe}
-                    activeOpacity={0.9}
-                    disabled={loading}
-                  >
-                    <LinearGradient
-                      colors={
-                        loading ? ['#3f3f46', '#27272a'] : [PREMIUM_COLORS.fireRed, '#B91C1C']
-                      }
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 1 }}
-                      className="py-5 rounded-2xl flex-row items-center justify-center gap-3"
-                      style={{
-                        shadowColor: loading ? 'transparent' : PREMIUM_COLORS.fireRed,
-                        shadowOffset: { width: 0, height: 6 },
-                        shadowOpacity: 0.4,
-                        shadowRadius: 12,
-                      }}
-                    >
-                      {loading ? (
-                        <ActivityIndicator color="white" />
-                      ) : (
-                        <>
-                          <Shield size={22} color="white" />
-                          <Text className="text-white text-lg font-bold">
-                            Pagar {getFormattedPrice()}
-                          </Text>
-                        </>
-                      )}
-                    </LinearGradient>
-                  </TouchableOpacity>
-
-                  {/* Security note */}
-                  <View className="flex-row items-center justify-center gap-2 mt-5">
-                    <Lock size={14} color="#52525b" />
-                    <Text className="text-zinc-500 text-xs">
-                      Pago seguro procesado por Openpay • SSL
-                    </Text>
-                  </View>
-                </KeyboardAvoidingView>
-              )}
-            </View>
+              >
+                <Play size={24} color="white" fill="white" />
+                <Text className="text-white text-xl font-bold">COMENZAR AHORA</Text>
+              </LinearGradient>
+            </TouchableOpacity>
           </Animated.View>
         </View>
-      </View>
 
-      {/* ================================================================== */}
-      {/* CTA SECTION */}
-      {/* ================================================================== */}
-      <View className="px-6 py-20 bg-zinc-950 relative overflow-hidden">
-        <GlowOrb color={PREMIUM_COLORS.fireRed} size={600} top="50%" left="50%" delay={0} />
-
-        <Animated.View entering={FadeInUp.duration(800)} className="items-center relative z-10">
-          <Flame size={48} color={PREMIUM_COLORS.fireRed} fill={PREMIUM_COLORS.fireRed} />
-          <Text className="text-white text-4xl md:text-5xl font-bold text-center mt-6 mb-4">
-            Tu mejor versión empieza hoy
-          </Text>
-          <Text className="text-zinc-400 text-lg text-center mb-4 max-w-xl">
-            Deja de improvisar. Con TRENS ordenas tu rutina, tu nutrición, tus suplementos, tus
-            cardios y tu progreso en una sola plataforma. Cada detalle bajo control.
-          </Text>
-          <Text className="text-zinc-500 text-base text-center mb-8 max-w-md">
-            Solo <Text className="text-red-500 font-bold">{getFormattedPrice()}/mes</Text>. Cancela
-            cuando quieras. Sin compromiso.
-          </Text>
-
-          <TouchableOpacity onPress={scrollToPricing} activeOpacity={0.9}>
-            <LinearGradient
-              colors={[PREMIUM_COLORS.fireRed, '#B91C1C']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              className="px-12 py-5 rounded-2xl flex-row items-center gap-4"
-              style={{
-                shadowColor: PREMIUM_COLORS.fireRed,
-                shadowOffset: { width: 0, height: 8 },
-                shadowOpacity: 0.5,
-                shadowRadius: 20,
-              }}
-            >
-              <Play size={24} color="white" fill="white" />
-              <Text className="text-white text-xl font-bold">COMENZAR AHORA</Text>
-            </LinearGradient>
-          </TouchableOpacity>
-        </Animated.View>
-      </View>
-
-      {/* ================================================================== */}
-      {/* FOOTER - PREMIUM */}
-      {/* ================================================================== */}
-      <View className="px-6 py-16 bg-black border-t border-zinc-900">
-        <View className="max-w-5xl self-center w-full" style={{ alignSelf: 'center' }}>
-          {/* Logo and Social */}
-          <View className="items-center mb-12">
-            <View className="flex-row items-center gap-3 mb-4">
-              <LinearGradient
-                colors={[PREMIUM_COLORS.fireRed, PREMIUM_COLORS.fireOrange]}
-                className="w-12 h-12 rounded-xl items-center justify-center"
-              >
-                <Dumbbell size={24} color="white" />
-              </LinearGradient>
-              <Text
-                className="text-white text-3xl font-bold"
-                style={{
-                  textShadowColor: PREMIUM_COLORS.glowSoft,
-                  textShadowOffset: { width: 0, height: 2 },
-                  textShadowRadius: 10,
-                }}
-              >
-                TRENS
+        {/* ================================================================== */}
+        {/* FOOTER - PREMIUM */}
+        {/* ================================================================== */}
+        <View className="px-6 py-16 bg-black border-t border-zinc-900">
+          <View className="max-w-5xl self-center w-full" style={{ alignSelf: 'center' }}>
+            {/* Logo and Social */}
+            <View className="items-center mb-12">
+              <View className="flex-row items-center gap-3 mb-4">
+                <LinearGradient
+                  colors={[PREMIUM_COLORS.fireRed, PREMIUM_COLORS.fireOrange]}
+                  className="w-12 h-12 rounded-xl items-center justify-center"
+                >
+                  <Dumbbell size={24} color="white" />
+                </LinearGradient>
+                <Text
+                  className="text-white text-3xl font-bold"
+                  style={{
+                    textShadowColor: PREMIUM_COLORS.glowSoft,
+                    textShadowOffset: { width: 0, height: 2 },
+                    textShadowRadius: 10,
+                  }}
+                >
+                  TRENS
+                </Text>
+              </View>
+              <Text className="text-zinc-500 text-sm tracking-widest">
+                HIGH PERFORMANCE FITNESS
               </Text>
             </View>
-            <Text className="text-zinc-500 text-sm tracking-widest">HIGH PERFORMANCE FITNESS</Text>
-          </View>
 
-          {/* Links */}
-          <View className="flex-row flex-wrap justify-center gap-8 mb-12">
-            <Link href="/terms" asChild>
-              <TouchableOpacity className="py-2">
-                <Text className="text-zinc-400 hover:text-white transition-colors">
-                  Términos y Condiciones
-                </Text>
-              </TouchableOpacity>
-            </Link>
-            <Link href="/privacy" asChild>
-              <TouchableOpacity className="py-2">
-                <Text className="text-zinc-400 hover:text-white transition-colors">
-                  Política de Privacidad
-                </Text>
-              </TouchableOpacity>
-            </Link>
-            <Link href="/contact" asChild>
-              <TouchableOpacity className="py-2">
-                <Text className="text-zinc-400 hover:text-white transition-colors">Contacto</Text>
-              </TouchableOpacity>
-            </Link>
-          </View>
+            {/* Links */}
+            <View className="flex-row flex-wrap justify-center gap-8 mb-12">
+              <Link href="/terms" asChild>
+                <TouchableOpacity className="py-2">
+                  <Text className="text-zinc-400 hover:text-white transition-colors">
+                    Términos y Condiciones
+                  </Text>
+                </TouchableOpacity>
+              </Link>
+              <Link href="/privacy" asChild>
+                <TouchableOpacity className="py-2">
+                  <Text className="text-zinc-400 hover:text-white transition-colors">
+                    Política de Privacidad
+                  </Text>
+                </TouchableOpacity>
+              </Link>
+              <Link href="/contact" asChild>
+                <TouchableOpacity className="py-2">
+                  <Text className="text-zinc-400 hover:text-white transition-colors">Contacto</Text>
+                </TouchableOpacity>
+              </Link>
+            </View>
 
-          {/* Divider */}
-          <View className="h-px bg-zinc-800 mb-8" />
+            {/* Divider */}
+            <View className="h-px bg-zinc-800 mb-8" />
 
-          {/* Copyright */}
-          <View className="items-center">
-            <Text className="text-zinc-600 text-sm text-center mb-2">
-              © 2026 TRENS. Todos los derechos reservados.
-            </Text>
-            <View className="flex-row items-center gap-2">
-              <Text className="text-zinc-700 text-xs">Lima, Perú</Text>
-              <Text className="text-2xl">🇵🇪</Text>
+            {/* Copyright */}
+            <View className="items-center">
+              <Text className="text-zinc-600 text-sm text-center mb-2">
+                © 2026 TRENS. Todos los derechos reservados.
+              </Text>
+              <View className="flex-row items-center gap-2">
+                <Text className="text-zinc-700 text-xs">Lima, Perú</Text>
+                <Text className="text-2xl">🇵🇪</Text>
+              </View>
             </View>
           </View>
         </View>
-      </View>
-    </ScrollView>
+      </ScrollView>
+    </>
   );
 }

@@ -1336,11 +1336,17 @@ export const HankProvider = ({ children, userId }: HankProviderProps) => {
           };
         });
 
-        // Formatear entrenamiento (desde profiles)
+        // Formatear entrenamiento (sistema weekday: 0=Dom..6=Sáb)
+        // currentDay AHORA es el weekday real (new Date().getDay()), no un
+        // contador rotativo. La frecuencia se deriva de routineNames con valor.
+        const _routineNames = trainingData?.training_routine_names || {};
+        const _activeWeekdays = Object.entries(_routineNames).filter(
+          ([k, v]) => /^[0-6]$/.test(k) && typeof v === 'string' && (v as string).trim()
+        );
         const training = {
-          frequency: trainingData?.training_frequency || 0,
-          currentDay: trainingData?.training_current_day || 0,
-          routineNames: trainingData?.training_routine_names || {},
+          frequency: _activeWeekdays.length || trainingData?.training_frequency || 0,
+          currentDay: new Date().getDay(),
+          routineNames: _routineNames,
         };
 
         // Formatear biométricos (desde user_profiles) - TODOS los campos de ADN

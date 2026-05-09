@@ -33,7 +33,11 @@ import {
   Edit3,
   Check,
   ChevronLeft,
+  ShoppingBag,
+  Search,
 } from 'lucide-react-native';
+import { Image } from 'expo-image';
+import { CompoundProductSearchModal, SelectedShopProduct } from './CompoundProductSearchModal';
 
 // ============================================================================
 // TYPES
@@ -50,6 +54,12 @@ interface StackItem {
   isPostWorkout?: boolean;
   daysOfWeek?: number[];
   workoutSessionIndex?: number; // 0 = Sesión A, 1 = Sesión B
+  /** FK opcional a shop_products. Si está seteado, este compuesto está
+   *  vinculado a un producto real de la tienda TRENS. */
+  productId?: string;
+  /** Snapshot ligero del producto vinculado para mostrar en UI. */
+  productThumbnail?: string;
+  productPrice?: number;
 }
 
 interface StackManagerModalProps {
@@ -371,6 +381,29 @@ const EditItemView: React.FC<EditItemViewProps> = ({
   const [selectedDays, setSelectedDays] = useState<number[]>(
     item.daysOfWeek || [0, 1, 2, 3, 4, 5, 6]
   );
+  // Vinculación con producto de la tienda
+  const [linkedProduct, setLinkedProduct] = useState<SelectedShopProduct | null>(
+    item.productId
+      ? {
+          productId: item.productId,
+          name: item.name,
+          price: item.productPrice ?? 0,
+          thumbnail_url: item.productThumbnail,
+          supplementType: item.type,
+        }
+      : null
+  );
+  const [showProductSearch, setShowProductSearch] = useState(false);
+
+  const handleSelectShopProduct = (p: SelectedShopProduct) => {
+    setLinkedProduct(p);
+    setName(p.name);
+    if (p.supplementType) setType(p.supplementType);
+  };
+  const handleUnlinkProduct = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setLinkedProduct(null);
+  };
 
   const toggleDay = (day: number) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -399,7 +432,8 @@ const EditItemView: React.FC<EditItemViewProps> = ({
   };
 
   const handleSave = () => {
-    if (!name.trim() || !dose.trim()) {
+    const effectiveName = linkedProduct ? linkedProduct.name : name.trim();
+    if (!effectiveName || !dose.trim()) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       return;
     }
@@ -411,9 +445,9 @@ const EditItemView: React.FC<EditItemViewProps> = ({
     const finalTime = finalTimes ? finalTimes[0] : undefined;
 
     onSave({
-      name: name.trim(),
+      name: effectiveName,
       dose: dose.trim(),
-      type,
+      type: linkedProduct?.supplementType ?? type,
       notes: notes.trim() || undefined,
       times: finalTimes,
       time: finalTime,
@@ -421,7 +455,10 @@ const EditItemView: React.FC<EditItemViewProps> = ({
       isPostWorkout,
       daysOfWeek: selectedDays,
       workoutSessionIndex: isPreWorkout || isPostWorkout ? workoutSessionIndex : undefined,
-    });
+      productId: linkedProduct?.productId ?? null,
+      productThumbnail: linkedProduct?.thumbnail_url ?? null,
+      productPrice: linkedProduct?.price ?? null,
+    } as Partial<Omit<StackItem, 'id'>>);
   };
 
   return (
@@ -436,37 +473,123 @@ const EditItemView: React.FC<EditItemViewProps> = ({
           <Trash2 size={20} color="#EF4444" />
         </Pressable>
       </View>
-      {/* Name */} <Text className="text-zinc-500 text-xs mb-2 font-bold uppercase">Nombre</Text>
-      <TextInput
-        value={name}
-        onChangeText={setName}
-        placeholder="Nombre (ej. Creatina)"
-        placeholderTextColor="#666"
-        className="bg-black/40 border border-white/10 rounded-lg p-3 text-white mb-4"
-      />
-      {/* Type Selector */}
-      <Text className="text-zinc-500 text-xs mb-2 font-bold uppercase">Tipo</Text>
-      <View className="flex-row gap-2 mb-4">
-        {TYPES.map((t) => (
-          <Pressable
-            key={t.key}
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              setType(t.key);
+      {/* Vinculaci\u00f3n con tienda */}
+      {linkedProduct ? (
+        <View
+          className="flex-row items-center gap-3 p-2.5 rounded-xl mb-4"
+          style={{
+            backgroundColor: 'rgba(15, 8, 8, 0.85)',
+            borderWidth: 1.5,
+            borderColor: 'rgba(220, 38, 38, 0.55)',
+            shadowColor: '#DC2626',
+            shadowOffset: { width: 0, height: 0 },
+            shadowOpacity: 0.4,
+            shadowRadius: 10,
+          }}
+        >
+          <View
+            style={{
+              width: 48,
+              height: 48,
+              borderRadius: 10,
+              overflow: 'hidden',
+              backgroundColor: '#0a0505',
             }}
-            className={`flex-1 p-3 rounded-lg border items-center ${
-              type === t.key ? 'bg-purple-500/20 border-purple-500' : 'bg-[#111111] border-white/10'
-            }`}
           >
-            {t.icon}
-            <Text
-              className={`text-xs mt-1 ${type === t.key ? 'text-purple-400' : 'text-zinc-500'}`}
-            >
-              {t.label}
+            {linkedProduct.thumbnail_url ? (
+              <Image
+                source={{ uri: linkedProduct.thumbnail_url }}
+                style={{ width: '100%', height: '100%' }}
+                contentFit="cover"
+              />
+            ) : (
+              <View className="w-full h-full items-center justify-center">
+                <ShoppingBag size={20} color="#3F3F46" />
+              </View>
+            )}
+          </View>
+          <View className="flex-1">
+            <View className="flex-row items-center gap-1.5">
+              <ShoppingBag size={11} color="#DC2626" />
+              <Text className="text-red-500 font-mono text-[9px] tracking-widest font-black">
+                VINCULADO A TIENDA
+              </Text>
+            </View>
+            <Text className="text-white font-bold text-sm mt-0.5" numberOfLines={1}>
+              {linkedProduct.name}
             </Text>
+            {linkedProduct.price > 0 && (
+              <Text className="text-fire-orange font-mono text-xs font-black mt-0.5">
+                S/ {linkedProduct.price.toFixed(2)}
+              </Text>
+            )}
+          </View>
+          <Pressable
+            onPress={handleUnlinkProduct}
+            className="p-2 rounded-lg bg-zinc-900 active:bg-zinc-800"
+          >
+            <X size={14} color="#A1A1AA" />
           </Pressable>
-        ))}
-      </View>
+        </View>
+      ) : (
+        <Pressable
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            setShowProductSearch(true);
+          }}
+          className="flex-row items-center justify-center gap-2 p-3 rounded-xl mb-4 active:opacity-80"
+          style={{
+            backgroundColor: 'rgba(220, 38, 38, 0.08)',
+            borderWidth: 1.5,
+            borderStyle: 'dashed',
+            borderColor: 'rgba(220, 38, 38, 0.45)',
+          }}
+        >
+          <Search size={16} color="#DC2626" />
+          <Text className="text-red-500 font-mono text-xs font-black tracking-widest">
+            BUSCAR EN TIENDA
+          </Text>
+        </Pressable>
+      )}
+
+      {/* Name + Type \u2014 ocultos cuando hay producto vinculado */}
+      {!linkedProduct && (
+        <>
+          <Text className="text-zinc-500 text-xs mb-2 font-bold uppercase">Nombre</Text>
+          <TextInput
+            value={name}
+            onChangeText={setName}
+            placeholder="Nombre (ej. Creatina)"
+            placeholderTextColor="#666"
+            className="bg-black/40 border border-white/10 rounded-lg p-3 text-white mb-4"
+          />
+          {/* Type Selector */}
+          <Text className="text-zinc-500 text-xs mb-2 font-bold uppercase">Tipo</Text>
+          <View className="flex-row gap-2 mb-4">
+            {TYPES.map((t) => (
+              <Pressable
+                key={t.key}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  setType(t.key);
+                }}
+                className={`flex-1 p-3 rounded-lg border items-center ${
+                  type === t.key
+                    ? 'bg-purple-500/20 border-purple-500'
+                    : 'bg-[#111111] border-white/10'
+                }`}
+              >
+                {t.icon}
+                <Text
+                  className={`text-xs mt-1 ${type === t.key ? 'text-purple-400' : 'text-zinc-500'}`}
+                >
+                  {t.label}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        </>
+      )}
       {/* Dose */}
       <Text className="text-zinc-500 text-xs mb-2 font-bold uppercase">Dosis</Text>
       <TextInput
@@ -700,6 +823,13 @@ const EditItemView: React.FC<EditItemViewProps> = ({
         <Check size={18} color="#FFF" />
         <Text className="text-white font-bold text-lg">GUARDAR CAMBIOS</Text>
       </Pressable>
+
+      {/* Buscador de productos para vincular este compuesto a un producto de la tienda */}
+      <CompoundProductSearchModal
+        visible={showProductSearch}
+        onClose={() => setShowProductSearch(false)}
+        onSelect={handleSelectShopProduct}
+      />
     </ScrollView>
   );
 };
@@ -762,6 +892,9 @@ export const StackManagerModal: React.FC<StackManagerModalProps> = ({
   const [workoutSessionIndex, setWorkoutSessionIndex] = useState<number>(0);
   const [showAdditionalTimes, setShowAdditionalTimes] = useState(false);
   const [selectedDays, setSelectedDays] = useState<number[]>([0, 1, 2, 3, 4, 5, 6]);
+  // Shop product link
+  const [linkedProduct, setLinkedProduct] = useState<SelectedShopProduct | null>(null);
+  const [showProductSearch, setShowProductSearch] = useState(false);
 
   // Reset form and view when modal closes
   useEffect(() => {
@@ -793,6 +926,21 @@ export const StackManagerModal: React.FC<StackManagerModalProps> = ({
     setWorkoutSessionIndex(0);
     setShowAdditionalTimes(false);
     setSelectedDays([0, 1, 2, 3, 4, 5, 6]);
+    setLinkedProduct(null);
+  };
+
+  const handleSelectShopProduct = (p: SelectedShopProduct) => {
+    setLinkedProduct(p);
+    // Auto-rellenar nombre si está vacío (el usuario aún puede editarlo)
+    if (!name.trim()) setName(p.name);
+    // Auto-seleccionar tipo (oral/inyectable/polvo/líquido) si el producto
+    // de la tienda lo define
+    if (p.supplementType) setType(p.supplementType);
+  };
+
+  const handleUnlinkProduct = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setLinkedProduct(null);
   };
 
   const toggleDay = (day: number) => {
@@ -822,7 +970,9 @@ export const StackManagerModal: React.FC<StackManagerModalProps> = ({
   };
 
   const handleAddItem = () => {
-    if (!name.trim() || !dose.trim()) {
+    // Si hay producto vinculado, el nombre viene del producto y siempre es válido.
+    const effectiveName = linkedProduct ? linkedProduct.name : name.trim();
+    if (!effectiveName || !dose.trim()) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       return;
     }
@@ -834,9 +984,9 @@ export const StackManagerModal: React.FC<StackManagerModalProps> = ({
     const finalTime = finalTimes ? finalTimes[0] : undefined;
 
     onAddItem({
-      name: name.trim(),
+      name: effectiveName,
       dose: dose.trim(),
-      type,
+      type: linkedProduct?.supplementType ?? type,
       notes: notes.trim() || undefined,
       times: finalTimes,
       time: finalTime,
@@ -844,6 +994,9 @@ export const StackManagerModal: React.FC<StackManagerModalProps> = ({
       isPostWorkout,
       daysOfWeek: selectedDays,
       workoutSessionIndex: isPreWorkout || isPostWorkout ? workoutSessionIndex : undefined,
+      productId: linkedProduct?.productId,
+      productThumbnail: linkedProduct?.thumbnail_url,
+      productPrice: linkedProduct?.price,
     });
 
     resetForm();
@@ -991,6 +1144,14 @@ export const StackManagerModal: React.FC<StackManagerModalProps> = ({
                               <Text className="text-white font-bold">{item.name}</Text>
                               <View className="flex-row items-center gap-2 flex-wrap mt-1">
                                 <Text className="text-zinc-500 text-xs">{item.dose}</Text>
+                                {item.productId && (
+                                  <View className="flex-row items-center gap-1 bg-red-500/20 px-1.5 py-0.5 rounded border border-red-500/40">
+                                    <ShoppingBag size={9} color="#DC2626" />
+                                    <Text className="text-red-500 text-[10px] font-black tracking-widest">
+                                      TIENDA
+                                    </Text>
+                                  </View>
+                                )}
                                 {item.isPreWorkout && (
                                   <View className="flex-row items-center gap-1 bg-yellow-500/20 px-1.5 py-0.5 rounded">
                                     <Zap size={10} color="#EAB308" />
@@ -1091,43 +1252,131 @@ export const StackManagerModal: React.FC<StackManagerModalProps> = ({
                   <Text className="text-white font-bold text-lg">Nuevo Compuesto</Text>
                 </View>
 
-                {/* Name */}
-                <Text className="text-zinc-500 text-xs mb-2 font-bold uppercase">Nombre</Text>
-                <TextInput
-                  value={name}
-                  onChangeText={setName}
-                  placeholder="Nombre (ej. Creatina)"
-                  placeholderTextColor="#666"
-                  className="bg-black/40 border border-white/10 rounded-lg p-3 text-white mb-4"
-                />
-
-                {/* Type Selector */}
-                <Text className="text-zinc-500 text-xs mb-2 font-bold uppercase">Tipo</Text>
-                <View className="flex-row gap-2 mb-4">
-                  {TYPES.map((t) => (
-                    <Pressable
-                      key={t.key}
-                      onPress={() => {
-                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                        setType(t.key);
+                {/* ============================================================ */}
+                {/* SHOP LINK — Vincular con un producto de la tienda           */}
+                {/* ============================================================ */}
+                <Text className="text-zinc-500 text-xs mb-2 font-bold uppercase">
+                  Producto de la tienda
+                </Text>
+                {linkedProduct ? (
+                  <View
+                    className="flex-row items-center gap-3 p-2.5 rounded-xl mb-4"
+                    style={{
+                      backgroundColor: 'rgba(15, 8, 8, 0.85)',
+                      borderWidth: 1.5,
+                      borderColor: 'rgba(220, 38, 38, 0.55)',
+                      shadowColor: '#DC2626',
+                      shadowOffset: { width: 0, height: 0 },
+                      shadowOpacity: 0.4,
+                      shadowRadius: 10,
+                    }}
+                  >
+                    <View
+                      style={{
+                        width: 48,
+                        height: 48,
+                        borderRadius: 10,
+                        overflow: 'hidden',
+                        backgroundColor: '#0a0505',
                       }}
-                      className={`flex-1 p-3 rounded-lg border items-center ${
-                        type === t.key
-                          ? 'bg-purple-500/20 border-purple-500'
-                          : 'bg-[#111111] border-white/10'
-                      }`}
                     >
-                      {t.icon}
-                      <Text
-                        className={`text-xs mt-1 ${
-                          type === t.key ? 'text-purple-400' : 'text-zinc-500'
-                        }`}
-                      >
-                        {t.label}
+                      {linkedProduct.thumbnail_url ? (
+                        <Image
+                          source={{ uri: linkedProduct.thumbnail_url }}
+                          style={{ width: '100%', height: '100%' }}
+                          contentFit="cover"
+                        />
+                      ) : (
+                        <View className="w-full h-full items-center justify-center">
+                          <ShoppingBag size={20} color="#3F3F46" />
+                        </View>
+                      )}
+                    </View>
+                    <View className="flex-1">
+                      <View className="flex-row items-center gap-1.5">
+                        <ShoppingBag size={11} color="#DC2626" />
+                        <Text className="text-red-500 font-mono text-[9px] tracking-widest font-black">
+                          VINCULADO A TIENDA
+                        </Text>
+                      </View>
+                      <Text className="text-white font-bold text-sm mt-0.5" numberOfLines={1}>
+                        {linkedProduct.name}
                       </Text>
+                      <Text className="text-fire-orange font-mono text-xs font-black mt-0.5">
+                        S/ {linkedProduct.price.toFixed(2)}
+                      </Text>
+                    </View>
+                    <Pressable
+                      onPress={handleUnlinkProduct}
+                      className="p-2 rounded-lg bg-zinc-900 active:bg-zinc-800"
+                    >
+                      <X size={14} color="#A1A1AA" />
                     </Pressable>
-                  ))}
-                </View>
+                  </View>
+                ) : (
+                  <Pressable
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      setShowProductSearch(true);
+                    }}
+                    className="flex-row items-center justify-center gap-2 p-3 rounded-xl mb-4 active:opacity-80"
+                    style={{
+                      backgroundColor: 'rgba(220, 38, 38, 0.08)',
+                      borderWidth: 1.5,
+                      borderStyle: 'dashed',
+                      borderColor: 'rgba(220, 38, 38, 0.45)',
+                    }}
+                  >
+                    <Search size={16} color="#DC2626" />
+                    <Text className="text-red-500 font-mono text-xs font-black tracking-widest">
+                      BUSCAR EN TIENDA
+                    </Text>
+                  </Pressable>
+                )}
+
+                {/* Name + Type — solo se muestran si NO hay producto vinculado.
+                    Cuando se vincula un producto de la tienda, el nombre y el
+                    tipo provienen del producto, evitando duplicar inputs. */}
+                {!linkedProduct && (
+                  <>
+                    <Text className="text-zinc-500 text-xs mb-2 font-bold uppercase">Nombre</Text>
+                    <TextInput
+                      value={name}
+                      onChangeText={setName}
+                      placeholder="Nombre (ej. Creatina)"
+                      placeholderTextColor="#666"
+                      className="bg-black/40 border border-white/10 rounded-lg p-3 text-white mb-4"
+                    />
+
+                    {/* Type Selector */}
+                    <Text className="text-zinc-500 text-xs mb-2 font-bold uppercase">Tipo</Text>
+                    <View className="flex-row gap-2 mb-4">
+                      {TYPES.map((t) => (
+                        <Pressable
+                          key={t.key}
+                          onPress={() => {
+                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                            setType(t.key);
+                          }}
+                          className={`flex-1 p-3 rounded-lg border items-center ${
+                            type === t.key
+                              ? 'bg-purple-500/20 border-purple-500'
+                              : 'bg-[#111111] border-white/10'
+                          }`}
+                        >
+                          {t.icon}
+                          <Text
+                            className={`text-xs mt-1 ${
+                              type === t.key ? 'text-purple-400' : 'text-zinc-500'
+                            }`}
+                          >
+                            {t.label}
+                          </Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                  </>
+                )}
 
                 {/* Dose */}
                 <Text className="text-zinc-500 text-xs mb-2 font-bold uppercase">Dosis</Text>
@@ -1404,6 +1653,13 @@ export const StackManagerModal: React.FC<StackManagerModalProps> = ({
           </Animated.View>
         </View>
       </KeyboardAvoidingView>
+
+      {/* Buscador de productos de la tienda (overlay sobre el manager) */}
+      <CompoundProductSearchModal
+        visible={showProductSearch}
+        onClose={() => setShowProductSearch(false)}
+        onSelect={handleSelectShopProduct}
+      />
     </Modal>
   );
 };

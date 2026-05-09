@@ -1,6 +1,6 @@
 import { View, Text, ScrollView, TouchableOpacity } from 'react-native';
 import { Link } from 'expo-router';
-import { Settings, Video, ImageIcon, ChevronRight } from 'lucide-react-native';
+import { Settings, Video, ImageIcon, Globe, ChevronRight } from 'lucide-react-native';
 
 const COLORS = {
   blue: '#3B82F6',
@@ -14,6 +14,13 @@ const MODULES = [
     description: 'Publicaciones y videos del feed',
     icon: Video,
     color: '#DC2626',
+  },
+  {
+    href: '/(admin)/ajustes/landing',
+    title: 'LANDING WEB',
+    description: 'Carrusel de flyers para shop.trens.app',
+    icon: Globe,
+    color: '#F43F5E',
   },
   {
     href: '/(admin)/assets',

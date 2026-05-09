@@ -191,6 +191,7 @@ export default function AdminLayout() {
         <Tabs.Screen name="feed/index" options={{ href: null }} />
         <Tabs.Screen name="assets/index" options={{ href: null }} />
         <Tabs.Screen name="enlaces/index" options={{ href: null }} />
+        <Tabs.Screen name="ajustes/landing/index" options={{ href: null }} />
 
         {/* Ocultar rutas de detalle */}
         <Tabs.Screen name="rutinas/[id]" options={{ href: null }} />

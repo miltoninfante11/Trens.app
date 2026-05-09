@@ -499,10 +499,10 @@ class NotificationScheduler {
         .order('updated_at', { ascending: false })
         .limit(1);
 
-      // Fetch training info
+      // Fetch training info (sistema weekday)
       const { data: profile } = await supabase
         .from('profiles')
-        .select('training_current_day, training_routine_names, training_frequency')
+        .select('training_routine_names')
         .eq('id', userId)
         .single();
 
@@ -562,19 +562,22 @@ class NotificationScheduler {
           workoutTime = `${workoutHours.toString().padStart(2, '0')}:${workoutMins.toString().padStart(2, '0')}`;
         }
 
-        // Get routine name
-        let routineName = 'Entrenamiento';
-        if (profile?.training_routine_names && profile?.training_current_day !== undefined) {
-          const routineNames = profile.training_routine_names as string[];
-          routineName = routineNames[profile.training_current_day] || 'Entrenamiento';
-        }
+        // Get routine name (weekday actual)
+        const _names = (profile?.training_routine_names || {}) as Record<string, string>;
+        const _today = new Date().getDay();
+        let routineName = _names[String(_today)] || 'Entrenamiento';
 
-        // Get training days
-        const trainingDays = profile?.training_frequency
-          ? this.getTrainingDaysOfWeek(profile.training_frequency)
-          : undefined;
+        // Days of week donde hay entrenamiento (los keys con valor en routineNames)
+        const trainingDays: number[] = Object.entries(_names)
+          .filter(([k, v]) => /^[0-6]$/.test(k) && typeof v === 'string' && (v as string).trim())
+          .map(([k]) => parseInt(k, 10));
 
-        this.scheduleWorkoutNotification(routineName, workoutTime, isFasted, trainingDays);
+        this.scheduleWorkoutNotification(
+          routineName,
+          workoutTime,
+          isFasted,
+          trainingDays.length > 0 ? trainingDays : undefined
+        );
       }
 
       // Schedule supplement notifications

@@ -22,6 +22,7 @@ import * as Speech from 'expo-speech';
 import * as Haptics from '../../lib/haptics';
 import { supabase } from '../../lib/supabase';
 import { hankSpeakState } from '../../lib/hankSpeakState';
+import { hankSpeakActions } from '../../lib/hankSpeakAction';
 import { speakSavage, stopSavage, prefetchSavage } from '../../services/tts/savageTTS';
 import { setHankChatOpen } from '../../lib/hankChatState';
 
@@ -64,6 +65,7 @@ interface WorkoutStackItem {
 
 // Unified timeline item
 type TimelineItemType = 'meal' | 'workout' | 'stack' | 'cardio';
+type TimelineUrgency = 'now' | 'soon' | 'normal' | 'far';
 
 interface TimelineItem {
   id: string;
@@ -73,6 +75,9 @@ interface TimelineItem {
   label: string;
   subtitle?: string;
   data: any;
+  urgency?: TimelineUrgency;
+  isPrePost?: 'pre' | 'post';
+  forTomorrow?: boolean;
 }
 
 interface TodayCardsProps {
@@ -147,6 +152,83 @@ const getCardioColor = (type: string): string => {
     default:
       return '#F97316';
   }
+};
+
+// ----- ALGORITHM TUNABLES -----------------------------------------------
+// Ventana "en curso": cuántos minutos DESPUÉS de la hora programada
+// seguimos considerando el item como activo (no lo movemos a "pasado").
+const IN_PROGRESS_WINDOW: Record<TimelineItemType, number> = {
+  workout: 90,
+  cardio: 60,
+  meal: 45,
+  stack: 20,
+};
+// Horas hacia adelante para la ventana inicial.
+const SMART_WINDOW_HOURS = 6;
+// Mínimo de items que queremos ver en pantalla. Si la ventana corta
+// devuelve menos, expandimos el horizonte hasta llegar a este número.
+const MIN_TIMELINE_ITEMS = 4;
+// Bucket para agrupar stacks cercanos (minutos).
+const STACK_GROUP_BUCKET_MIN = 15;
+// Hora a partir de la cual, si no hay nada, miramos mañana.
+const LOOK_TOMORROW_AFTER_HOUR = 21;
+
+// Offsets relativos al inicio del workout para expandir pre/post como items.
+const PRE_STACK_OFFSET_MIN = -30;
+const PRE_CARDIO_OFFSET_MIN = -20;
+const DEFAULT_WORKOUT_DURATION_MIN = 60;
+const POST_CARDIO_OFFSET_AFTER_END_MIN = 5;
+const POST_STACK_OFFSET_AFTER_END_MIN = 15;
+
+// Clasifica urgencia visual de un item respecto a "ahora".
+const computeUrgency = (
+  itemMinutes: number,
+  currentMinutes: number,
+  type: TimelineItemType
+): TimelineUrgency => {
+  const diff = itemMinutes - currentMinutes;
+  const inProgressWindow = IN_PROGRESS_WINDOW[type] ?? 30;
+  if (diff <= 0 && diff >= -inProgressWindow) return 'now';
+  if (diff > 0 && diff <= 30) return 'soon';
+  if (diff > 0 && diff <= 120) return 'normal';
+  return 'far';
+};
+
+// Formatea HH:MM dado un total de minutos.
+const minutesToHHMM = (mins: number): string => {
+  const m = ((mins % 1440) + 1440) % 1440; // wrap 24h
+  const h = Math.floor(m / 60);
+  const r = m % 60;
+  return `${String(h).padStart(2, '0')}:${String(r).padStart(2, '0')}`;
+};
+
+// Devuelve true si dos timestamps caen en el mismo día local.
+const sameLocalDay = (iso: string, ref: Date): boolean => {
+  if (!iso) return false;
+  const d = new Date(iso);
+  return (
+    d.getFullYear() === ref.getFullYear() &&
+    d.getMonth() === ref.getMonth() &&
+    d.getDate() === ref.getDate()
+  );
+};
+
+// Saludo contextual según hora del día.
+const getTimeOfDayGreeting = (hour: number): string => {
+  if (hour < 6) return 'Madrugada. Esto es lo que viene.';
+  if (hour < 11) return 'Buenos días. Esto es lo que tienes hoy.';
+  if (hour < 14) return 'Mediodía. Esto es lo que viene.';
+  if (hour < 19) return 'Tarde. Esto es lo que sigue.';
+  if (hour < 22) return 'Anocheciendo. Cierra el día así.';
+  return 'Noche. Lo último por hacer.';
+};
+
+const getTimeOfDayClosing = (hour: number, hasItems: boolean): string => {
+  if (!hasItems) return 'Día libre. Recupera y descansa.';
+  if (hour < 11) return 'A darle con todo. Ataca el día.';
+  if (hour < 19) return 'Mantén el ritmo. Sin excusas.';
+  if (hour < 22) return 'Cierra fuerte. Disciplina.';
+  return 'Hidrata y a dormir. Mañana más.';
 };
 
 // ============================================================================
@@ -649,6 +731,12 @@ export const TodayCards: React.FC<TodayCardsProps> = ({ userId }) => {
   const [timeline, setTimeline] = useState<TimelineItem[]>([]);
   const [nextItemId, setNextItemId] = useState<string | null>(null);
   const [isSpeaking, setIsSpeaking] = useState(false);
+  // Tick para refrescar countdowns/urgencia cada 30s sin re-fetch
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setTick((t) => t + 1), 30 * 1000);
+    return () => clearInterval(id);
+  }, []);
   const speakingRef = useRef(false);
   const maleVoiceRef = useRef<string | null>(null);
 
@@ -727,60 +815,104 @@ export const TodayCards: React.FC<TodayCardsProps> = ({ userId }) => {
     }
 
     try {
+      const now = new Date();
       const currentMinutes = getCurrentMinutes();
-      const today = new Date().getDay();
+      const today = now.getDay();
       const items: TimelineItem[] = [];
 
       // =====================================================================
-      // 1. FETCH MEALS
+      // FETCH ALL SOURCES IN PARALLEL (mejora C)
       // =====================================================================
-      const { data: mealsData } = await supabase
-        .from('meals')
-        .select('id, name, scheduled_time, ingredients')
-        .eq('user_id', userId)
-        .order('scheduled_time', { ascending: true });
+      const [
+        mealsRes,
+        stacksRes,
+        cardioRes,
+        userProfileRes,
+        profileRes,
+        exerciseConfigsRes,
+        workoutPositionsRes,
+      ] = await Promise.all([
+        supabase
+          .from('meals')
+          .select('id, name, scheduled_time, ingredients, is_completed, completed_at')
+          .eq('user_id', userId)
+          .order('scheduled_time', { ascending: true }),
+        supabase
+          .from('supplement_stack')
+          .select(
+            'id, name, dose, time, times, type, days_of_week, is_pre_workout, is_post_workout, workout_session_index'
+          )
+          .eq('user_id', userId)
+          .eq('is_active', true),
+        supabase.from('cardio_blocks').select('*').eq('user_id', userId),
+        supabase
+          .from('user_profiles')
+          .select('training_mode, external_schedule')
+          .eq('user_id', userId)
+          .single(),
+        supabase
+          .from('profiles')
+          .select(
+            'training_routine_names, plan_source, training_session_names'
+          )
+          .eq('id', userId)
+          .single(),
+        supabase
+          .from('user_exercise_config')
+          .select(
+            `id, training_days, custom_media_url, session_index, exercises (id, name, default_media_url, thumbnail_url, video_url)`
+          )
+          .eq('user_id', userId)
+          .order('display_order', { ascending: true }),
+        supabase
+          .from('workout_block_position')
+          .select('session_index, scheduled_time')
+          .eq('user_id', userId),
+      ]);
 
-      mealsData?.forEach((meal, idx) => {
-        if (meal.scheduled_time) {
-          const timeStr = meal.scheduled_time.slice(0, 5);
-          const minutes = parseTimeToMinutes(timeStr);
-          const ingredientNames: string[] = [];
-          if (Array.isArray(meal.ingredients)) {
-            meal.ingredients.forEach((ing: any) => {
-              if (ing?.name) ingredientNames.push(ing.name);
-            });
-          }
+      const mealsData = mealsRes.data;
+      const stacksData = stacksRes.data;
+      const cardioData = cardioRes.data;
+      const userProfile = userProfileRes.data;
+      const profileData = profileRes.data;
+      const exerciseConfigs = exerciseConfigsRes.data;
+      const workoutPositions = workoutPositionsRes.data;
 
-          items.push({
-            id: `meal-${meal.id}`,
-            type: 'meal',
-            time: timeStr,
-            minutes,
-            label: meal.name || `COMIDA ${idx + 1}`,
-            data: { ingredients: ingredientNames },
+      // =====================================================================
+      // 1. MEALS — filtra completadas hoy (mejora E)
+      // =====================================================================
+      mealsData?.forEach((meal: any, idx: number) => {
+        if (!meal.scheduled_time) return;
+        // Skip si ya completada hoy
+        if (meal.is_completed && meal.completed_at && sameLocalDay(meal.completed_at, now)) {
+          return;
+        }
+        const timeStr = meal.scheduled_time.slice(0, 5);
+        const minutes = parseTimeToMinutes(timeStr);
+        const ingredientNames: string[] = [];
+        if (Array.isArray(meal.ingredients)) {
+          meal.ingredients.forEach((ing: any) => {
+            if (ing?.name) ingredientNames.push(ing.name);
           });
         }
+        items.push({
+          id: `meal-${meal.id}`,
+          type: 'meal',
+          time: timeStr,
+          minutes,
+          label: meal.name || `COMIDA ${idx + 1}`,
+          data: { ingredients: ingredientNames },
+        });
       });
 
       // =====================================================================
-      // 2. FETCH STACKS (timed, non pre/post)
+      // 2. STACKS programados — agrupados por buckets de 15min (mejora D)
       // =====================================================================
-      const { data: stacksData } = await supabase
-        .from('supplement_stack')
-        .select(
-          'id, name, dose, time, times, type, days_of_week, is_pre_workout, is_post_workout, workout_session_index'
-        )
-        .eq('user_id', userId)
-        .eq('is_active', true);
-
-      // Group stacks by time
-      const stacksByTime: Record<
-        string,
-        Array<{ name: string; dose: string; type: string; id: string }>
-      > = {};
+      type StackEntry = { name: string; dose: string; type: string; id: string };
+      const bucketStacks: Record<number, { time: string; items: StackEntry[] }> = {};
       const prePostStacks: WorkoutStackItem[] = [];
 
-      stacksData?.forEach((stack) => {
+      stacksData?.forEach((stack: any) => {
         const matchesToday = stack.days_of_week?.includes(today) ?? true;
         if (!matchesToday) return;
 
@@ -797,7 +929,6 @@ export const TodayCards: React.FC<TodayCardsProps> = ({ userId }) => {
           return;
         }
 
-        // Expand times array
         const allTimes: string[] = [];
         if (stack.times && Array.isArray(stack.times)) {
           stack.times.forEach((t: string) => allTimes.push(t.slice(0, 5)));
@@ -806,8 +937,12 @@ export const TodayCards: React.FC<TodayCardsProps> = ({ userId }) => {
         }
 
         allTimes.forEach((t) => {
-          if (!stacksByTime[t]) stacksByTime[t] = [];
-          stacksByTime[t].push({
+          const m = parseTimeToMinutes(t);
+          const bucket = Math.floor(m / STACK_GROUP_BUCKET_MIN) * STACK_GROUP_BUCKET_MIN;
+          if (!bucketStacks[bucket]) {
+            bucketStacks[bucket] = { time: minutesToHHMM(bucket), items: [] };
+          }
+          bucketStacks[bucket].items.push({
             id: stack.id,
             name: stack.name,
             dose: stack.dose || '',
@@ -816,27 +951,21 @@ export const TodayCards: React.FC<TodayCardsProps> = ({ userId }) => {
         });
       });
 
-      Object.entries(stacksByTime).forEach(([time, stackItems]) => {
+      Object.entries(bucketStacks).forEach(([bucket, info]) => {
         items.push({
-          id: `stack-${time}`,
+          id: `stack-${bucket}`,
           type: 'stack',
-          time,
-          minutes: parseTimeToMinutes(time),
+          time: info.time,
+          minutes: Number(bucket),
           label: 'STACK',
-          data: { items: stackItems },
+          data: { items: info.items },
         });
       });
 
       // =====================================================================
-      // 3. FETCH CARDIO BLOCKS (scheduled, not pre/post)
+      // 3. CARDIOS programados — filtra completados (mejora E)
       // =====================================================================
-      const { data: cardioData } = await supabase
-        .from('cardio_blocks')
-        .select('*')
-        .eq('user_id', userId);
-
       const prePostCardios: CardioItem[] = [];
-
       cardioData?.forEach((c: any) => {
         const matchesDay = c.days_of_week?.includes(today) ?? true;
         if (!matchesDay) return;
@@ -845,6 +974,8 @@ export const TodayCards: React.FC<TodayCardsProps> = ({ userId }) => {
           prePostCardios.push(c as CardioItem);
           return;
         }
+
+        if (c.is_completed) return; // ya hecho
 
         if (c.scheduled_time) {
           const timeStr = c.scheduled_time.slice(0, 5);
@@ -860,39 +991,17 @@ export const TodayCards: React.FC<TodayCardsProps> = ({ userId }) => {
       });
 
       // =====================================================================
-      // 4. FETCH WORKOUT
+      // 4. WORKOUT
       // =====================================================================
-      const { data: userProfile } = await supabase
-        .from('user_profiles')
-        .select('training_mode, external_schedule')
-        .eq('user_id', userId)
-        .single();
-
       const trainingMode = userProfile?.training_mode || 'none';
       const externalSchedule = userProfile?.external_schedule || {};
-
-      const { data: profileData } = await supabase
-        .from('profiles')
-        .select(
-          'training_current_day, training_routine_names, training_frequency, plan_source, training_session_names'
-        )
-        .eq('id', userId)
-        .single();
-
-      const currentDay = profileData?.training_current_day ?? 0;
+      const currentDay = new Date().getDay(); // weekday: 0=Dom..6=Sáb
       const routineNames = profileData?.training_routine_names || {};
-      const frequency = profileData?.training_frequency ?? 0;
+      const frequency = Object.values(routineNames as Record<string, string>).filter(
+        (v) => (v || '').trim().length > 0
+      ).length;
       const sessionNamesMap =
         (profileData?.training_session_names as Record<string, Record<string, string>>) || {};
-
-      // Fetch exercises
-      const { data: exerciseConfigs } = await supabase
-        .from('user_exercise_config')
-        .select(
-          `id, training_days, custom_media_url, session_index, exercises (id, name, default_media_url, thumbnail_url, video_url)`
-        )
-        .eq('user_id', userId)
-        .order('display_order', { ascending: true });
 
       const isVideoUrl = (url: string) => {
         if (!url) return false;
@@ -952,22 +1061,19 @@ export const TodayCards: React.FC<TodayCardsProps> = ({ userId }) => {
         }
       });
 
-      const isRestDay = todayExercises.length === 0 && frequency === 0;
+      // Descanso si el weekday actual no tiene rutina configurada
+      const todayRoutineName = (
+        (routineNames as Record<string, string>)[String(currentDay)] || ''
+      ).trim();
+      const isRestDay = todayRoutineName.length === 0;
       const hasSessionB = todayExercises.some((ex) => ex.sessionIndex === 1);
       const isExternalMode =
         trainingMode === 'external' ||
         (frequency > 0 && (!profileData?.plan_source || profileData?.plan_source === 'custom'));
 
-      // Fetch workout scheduled time
-      const { data: workoutPositions } = await supabase
-        .from('workout_block_position')
-        .select('session_index, scheduled_time')
-        .eq('user_id', userId);
-
       const posA = workoutPositions?.find((p: any) => p.session_index === 0);
       const posB = workoutPositions?.find((p: any) => p.session_index === 1);
 
-      // Filter pre/post stacks and cardios by session
       const getSessionPre = (sessionIdx: number) => ({
         preStacks: prePostStacks.filter(
           (s) =>
@@ -1002,6 +1108,81 @@ export const TodayCards: React.FC<TodayCardsProps> = ({ userId }) => {
         ),
       });
 
+      // ---- Helper para empujar pre/post como items inline (mejora K) ------
+      const pushPrePostFor = (sessionIdx: number, sessionMinutes: number, sessionLabel: string) => {
+        if (sessionMinutes >= 9999) return; // sin hora → mantenemos dentro del card
+        const { preStacks, preCardios } = getSessionPre(sessionIdx);
+        const { postStacks, postCardios } = getSessionPost(sessionIdx);
+
+        if (preStacks.length > 0) {
+          const t = sessionMinutes + PRE_STACK_OFFSET_MIN;
+          items.push({
+            id: `prestack-${sessionIdx}`,
+            type: 'stack',
+            time: minutesToHHMM(t),
+            minutes: t,
+            label: `PRE-ENTRENO ${sessionLabel}`,
+            isPrePost: 'pre',
+            data: {
+              items: preStacks.map((s) => ({
+                id: s.id,
+                name: s.name,
+                dose: s.dose,
+                type: s.type,
+              })),
+            },
+          });
+        }
+
+        preCardios.forEach((c, idx) => {
+          const t = sessionMinutes + PRE_CARDIO_OFFSET_MIN;
+          items.push({
+            id: `precardio-${sessionIdx}-${c.id || idx}`,
+            type: 'cardio',
+            time: minutesToHHMM(t),
+            minutes: t,
+            label: `PRE · CARDIO`,
+            isPrePost: 'pre',
+            data: c,
+          });
+        });
+
+        const endMinutes = sessionMinutes + DEFAULT_WORKOUT_DURATION_MIN;
+
+        postCardios.forEach((c, idx) => {
+          const t = endMinutes + POST_CARDIO_OFFSET_AFTER_END_MIN;
+          items.push({
+            id: `postcardio-${sessionIdx}-${c.id || idx}`,
+            type: 'cardio',
+            time: minutesToHHMM(t),
+            minutes: t,
+            label: `POST · CARDIO`,
+            isPrePost: 'post',
+            data: c,
+          });
+        });
+
+        if (postStacks.length > 0) {
+          const t = endMinutes + POST_STACK_OFFSET_AFTER_END_MIN;
+          items.push({
+            id: `poststack-${sessionIdx}`,
+            type: 'stack',
+            time: minutesToHHMM(t),
+            minutes: t,
+            label: `POST-ENTRENO ${sessionLabel}`,
+            isPrePost: 'post',
+            data: {
+              items: postStacks.map((s) => ({
+                id: s.id,
+                name: s.name,
+                dose: s.dose,
+                type: s.type,
+              })),
+            },
+          });
+        }
+      };
+
       // Session A
       const daySessionNames = sessionNamesMap[String(workoutDay)] || {};
       const sessAExercises = hasSessionB
@@ -1009,6 +1190,10 @@ export const TodayCards: React.FC<TodayCardsProps> = ({ userId }) => {
         : todayExercises;
       const sessATime = posA?.scheduled_time?.slice(0, 5) || null;
       const sessAMinutes = sessATime ? parseTimeToMinutes(sessATime) : 9999;
+      const sessALabel = hasSessionB ? daySessionNames['0'] || 'SESIÓN A' : '';
+
+      // Pre/post como items SI hay hora; si no, los dejamos dentro del card
+      const sessAHasTime = sessAMinutes < 9999;
       const { preStacks: preA, preCardios: preCA } = getSessionPre(0);
       const { postStacks: postA, postCardios: postCA } = getSessionPost(0);
 
@@ -1022,19 +1207,22 @@ export const TodayCards: React.FC<TodayCardsProps> = ({ userId }) => {
           exercises: sessAExercises,
           isRestDay: isRestDay && !hasSessionB,
           isExternalMode,
-          sessionLabel: hasSessionB ? daySessionNames['0'] || 'SESIÓN A' : undefined,
-          preStacks: preA,
-          postStacks: postA,
-          preCardios: preCA,
-          postCardios: postCA,
+          sessionLabel: hasSessionB ? sessALabel : undefined,
+          // Si hay hora → los pre/post se rendererán como items inline:
+          preStacks: sessAHasTime ? [] : preA,
+          postStacks: sessAHasTime ? [] : postA,
+          preCardios: sessAHasTime ? [] : preCA,
+          postCardios: sessAHasTime ? [] : postCA,
         },
       });
+      pushPrePostFor(0, sessAMinutes, sessALabel || 'A');
 
-      // Session B (if dual)
       if (hasSessionB) {
         const sessBExercises = todayExercises.filter((ex) => ex.sessionIndex === 1);
         const sessBTime = posB?.scheduled_time?.slice(0, 5) || null;
         const sessBMinutes = sessBTime ? parseTimeToMinutes(sessBTime) : 9999;
+        const sessBLabel = daySessionNames['1'] || 'SESIÓN B';
+        const sessBHasTime = sessBMinutes < 9999;
         const { preStacks: preB, preCardios: preCB } = getSessionPre(1);
         const { postStacks: postB, postCardios: postCB } = getSessionPost(1);
 
@@ -1043,46 +1231,87 @@ export const TodayCards: React.FC<TodayCardsProps> = ({ userId }) => {
           type: 'workout',
           time: sessBTime || '99:99',
           minutes: sessBMinutes,
-          label: daySessionNames['1'] || 'SESIÓN B',
+          label: sessBLabel,
           subtitle: routineName,
           data: {
             exercises: sessBExercises,
             isRestDay: false,
             isExternalMode,
-            sessionLabel: daySessionNames['1'] || 'SESIÓN B',
-            preStacks: preB,
-            postStacks: postB,
-            preCardios: preCB,
-            postCardios: postCB,
+            sessionLabel: sessBLabel,
+            preStacks: sessBHasTime ? [] : preB,
+            postStacks: sessBHasTime ? [] : postB,
+            preCardios: sessBHasTime ? [] : preCB,
+            postCardios: sessBHasTime ? [] : postCB,
           },
         });
+        pushPrePostFor(1, sessBMinutes, sessBLabel);
       }
 
       // =====================================================================
-      // 5. FILTER: ITEMS IN THE NEXT 5 HOURS
+      // 5. SMART WINDOW (mejora A + B + L)
       // =====================================================================
       items.sort((a, b) => a.minutes - b.minutes);
 
-      const fiveHoursLater = currentMinutes + 5 * 60;
-      // Show items from now (or up to 30min ago if in progress) to 5h ahead
-      const filtered = items.filter(
-        (i) => i.minutes >= currentMinutes - 30 && i.minutes <= fiveHoursLater
-      );
+      // Filtra items "ya pasados" usando ventana en-progreso por tipo (B)
+      const isStillRelevant = (i: TimelineItem) => {
+        const window = IN_PROGRESS_WINDOW[i.type] ?? 30;
+        return i.minutes >= currentMinutes - window;
+      };
 
-      // If nothing in window, show the next upcoming item of each type as fallback
-      if (filtered.length === 0) {
-        const types: TimelineItemType[] = ['meal', 'stack', 'workout', 'cardio'];
-        types.forEach((type) => {
-          const upcoming = items.find((i) => i.type === type && i.minutes >= currentMinutes);
-          if (upcoming) filtered.push(upcoming);
-        });
-        filtered.sort((a, b) => a.minutes - b.minutes);
+      // Ventana inicial: próximas SMART_WINDOW_HOURS horas + en progreso
+      const horizonEnd = currentMinutes + SMART_WINDOW_HOURS * 60;
+      let filtered = items.filter((i) => isStillRelevant(i) && i.minutes <= horizonEnd);
+
+      // Si quedaron pocos, expandimos hasta MIN_TIMELINE_ITEMS
+      if (filtered.length < MIN_TIMELINE_ITEMS) {
+        const upcoming = items.filter((i) => i.minutes >= currentMinutes - 30);
+        filtered = upcoming.slice(0, Math.max(MIN_TIMELINE_ITEMS, filtered.length));
       }
 
-      // The overall next item is the first one >= now
+      // Si todavía no hay nada y es tarde → mirar mañana (mejora L)
+      if (filtered.length === 0 && now.getHours() >= LOOK_TOMORROW_AFTER_HOUR) {
+        try {
+          const tomorrow = new Date(now);
+          tomorrow.setDate(tomorrow.getDate() + 1);
+          const tomorrowDay = tomorrow.getDay();
+          // Mostrar primer entreno o primera comida de mañana
+          const tomorrowItems: TimelineItem[] = [];
+
+          mealsData?.forEach((meal: any, idx: number) => {
+            if (!meal.scheduled_time) return;
+            tomorrowItems.push({
+              id: `tom-meal-${meal.id}`,
+              type: 'meal',
+              time: meal.scheduled_time.slice(0, 5),
+              minutes: parseTimeToMinutes(meal.scheduled_time.slice(0, 5)) + 1440,
+              label: `MAÑANA · ${meal.name || `COMIDA ${idx + 1}`}`,
+              forTomorrow: true,
+              data: {
+                ingredients: Array.isArray(meal.ingredients)
+                  ? meal.ingredients.map((g: any) => g?.name).filter(Boolean)
+                  : [],
+              },
+            });
+          });
+
+          // Solo el más cercano de mañana
+          if (tomorrowItems.length > 0) {
+            tomorrowItems.sort((a, b) => a.minutes - b.minutes);
+            filtered.push(tomorrowItems[0]);
+          }
+          // Suprimir warning si no usamos tomorrowDay
+          void tomorrowDay;
+        } catch {}
+      }
+
+      // Asignar urgencia (mejora G)
+      filtered = filtered.map((i) => ({
+        ...i,
+        urgency: computeUrgency(i.minutes, currentMinutes, i.type),
+      }));
+
       const nextItem = filtered.find((i) => i.minutes >= currentMinutes) || filtered[0];
       setNextItemId(nextItem?.id || null);
-
       setTimeline(filtered);
     } catch (error) {
       console.error('Error fetching today data:', error);
@@ -1095,27 +1324,41 @@ export const TodayCards: React.FC<TodayCardsProps> = ({ userId }) => {
   // TTS — Narrar "Lo que viene"
   // ===========================================================================
   const buildNarrationText = useCallback((): string => {
-    if (timeline.length === 0) return 'No tienes actividades pendientes.';
+    const now = new Date();
+    const hour = now.getHours();
+    if (timeline.length === 0) {
+      return `${getTimeOfDayClosing(hour, false)}`;
+    }
 
     const currentMinutes = getCurrentMinutes();
-    const parts: string[] = ['Esto es lo que viene.'];
+    const parts: string[] = [getTimeOfDayGreeting(hour)];
 
     timeline.forEach((item) => {
       const timeLabel = formatTime12h(item.time);
       const diff = item.minutes - currentMinutes;
-      const isNow = diff >= -30 && diff <= 0;
-      const timeContext = isNow
-        ? 'ahora mismo'
-        : diff > 0
-          ? `en ${Math.floor(diff / 60) > 0 ? `${Math.floor(diff / 60)} hora${Math.floor(diff / 60) > 1 ? 's' : ''} y ` : ''}${diff % 60} minutos`
-          : '';
+      const inProgressWindow = IN_PROGRESS_WINDOW[item.type] ?? 30;
+      const isNow = diff <= 0 && diff >= -inProgressWindow;
+      const tomorrowPrefix = item.forTomorrow ? 'Mañana, ' : '';
+      const timeContext = item.forTomorrow
+        ? ''
+        : isNow
+          ? 'ahora mismo'
+          : diff > 0
+            ? `en ${
+                Math.floor(diff / 60) > 0
+                  ? `${Math.floor(diff / 60)} hora${Math.floor(diff / 60) > 1 ? 's' : ''} y `
+                  : ''
+              }${diff % 60} minutos`
+            : '';
 
       switch (item.type) {
         case 'meal': {
           const ingredients: string[] = item.data.ingredients || [];
           const ingText = ingredients.length > 0 ? `: ${ingredients.slice(0, 5).join(', ')}` : '';
           parts.push(
-            `${item.label} a las ${timeLabel}${timeContext ? `, ${timeContext}` : ''}${ingText}.`
+            `${tomorrowPrefix}${item.label} a las ${timeLabel}${
+              timeContext ? `, ${timeContext}` : ''
+            }${ingText}.`
           );
           break;
         }
@@ -1125,8 +1368,16 @@ export const TodayCards: React.FC<TodayCardsProps> = ({ userId }) => {
             .slice(0, 4)
             .map((s) => `${s.name}${s.dose ? ` ${s.dose}` : ''}`)
             .join(', ');
+          const prefix =
+            item.isPrePost === 'pre'
+              ? 'Pre-entreno'
+              : item.isPrePost === 'post'
+                ? 'Post-entreno'
+                : 'Suplementos';
           parts.push(
-            `Suplementos a las ${timeLabel}${timeContext ? `, ${timeContext}` : ''}: ${stackText}.`
+            `${tomorrowPrefix}${prefix} a las ${timeLabel}${
+              timeContext ? `, ${timeContext}` : ''
+            }: ${stackText}.`
           );
           break;
         }
@@ -1140,13 +1391,13 @@ export const TodayCards: React.FC<TodayCardsProps> = ({ userId }) => {
           const postCardios: CardioItem[] = item.data.postCardios || [];
 
           if (isRest) {
-            parts.push('Hoy es día de descanso.');
+            parts.push('Hoy es día de descanso. Recupera bien.');
           } else {
-            // Pre-workout supplements first
+            // Solo se incluyen pre/post aquí cuando NO se expandieron como items
+            // (es decir, cuando el workout no tiene hora programada).
             if (preStacks.length > 0) {
               parts.push(`Pre-entreno: ${preStacks.map((s) => `${s.name} ${s.dose}`).join(', ')}.`);
             }
-            // Pre-workout cardio
             if (preCardios.length > 0) {
               preCardios.forEach((c) => {
                 const eq = c.activity || c.cardio_type || 'cardio';
@@ -1154,11 +1405,12 @@ export const TodayCards: React.FC<TodayCardsProps> = ({ userId }) => {
                 parts.push(`Cardio pre-entreno: ${eq}${dur}.`);
               });
             }
-            // Session
+            const timePhrase = item.time === '99:99' ? '' : ` a las ${timeLabel}`;
             parts.push(
-              `Entrenamiento ${sessionLabel} a las ${timeLabel}${timeContext ? `, ${timeContext}` : ''}, con ${exercises.length} ejercicio${exercises.length !== 1 ? 's' : ''}.`
+              `${tomorrowPrefix}Entrenamiento ${sessionLabel}${timePhrase}${
+                timeContext ? `, ${timeContext}` : ''
+              }, con ${exercises.length} ejercicio${exercises.length !== 1 ? 's' : ''}.`
             );
-            // Post-workout cardio
             if (postCardios.length > 0) {
               postCardios.forEach((c) => {
                 const eq = c.activity || c.cardio_type || 'cardio';
@@ -1166,7 +1418,6 @@ export const TodayCards: React.FC<TodayCardsProps> = ({ userId }) => {
                 parts.push(`Cardio post-entreno: ${eq}${dur}.`);
               });
             }
-            // Post-workout supplements
             if (postStacks.length > 0) {
               parts.push(
                 `Post-entreno: ${postStacks.map((s) => `${s.name} ${s.dose}`).join(', ')}.`
@@ -1180,20 +1431,27 @@ export const TodayCards: React.FC<TodayCardsProps> = ({ userId }) => {
           const equipment = c.activity || c.cardio_type || 'sesión';
           const duration = c.duration_minutes ? `${c.duration_minutes} minutos` : '';
           const intensity = c.intensity ? `, intensidad ${c.intensity}` : '';
-          const context = c.is_pre_workout
-            ? ' antes del entrenamiento'
-            : c.is_post_workout
-              ? ' después del entrenamiento'
-              : '';
+          const context =
+            item.isPrePost === 'pre'
+              ? ' antes del entrenamiento'
+              : item.isPrePost === 'post'
+                ? ' después del entrenamiento'
+                : c.is_pre_workout
+                  ? ' antes del entrenamiento'
+                  : c.is_post_workout
+                    ? ' después del entrenamiento'
+                    : '';
           parts.push(
-            `Cardio${context} a las ${timeLabel}${timeContext ? `, ${timeContext}` : ''}: ${equipment}${duration ? `, ${duration}` : ''}${intensity}.`
+            `${tomorrowPrefix}Cardio${context} a las ${timeLabel}${
+              timeContext ? `, ${timeContext}` : ''
+            }: ${equipment}${duration ? `, ${duration}` : ''}${intensity}.`
           );
           break;
         }
       }
     });
 
-    parts.push('Eso es todo por ahora. A darle.');
+    parts.push(getTimeOfDayClosing(hour, true));
     return parts.join(' ');
   }, [timeline]);
 
@@ -1246,29 +1504,51 @@ export const TodayCards: React.FC<TodayCardsProps> = ({ userId }) => {
   }, [buildNarrationText]);
 
   // -------------------------------------------------------------------------
-  // PREFETCH TTS — pre-calienta el caché del worker para que el primer
-  // tap en AUDIO reproduzca casi instantáneo (R2 cache HIT).
+  // FAB SWIPE LEFT → toggle audio (igual que tap en botón AUDIO)
+  // -------------------------------------------------------------------------
+  useEffect(() => {
+    return hankSpeakActions.onAction((action) => {
+      if (action === 'toggle') {
+        handleSpeak();
+      }
+    });
+  }, [handleSpeak]);
+
+  // -------------------------------------------------------------------------
+  // PREFETCH TTS — pre-calienta R2 inmediatamente al armarse el timeline,
+  // y cada 5 min re-prefetcha por si pasó la hora y la narración cambió.
+  // (mejora H)
   // -------------------------------------------------------------------------
   useEffect(() => {
     if (!timeline || timeline.length === 0) return;
-    const raw = buildNarrationText();
-    const text = raw
-      .replace(
-        /[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{FE00}-\u{FE0F}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{200D}\u{20E3}\u{E0020}-\u{E007F}]/gu,
-        ''
-      )
-      .replace(/\bgr\b/gi, 'gramos')
-      .replace(/\bml\b/gi, 'mililitros')
-      .replace(/\bmg\b/gi, 'miligramos')
-      .replace(/\bkcal\b/gi, 'kilocalorías')
-      .replace(/\s{2,}/g, ' ')
-      .trim();
-    if (!text) return;
-    // Delay pequeño para no competir con el render inicial
-    const t = setTimeout(() => {
-      prefetchSavage(text, { preset: 'hype', lang: 'es-US' });
-    }, 600);
-    return () => clearTimeout(t);
+    const buildText = () => {
+      const raw = buildNarrationText();
+      return raw
+        .replace(
+          /[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{FE00}-\u{FE0F}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{200D}\u{20E3}\u{E0020}-\u{E007F}]/gu,
+          ''
+        )
+        .replace(/\bgr\b/gi, 'gramos')
+        .replace(/\bml\b/gi, 'mililitros')
+        .replace(/\bmg\b/gi, 'miligramos')
+        .replace(/\bkcal\b/gi, 'kilocalorías')
+        .replace(/\s{2,}/g, ' ')
+        .trim();
+    };
+
+    // Prefetch inmediato (ya no esperamos 600 ms)
+    const initial = buildText();
+    if (initial) prefetchSavage(initial, { preset: 'hype', lang: 'es-US' });
+
+    // Re-prefetch cada 5 min mientras el componente esté montado.
+    const interval = setInterval(
+      () => {
+        const t = buildText();
+        if (t) prefetchSavage(t, { preset: 'hype', lang: 'es-US' });
+      },
+      5 * 60 * 1000
+    );
+    return () => clearInterval(interval);
   }, [timeline, buildNarrationText]);
 
   useFocusEffect(
@@ -1349,60 +1629,128 @@ export const TodayCards: React.FC<TodayCardsProps> = ({ userId }) => {
         {timeline.map((item) => {
           const isNext = item.id === nextItemId;
           const diff = item.minutes - currentMinutes;
-          const isPast = diff < -30;
+          const inProgressWindow = IN_PROGRESS_WINDOW[item.type] ?? 30;
+          const isPast = diff < -inProgressWindow;
+          const urgency: TimelineUrgency =
+            item.urgency || computeUrgency(item.minutes, currentMinutes, item.type);
+          const isUrgent = urgency === 'now';
+          const isSoon = urgency === 'soon';
+          const isFar = urgency === 'far';
           const countdown =
             item.time === '99:99' ? '' : formatTimeUntil(item.minutes, currentMinutes);
 
           // Timeline dot color
           let dotColor = '#3f3f46';
-          if (isNext) {
-            dotColor =
-              item.type === 'meal'
-                ? '#22c55e'
-                : item.type === 'stack'
-                  ? '#a855f7'
-                  : item.type === 'cardio'
-                    ? getCardioColor((item.data as CardioItem)?.cardio_type || '')
-                    : '#DC2626';
+          const accent =
+            item.type === 'meal'
+              ? '#22c55e'
+              : item.type === 'stack'
+                ? '#a855f7'
+                : item.type === 'cardio'
+                  ? getCardioColor((item.data as CardioItem)?.cardio_type || '')
+                  : '#DC2626';
+          if (isUrgent) {
+            dotColor = accent;
+          } else if (isNext || isSoon) {
+            dotColor = accent;
           } else if (isPast) {
             dotColor = '#27272a';
           }
 
+          // Opacidad: pasado < lejano < actual
+          const rowOpacity = isPast && !isNext ? 0.45 : isFar && !isNext ? 0.65 : 1;
+
           return (
-            <View
-              key={item.id}
-              className="flex-row mb-2"
-              style={{ opacity: isPast && !isNext ? 0.5 : 1 }}
-            >
+            <View key={item.id} className="flex-row mb-2" style={{ opacity: rowOpacity }}>
               {/* Timeline dot */}
               <View className="w-[30px] items-center pt-3.5 z-10">
                 <View
-                  className="w-3 h-3 rounded-full"
+                  className="rounded-full"
                   style={{
+                    width: isUrgent ? 14 : 12,
+                    height: isUrgent ? 14 : 12,
                     backgroundColor: dotColor,
-                    borderWidth: isNext ? 2 : 1,
-                    borderColor: isNext ? '#000' : '#18181b',
-                    shadowColor: isNext ? dotColor : 'transparent',
+                    borderWidth: isUrgent ? 3 : isNext ? 2 : 1,
+                    borderColor: isUrgent ? accent : isNext ? '#000' : '#18181b',
+                    shadowColor: isUrgent || isNext ? dotColor : 'transparent',
                     shadowOffset: { width: 0, height: 0 },
-                    shadowOpacity: isNext ? 0.8 : 0,
-                    shadowRadius: isNext ? 6 : 0,
+                    shadowOpacity: isUrgent ? 1 : isNext ? 0.8 : 0,
+                    shadowRadius: isUrgent ? 10 : isNext ? 6 : 0,
                   }}
                 />
               </View>
 
               {/* Card */}
               <View className="flex-1 ml-1">
+                {/* URGENT badge */}
+                {isUrgent && (
+                  <View className="flex-row items-center mb-1 ml-1">
+                    <View
+                      className="px-2 py-[2px] rounded-full flex-row items-center gap-1"
+                      style={{
+                        backgroundColor: `${accent}25`,
+                        borderWidth: 1,
+                        borderColor: `${accent}60`,
+                      }}
+                    >
+                      <View
+                        className="w-1.5 h-1.5 rounded-full"
+                        style={{ backgroundColor: accent }}
+                      />
+                      <Text
+                        className="text-[8px] font-bold tracking-widest"
+                        style={{ color: accent }}
+                      >
+                        EN CURSO
+                      </Text>
+                    </View>
+                    {item.forTomorrow && (
+                      <Text className="text-zinc-500 text-[8px] font-bold ml-2 tracking-widest">
+                        MAÑANA
+                      </Text>
+                    )}
+                  </View>
+                )}
+                {!isUrgent && item.forTomorrow && (
+                  <View className="flex-row items-center mb-1 ml-1">
+                    <Text className="text-zinc-500 text-[8px] font-bold tracking-widest">
+                      MAÑANA
+                    </Text>
+                  </View>
+                )}
+                {!isUrgent && item.isPrePost && (
+                  <View className="flex-row items-center mb-0.5 ml-1">
+                    <Text
+                      className="text-[8px] font-bold tracking-widest"
+                      style={{ color: item.isPrePost === 'pre' ? '#a855f7' : '#22c55e' }}
+                    >
+                      {item.isPrePost === 'pre' ? '↑ PRE' : '↓ POST'}
+                    </Text>
+                  </View>
+                )}
                 {item.type === 'meal' && (
-                  <MealTimelineCard item={item} isNext={isNext} countdown={countdown} />
+                  <MealTimelineCard item={item} isNext={isNext || isUrgent} countdown={countdown} />
                 )}
                 {item.type === 'stack' && (
-                  <StackTimelineCard item={item} isNext={isNext} countdown={countdown} />
+                  <StackTimelineCard
+                    item={item}
+                    isNext={isNext || isUrgent}
+                    countdown={countdown}
+                  />
                 )}
                 {item.type === 'workout' && (
-                  <WorkoutTimelineCard item={item} isNext={isNext} countdown={countdown} />
+                  <WorkoutTimelineCard
+                    item={item}
+                    isNext={isNext || isUrgent}
+                    countdown={countdown}
+                  />
                 )}
                 {item.type === 'cardio' && (
-                  <CardioTimelineCard item={item} isNext={isNext} countdown={countdown} />
+                  <CardioTimelineCard
+                    item={item}
+                    isNext={isNext || isUrgent}
+                    countdown={countdown}
+                  />
                 )}
               </View>
             </View>

@@ -11,7 +11,7 @@ export default function ShopPage() {
   const router = useRouter();
   return (
     <>
-      <Stack.Screen options={{ headerShown: false, title: 'Tienda TRENS' }} />
+      <Stack.Screen options={{ headerShown: false, title: 'TRENS SHOP' }} />
       <ShopModal
         asPage
         onPageClose={() => {

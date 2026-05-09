@@ -4,6 +4,7 @@
 // ============================================================================
 
 import { supabase } from '../../lib/supabase';
+import { distributeWeekdays } from '../../lib/weekday';
 import type { HankToolResult, ToolDefinition } from '../../types/hank';
 import { calculateMacrosWithAI } from './nutrition';
 import { spotify } from '../spotify/spotify';
@@ -838,12 +839,10 @@ export async function gymGetTodayRoutine(
   _trainingDayHint: number // Este hint puede estar desactualizado, calculamos el real
 ): Promise<HankToolResult> {
   try {
-    // 1. Obtener datos del perfil con lógica de día actual
+    // 1. Obtener datos del perfil
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
-      .select(
-        'training_routine_names, training_frequency, training_current_day, training_last_access'
-      )
+      .select('training_routine_names, training_last_access')
       .eq('id', userId)
       .single();
 
@@ -851,41 +850,24 @@ export async function gymGetTodayRoutine(
       console.warn('gymGetTodayRoutine: Error obteniendo perfil:', profileError.message);
     }
 
-    // Calcular el día de entrenamiento correcto (misma lógica que GYM y PLAN)
+    // Sistema weekday: 0=Dom..6=Sáb (estándar JS Date.getDay())
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const todayISO = today.toISOString();
 
-    let trainingDay = profile?.training_current_day ?? 0;
-    const frequency = profile?.training_frequency ?? 0;
+    const trainingDay = new Date().getDay();
+    const routineNames = (profile?.training_routine_names || {}) as Record<string, string>;
+    const frequency = Object.values(routineNames).filter((v) => (v || '').trim().length > 0).length;
 
-    if (profile?.training_last_access) {
-      const lastAccess = new Date(profile.training_last_access);
-      lastAccess.setHours(0, 0, 0, 0);
-      const lastAccessISO = lastAccess.toISOString();
-
-      // Si han pasado uno o más días, avanzar al siguiente día
-      if (todayISO > lastAccessISO) {
-        trainingDay = (profile.training_current_day || 0) + 1;
-        if (trainingDay >= frequency) {
-          trainingDay = 0; // Reiniciar ciclo
-        }
-
-        // Actualizar en Supabase
-        await supabase
-          .from('profiles')
-          .update({
-            training_last_access: todayISO,
-            training_current_day: trainingDay,
-          })
-          .eq('id', userId);
-
-        console.warn(`🏋️ HANK: Día avanzado automáticamente a ${trainingDay}`);
-      }
+    // Refrescar last_access si pertinente
+    if (
+      !profile?.training_last_access ||
+      new Date(profile.training_last_access).toISOString() !== todayISO
+    ) {
+      await supabase.from('profiles').update({ training_last_access: todayISO }).eq('id', userId);
     }
 
-    const routineNames = (profile?.training_routine_names || {}) as Record<string, string>;
-    const routineName = routineNames[String(trainingDay)] || null;
+    const routineName = (routineNames[String(trainingDay)] || '').trim() || null;
 
     // 2. Obtener ejercicios del día desde user_exercise_config
     const { data: userConfigs, error: configError } = await supabase
@@ -2473,15 +2455,17 @@ export async function autoAdjustAll(userId: string): Promise<HankToolResult> {
       `👤 Perfil: ${userProfile.weight} | ${userProfile.goal} | ${userProfile.training_experience || 'INTERMEDIO'}`
     );
 
-    // 2. Obtener plan de entrenamiento
+    // 2. Obtener plan de entrenamiento (weekday: derivar frecuencia de routine_names)
     const { data: profile } = await supabase
       .from('profiles')
-      .select('training_frequency, training_current_day, training_routine_names')
+      .select('training_routine_names')
       .eq('id', userId)
       .single();
 
-    const trainingFrequency = profile?.training_frequency ?? 0;
-    const routineNames = profile?.training_routine_names || {};
+    const routineNames = (profile?.training_routine_names || {}) as Record<string, string>;
+    const trainingFrequency = Object.values(routineNames).filter(
+      (v) => (v || '').trim().length > 0
+    ).length;
 
     results.push(`🏋️ Entrenamiento: ${trainingFrequency} días/semana`);
 
@@ -3532,10 +3516,12 @@ export async function getFullUserContext(userId: string): Promise<HankToolResult
       .order('weight_kg', { ascending: false })
       .limit(5);
 
-    // 5. Nombres de rutinas
+    // 5. Nombres de rutinas (sistema weekday)
     const routineNames = profile?.training_routine_names || {};
-    const currentDay = profile?.training_current_day ?? 0;
-    const frequency = profile?.training_frequency ?? 0;
+    const currentDay = new Date().getDay();
+    const frequency = Object.values(routineNames as Record<string, string>).filter(
+      (v) => (v || '').trim().length > 0
+    ).length;
 
     // Formatear resumen
     const formatTime = (t: string) => {
@@ -6470,18 +6456,19 @@ export async function trainingDesignPlan(
 
     const template = bestMatch;
 
-    // Construir objeto de nombres de rutina
+    // Construir objeto de nombres de rutina (sistema weekday)
+    // Mapea cada day.dayIndex (0..N-1) al weekday correspondiente.
+    const weekdayMap = distributeWeekdays(template.frequency);
     const routineNames: Record<string, string> = {};
     (template.days || []).forEach((day: any) => {
-      routineNames[String(day.dayIndex)] = day.name;
+      const wd = weekdayMap[day.dayIndex] ?? 1;
+      routineNames[String(wd)] = day.name;
     });
 
     // 1. Actualizar perfil con el nuevo plan
     const { error: profileError } = await supabase
       .from('profiles')
       .update({
-        training_frequency: template.frequency,
-        training_current_day: 0,
         training_routine_names: routineNames,
         updated_at: new Date().toISOString(),
       })
@@ -6532,7 +6519,7 @@ export async function trainingDesignPlan(
         const { error: insertError } = await supabase.from('user_exercise_config').insert({
           user_id: userId,
           exercise_id: exercise.exercise_id,
-          training_days: [day.dayIndex],
+          training_days: [weekdayMap[day.dayIndex] ?? 1],
           config,
         });
 
@@ -6547,8 +6534,10 @@ export async function trainingDesignPlan(
     // Detalle de cada día
     const daysDetail = (template.days || [])
       .map((d: any) => {
+        const wd = weekdayMap[d.dayIndex] ?? 1;
+        const wdLabel = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'][wd];
         const exercises = (d.exercises || []).map((e: any) => e.name).join(', ');
-        return `📅 **DÍA ${d.dayIndex + 1}: ${d.name}**\n   ${exercises || 'Por configurar'}`;
+        return `📅 **${wdLabel.toUpperCase()}: ${d.name}**\n   ${exercises || 'Por configurar'}`;
       })
       .join('\n\n');
 
@@ -6751,18 +6740,18 @@ export async function trainingAssignPlan(userId: string, planId: string): Promis
       };
     }
 
-    // Construir objeto de nombres de rutina
+    // Construir objeto de nombres de rutina (sistema weekday)
+    const weekdayMap = distributeWeekdays(template.frequency);
     const routineNames: Record<string, string> = {};
     (template.days || []).forEach((day: any) => {
-      routineNames[String(day.dayIndex)] = day.name;
+      const wd = weekdayMap[day.dayIndex] ?? 1;
+      routineNames[String(wd)] = day.name;
     });
 
     // 1. Actualizar perfil con el nuevo plan (MARCAR plan_source: 'hank')
     const { error: profileError } = await supabase
       .from('profiles')
       .update({
-        training_frequency: template.frequency,
-        training_current_day: 0,
         training_routine_names: routineNames,
         plan_source: 'hank', // ⬅️ IMPORTANTE: Marcar que fue asignado por Hank
         updated_at: new Date().toISOString(),
@@ -6843,7 +6832,7 @@ export async function trainingAssignPlan(userId: string, planId: string): Promis
           const { error: insertError } = await supabase.from('user_exercise_config').insert({
             user_id: userId,
             exercise_id: exercise.exercise_id,
-            training_days: [day.dayIndex],
+            training_days: [weekdayMap[day.dayIndex] ?? 1],
             config,
           });
 
@@ -6906,7 +6895,7 @@ export async function trainingGetCurrentPlan(userId: string): Promise<HankToolRe
   try {
     const { data: profile, error } = await supabase
       .from('profiles')
-      .select('training_frequency, training_current_day, training_routine_names')
+      .select('training_routine_names')
       .eq('id', userId)
       .single();
 
@@ -6917,9 +6906,9 @@ export async function trainingGetCurrentPlan(userId: string): Promise<HankToolRe
       };
     }
 
-    const frequency = profile.training_frequency ?? 0;
-    const currentDay = profile.training_current_day ?? 0;
-    const routineNames = profile.training_routine_names || {};
+    const routineNames = (profile.training_routine_names || {}) as Record<string, string>;
+    const frequency = Object.values(routineNames).filter((v) => (v || '').trim().length > 0).length;
+    const currentDay = new Date().getDay(); // weekday: 0=Dom..6=Sáb
 
     if (frequency === 0 || Object.keys(routineNames).length === 0) {
       return {
@@ -6934,9 +6923,12 @@ Día actual: ${currentDay + 1}
       };
     }
 
-    const daysInfo = Object.entries(routineNames)
-      .sort(([a], [b]) => parseInt(a) - parseInt(b))
-      .map(([idx, name]) => `• Día ${parseInt(idx) + 1}: ${name}`)
+    const WEEKDAY_LABEL = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+    const VISUAL_ORDER_LOCAL = [1, 2, 3, 4, 5, 6, 0];
+    const daysInfo = VISUAL_ORDER_LOCAL.filter(
+      (wd) => (routineNames[String(wd)] || '').trim().length > 0
+    )
+      .map((wd) => `• ${WEEKDAY_LABEL[wd]}: ${routineNames[String(wd)]}`)
       .join('\n');
 
     return {
@@ -6944,7 +6936,7 @@ Día actual: ${currentDay + 1}
       message: `📋 Tu plan de entrenamiento actual:
 
 🗓️ ${frequency} días por semana
-📍 Hoy: Día ${currentDay + 1} (${routineNames[String(currentDay)] || 'Sin nombre'})
+📍 Hoy (${WEEKDAY_LABEL[currentDay]}): ${routineNames[String(currentDay)]?.trim() || 'Descanso'}
 
 Estructura:
 ${daysInfo}

@@ -102,6 +102,9 @@ interface StackItem {
   isPostWorkout?: boolean;
   daysOfWeek?: number[];
   workoutSessionIndex?: number; // 0 = Sesión A, 1 = Sesión B
+  productId?: string; // FK opcional a shop_products
+  productThumbnail?: string;
+  productPrice?: number;
 }
 
 interface Stack {
@@ -764,15 +767,15 @@ function PlanScreen() {
         }
       }
 
-      // Fetch supplement stack
+      // Fetch supplement stack (con datos del producto vinculado si existe)
       const { data: stackData } = await supabase
         .from('supplement_stack')
-        .select('*')
+        .select('*, product:shop_products(id, name, thumbnail_url, price)')
         .eq('user_id', user.id)
         .eq('is_active', true);
 
       if (stackData) {
-        const formattedStack: StackItem[] = stackData.map((item) => ({
+        const formattedStack: StackItem[] = stackData.map((item: any) => ({
           id: item.id,
           name: item.name,
           dose: item.dose,
@@ -784,6 +787,12 @@ function PlanScreen() {
           isPostWorkout: item.is_post_workout,
           daysOfWeek: item.days_of_week,
           workoutSessionIndex: item.workout_session_index ?? 0,
+          productId: item.product_id || undefined,
+          productThumbnail: item.product?.thumbnail_url || undefined,
+          productPrice:
+            item.product?.price !== undefined && item.product?.price !== null
+              ? Number(item.product.price)
+              : undefined,
         }));
         setStackItems(formattedStack);
       }
@@ -822,14 +831,10 @@ function PlanScreen() {
         }
       }
 
-      // Fetch current training day from profiles
-      // IMPORTANTE: Usar el día guardado directamente, sin avanzar automáticamente
-      // GYM es quien maneja el avance de días, PLAN solo lee
+      // Fetch routine names (sistema weekday: 0=Dom..6=Sáb)
       const { data: profileData } = await supabase
         .from('profiles')
-        .select(
-          'training_current_day, training_routine_names, training_last_access, training_frequency, training_session_names'
-        )
+        .select('training_routine_names, training_session_names')
         .eq('id', user.id)
         .single();
 
@@ -848,22 +853,25 @@ function PlanScreen() {
       const todayName = dayNames[new Date().getDay()];
 
       // ===========================================================================
-      // DETECTAR MODO Y NOMBRE DE RUTINA
+      // DETECTAR MODO Y NOMBRE DE RUTINA (sistema weekday)
       // ===========================================================================
-      const currentTrainingDay = profileData?.training_current_day ?? 0;
+      const todayWeekday = new Date().getDay();
+      const currentTrainingDay = todayWeekday;
       const routineNames = profileData?.training_routine_names || {};
       let externalRoutineName: string | null = null;
 
       if (trainingMode === 'external' && Object.keys(externalSchedule).length > 0) {
+        // Modo external (legacy): mapear weekday a posición secuencial dentro
+        // del schedule original.
         const scheduleEntries = Object.entries(externalSchedule);
         const totalDays = scheduleEntries.length;
-        const safeIndex = currentTrainingDay % totalDays;
+        const safeIndex = todayWeekday % totalDays;
         const [dayName, muscleGroup] = scheduleEntries[safeIndex] || ['', ''];
         const todayMuscle = muscleGroup ? String(muscleGroup) : null;
         setIsExternalMode(true);
 
         console.warn(
-          `🏋️ PLAN [PERSONALIZADO]: Día ${safeIndex + 1}/${totalDays} → ${dayName}: ${todayMuscle || 'DESCANSO'}`
+          `🏋️ PLAN [PERSONALIZADO]: Weekday ${todayWeekday} (${dayName}) → ${todayMuscle || 'DESCANSO'}`
         );
 
         if (todayMuscle) {
@@ -2217,7 +2225,14 @@ function PlanScreen() {
       // Convertir hora a formato SQL válido
       const parsedTime = item.time ? parseTimeToSQL(item.time) : null;
 
-      console.warn('📦 STACK: Insertando compuesto:', item.name, 'Hora:', parsedTime);
+      console.warn(
+        '📦 STACK: Insertando compuesto:',
+        item.name,
+        'Hora:',
+        parsedTime,
+        'productId:',
+        item.productId
+      );
 
       const { error } = await supabase.from('supplement_stack').insert({
         user_id: user.id,
@@ -2230,6 +2245,7 @@ function PlanScreen() {
         is_post_workout: item.isPostWorkout || false,
         days_of_week: item.daysOfWeek || [0, 1, 2, 3, 4, 5, 6],
         workout_session_index: item.workoutSessionIndex ?? 0,
+        product_id: item.productId || null,
       });
 
       if (error) {
@@ -2278,6 +2294,8 @@ function PlanScreen() {
       if (updates.daysOfWeek !== undefined) dbUpdates.days_of_week = updates.daysOfWeek;
       if (updates.workoutSessionIndex !== undefined)
         dbUpdates.workout_session_index = updates.workoutSessionIndex;
+      // Vinculación con producto de la tienda (puede setear o quitar)
+      if (updates.productId !== undefined) dbUpdates.product_id = updates.productId || null;
 
       const { error } = await supabase.from('supplement_stack').update(dbUpdates).eq('id', id);
 
@@ -2892,7 +2910,9 @@ function PlanScreen() {
               >
                 <ShoppingBag size={14} color="#DC2626" />
               </View>
-              <Text className="text-red-500 text-[9px] font-bold tracking-widest mt-1">TIENDA</Text>
+              <Text className="text-red-500 text-[9px] font-bold tracking-widest mt-1">
+                TRENS SHOP
+              </Text>
             </Pressable>
 
             {/* Stack Button Premium */}
@@ -3078,7 +3098,14 @@ function PlanScreen() {
                     key={stack.id}
                     onLayout={(e) => handleItemLayout(timelineIndex, e.nativeEvent.layout.y)}
                   >
-                    <StackCard stack={stack} onItemDelete={handleRemoveStackItem} />
+                    <StackCard
+                      stack={stack}
+                      onItemDelete={handleRemoveStackItem}
+                      onBuyProduct={(productId) => {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                        hankToolsEvent.open('shop', { productId });
+                      }}
+                    />
                   </View>
                 );
               }

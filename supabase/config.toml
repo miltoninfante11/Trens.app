@@ -1,7 +1,7 @@
 # Supabase Configuration for TRENS App
 # This connects to your CLOUD Supabase project
 
-project_id = "bzlgrukmkrftqpvpbpkj"
+project_id = "cnrcrhlrteeqsyhlxhbb"
 
 [api]
 enabled = true

@@ -13,6 +13,8 @@ import { UserRoleProvider, useUserRoleContext } from '../context/UserRoleContext
 import { SaveGuardProvider } from '../context/SaveGuardContext';
 import { NotificationProvider } from '../context/NotificationContext';
 import { SubscriptionProvider } from '../context/SubscriptionContext';
+import { CoachSessionProvider } from '../context/CoachSessionContext';
+import CoachBadge from '../components/coach/CoachBadge';
 import { useDeepLinkHandler } from '../services/share/deepLinkHandler';
 import { useWebVideoInline } from '../hooks/useWebVideoInline';
 import { ErrorBoundary } from '../components/ui/ErrorBoundary';
@@ -174,14 +176,17 @@ export default function RootLayout() {
                   <SaveGuardWrapper>
                     <NotificationProvider>
                       <SubscriptionProvider>
-                        <HankWrapper>
-                          <View className="flex-1 bg-savage-black">
-                            <OfflineBanner />
-                            <Slot />
-                            {/* Overlays movidos a (tabs)/_layout.tsx donde hay contexto de navegación */}
-                            <StatusBar style="light" />
-                          </View>
-                        </HankWrapper>
+                        <CoachSessionProvider>
+                          <HankWrapper>
+                            <View className="flex-1 bg-savage-black">
+                              <OfflineBanner />
+                              <Slot />
+                              <CoachBadge />
+                              {/* Overlays movidos a (tabs)/_layout.tsx donde hay contexto de navegación */}
+                              <StatusBar style="light" />
+                            </View>
+                          </HankWrapper>
+                        </CoachSessionProvider>
                       </SubscriptionProvider>
                     </NotificationProvider>
                   </SaveGuardWrapper>

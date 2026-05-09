@@ -18,6 +18,29 @@ export interface ShopCategory {
   is_active: boolean;
 }
 
+export interface ShopBanner {
+  id: string;
+  title?: string | null;
+  image_url: string;
+  link_url?: string | null;
+  sort_order: number;
+  is_active: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface ShopLandingPromo {
+  id: string;
+  tag?: string | null;
+  title?: string | null;
+  subtitle?: string | null;
+  image_url?: string | null;
+  link_url?: string | null;
+  is_active: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
 export interface ShopProduct {
   id: string;
   slug: string;
@@ -41,6 +64,10 @@ export interface ShopProduct {
   digital_payload?: any;
   weight_grams?: number;
   shipping_required: boolean;
+  /** Tipo de presentación si el producto es un suplemento. Reusa el dominio
+   *  de supplement_stack.type para auto-rellenar el tipo al vincular desde
+   *  MI STACK. */
+  supplement_type?: 'pill' | 'syringe' | 'powder' | 'liquid';
   metadata?: Record<string, any>;
   category?: { slug: string; name: string; icon?: string };
   created_at: string;
@@ -139,6 +166,16 @@ export const shop = {
     return r.categories;
   },
 
+  async listBanners(): Promise<ShopBanner[]> {
+    const r = await call('list-banners');
+    return r.banners || [];
+  },
+
+  async getLandingPromo(): Promise<ShopLandingPromo | null> {
+    const r = await call('get-landing-promo');
+    return r.promo || null;
+  },
+
   async listProducts(opts?: {
     categorySlug?: string;
     featured?: boolean;
@@ -148,8 +185,10 @@ export const shop = {
     return r.products;
   },
 
-  async getProduct(slug: string): Promise<ShopProduct> {
-    const r = await call('get-product', { slug });
+  async getProduct(slugOrId: string): Promise<ShopProduct> {
+    // Heurística: si parece UUID, mandamos como id; si no, como slug.
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(slugOrId);
+    const r = await call('get-product', isUuid ? { id: slugOrId } : { slug: slugOrId });
     return r.product;
   },
 
@@ -184,6 +223,7 @@ export const shop = {
     customerNotes?: string;
     deviceSessionId?: string;
     saveCard?: boolean;
+    applyStackBundle?: boolean;
   }): Promise<{ order: any }> {
     const r = await call('checkout-card', params);
     return { order: r.order };
@@ -194,6 +234,7 @@ export const shop = {
     shippingAddress?: ShippingAddress;
     customerNotes?: string;
     items?: { productId: string; quantity: number }[]; // para guest
+    applyStackBundle?: boolean;
   }): Promise<{ order: any; whatsappUrl: string }> {
     const r = await call('checkout-whatsapp', params);
     return { order: r.order, whatsappUrl: r.whatsappUrl };
@@ -203,6 +244,22 @@ export const shop = {
   async myOrders(): Promise<ShopOrder[]> {
     const r = await call('my-orders');
     return r.orders;
+  },
+
+  // ==========================================================================
+  // MI STACK — Productos vinculados al supplement_stack del usuario
+  // ==========================================================================
+  async myStackProducts(): Promise<{
+    products: ShopProduct[];
+    purchases: Record<string, { last_paid_at: string | null }>;
+    bundle: { min: number; discount: number };
+  }> {
+    const r = await call('my-stack-products');
+    return {
+      products: r.products || [],
+      purchases: r.purchases || {},
+      bundle: r.bundle || { min: 3, discount: 0.1 },
+    };
   },
 };
 
@@ -242,6 +299,37 @@ export const shopAdmin = {
 
   async deleteCategory(id: string): Promise<void> {
     await call('admin-category-delete', { id });
+  },
+
+  // ---------- LANDING BANNERS ----------
+  async listBanners(): Promise<ShopBanner[]> {
+    const r = await call('admin-list-banners');
+    return r.banners || [];
+  },
+
+  async createBanner(banner: Partial<ShopBanner>): Promise<ShopBanner> {
+    const r = await call('admin-banner-create', { banner });
+    return r.banner;
+  },
+
+  async updateBanner(id: string, updates: Partial<ShopBanner>): Promise<ShopBanner> {
+    const r = await call('admin-banner-update', { id, updates });
+    return r.banner;
+  },
+
+  async deleteBanner(id: string): Promise<void> {
+    await call('admin-banner-delete', { id });
+  },
+
+  // ---------- LANDING PROMO PILL ----------
+  async getLandingPromo(): Promise<ShopLandingPromo | null> {
+    const r = await call('admin-get-landing-promo');
+    return r.promo || null;
+  },
+
+  async updateLandingPromo(promo: Partial<ShopLandingPromo>): Promise<ShopLandingPromo> {
+    const r = await call('admin-update-landing-promo', { promo });
+    return r.promo;
   },
 
   async listOrders(opts?: {

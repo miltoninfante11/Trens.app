@@ -927,6 +927,18 @@ export default function AccountModal({
           sublabel="Actualiza tu contraseña"
           onPress={() => goTo('password')}
         />
+
+        {/* Acceso Coach */}
+        <MenuItem
+          icon={<ShieldAlert size={20} color="#DC2626" />}
+          label="Acceso Coach"
+          sublabel="Invita a tu entrenador a editar tu plan"
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            onClose();
+            router.push('/(tabs)/profile/coach-access');
+          }}
+        />
       </View>
 
       {/* Default Module Selector */}

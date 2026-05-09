@@ -20,6 +20,7 @@ import {
   Zap,
   Clock,
   ChevronDown,
+  ShoppingBag,
 } from 'lucide-react-native';
 import { useHankTarget } from '../../hooks/useHankTarget';
 import { HankInlineHighlight } from '../hank/HankInlineHighlight';
@@ -33,6 +34,8 @@ interface StackItem {
   dose: string;
   type: 'pill' | 'syringe' | 'powder' | 'liquid';
   notes?: string;
+  /** FK opcional a shop_products. Si está seteada, se muestra CTA COMPRAR. */
+  productId?: string;
 }
 
 interface Stack {
@@ -46,6 +49,8 @@ interface StackCardProps {
   onTimeChange?: (stackTime: string) => void;
   onItemDelete?: (itemId: string) => void;
   isCompressed?: boolean;
+  /** Cuando un item tiene productId, este handler abre la tienda en ese producto. */
+  onBuyProduct?: (productId: string) => void;
 }
 
 // ============================================================================
@@ -85,6 +90,7 @@ export const StackCard: React.FC<StackCardProps> = ({
   onTimeChange,
   onItemDelete,
   isCompressed = false,
+  onBuyProduct,
 }) => {
   const [expanded, setExpanded] = useState(false);
   const expandProgress = useSharedValue(0);
@@ -326,6 +332,30 @@ export const StackCard: React.FC<StackCardProps> = ({
                       )}
                     </View>
                   </View>
+                  {item.productId && onBuyProduct && (
+                    <Pressable
+                      onPress={(e) => {
+                        e.stopPropagation?.();
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                        onBuyProduct(item.productId!);
+                      }}
+                      className="flex-row items-center gap-1 px-2.5 py-1.5 rounded-lg active:opacity-80"
+                      style={{
+                        backgroundColor: 'rgba(220, 38, 38, 0.15)',
+                        borderWidth: 1,
+                        borderColor: 'rgba(220, 38, 38, 0.55)',
+                        shadowColor: '#DC2626',
+                        shadowOffset: { width: 0, height: 0 },
+                        shadowOpacity: 0.45,
+                        shadowRadius: 8,
+                      }}
+                    >
+                      <ShoppingBag size={11} color="#DC2626" />
+                      <Text className="text-red-500 font-mono text-[10px] font-black tracking-widest">
+                        COMPRAR
+                      </Text>
+                    </Pressable>
+                  )}
                 </View>
               ))}
             </View>

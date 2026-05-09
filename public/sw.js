@@ -1,6 +1,6 @@
 // Service Worker mínimo - solo para PWA install
-// Cache version: 2026-04-11-v1 - Force refresh after ÉLITE update
-const CACHE_VERSION = '2026-04-11-v1';
+// Cache version: 2026-05-06-v3 - Force refresh after Stack-shop link fix
+const CACHE_VERSION = '2026-05-06-v3';
 
 self.addEventListener('install', () => {
   self.skipWaiting();

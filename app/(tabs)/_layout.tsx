@@ -685,6 +685,12 @@ export default function TabsLayout() {
               href: null,
             }}
           />
+          <Tabs.Screen
+            name="profile/coach-access"
+            options={{
+              href: null,
+            }}
+          />
         </Tabs>
       </RNAnimated.View>
 

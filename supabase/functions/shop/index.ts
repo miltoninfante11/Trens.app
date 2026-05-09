@@ -17,6 +17,48 @@ const OPENPAY_MERCHANT_ID = Deno.env.get('OPENPAY_MERCHANT_ID') || '';
 const OPENPAY_API_URL = 'https://api.openpay.pe/v1';
 const SHOP_WHATSAPP_NUMBER = Deno.env.get('SHOP_WHATSAPP_NUMBER') || '51999999999';
 
+// ----------------------------------------------------------------------------
+// STACK BUNDLE DISCOUNT
+// Cuando el usuario compra ≥ STACK_BUNDLE_MIN productos vinculados a su Stack,
+// aplicamos un descuento de STACK_BUNDLE_DISCOUNT sobre el subtotal.
+// ----------------------------------------------------------------------------
+const STACK_BUNDLE_MIN = 3;
+const STACK_BUNDLE_DISCOUNT = 0.1;
+
+async function computeStackBundleDiscount(
+  supabase: any,
+  userId: string,
+  cartItems: any[]
+): Promise<{ eligible: boolean; matchedCount: number; discount: number }> {
+  if (!userId || !cartItems || cartItems.length === 0) {
+    return { eligible: false, matchedCount: 0, discount: 0 };
+  }
+  const { data: stackRows } = await supabase
+    .from('supplement_stack')
+    .select('product_id')
+    .eq('user_id', userId)
+    .eq('is_active', true)
+    .not('product_id', 'is', null);
+  const stackProductIds = new Set<string>(
+    (stackRows || []).map((r: any) => r.product_id).filter(Boolean)
+  );
+  if (stackProductIds.size === 0) {
+    return { eligible: false, matchedCount: 0, discount: 0 };
+  }
+  let matchedCount = 0;
+  let matchedSubtotal = 0;
+  for (const it of cartItems) {
+    const pid = it.product?.id || it.product_id;
+    if (pid && stackProductIds.has(pid)) {
+      matchedCount += 1;
+      matchedSubtotal += Number(it.product?.price || 0) * (it.quantity || 1);
+    }
+  }
+  const eligible = matchedCount >= STACK_BUNDLE_MIN;
+  const discount = eligible ? Math.round(matchedSubtotal * STACK_BUNDLE_DISCOUNT * 100) / 100 : 0;
+  return { eligible, matchedCount, discount };
+}
+
 const openpayAuth = () => `Basic ${btoa(OPENPAY_PRIVATE_KEY + ':')}`;
 
 async function openpayFetch(path: string, options: RequestInit = {}) {
@@ -119,6 +161,35 @@ serve(async (req) => {
         .order('sort_order');
       if (error) throw error;
       return jsonResponse({ success: true, categories: data });
+    }
+
+    // ===========================================================
+    // PUBLIC: list-banners (carrusel landing shop)
+    // ===========================================================
+    if (action === 'list-banners') {
+      const { data, error } = await supabase
+        .from('shop_landing_banners')
+        .select('*')
+        .eq('is_active', true)
+        .order('sort_order', { ascending: true })
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      return jsonResponse({ success: true, banners: data || [] });
+    }
+
+    // ===========================================================
+    // PUBLIC: get-landing-promo (anuncio pill superior shop)
+    // ===========================================================
+    if (action === 'get-landing-promo') {
+      const { data, error } = await supabase
+        .from('shop_landing_promo')
+        .select('*')
+        .eq('is_active', true)
+        .order('updated_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) throw error;
+      return jsonResponse({ success: true, promo: data || null });
     }
 
     // ===========================================================
@@ -280,6 +351,74 @@ serve(async (req) => {
     }
 
     // ===========================================================
+    // MY-STACK-PRODUCTS: productos del Stack vinculados a la tienda
+    // Devuelve productos + estado de compra (FALTANTE/ACTIVO/POR REPONER)
+    // basado en órdenes pagadas previas del usuario.
+    // ===========================================================
+    if (action === 'my-stack-products') {
+      if (!user) return jsonResponse({ success: false, error: 'Login requerido' }, 401);
+
+      const { data: stackRows } = await supabase
+        .from('supplement_stack')
+        .select('product_id')
+        .eq('user_id', user.id)
+        .eq('is_active', true)
+        .not('product_id', 'is', null);
+
+      const productIds = Array.from(
+        new Set((stackRows || []).map((r: any) => r.product_id).filter(Boolean))
+      ) as string[];
+
+      if (productIds.length === 0) {
+        return jsonResponse({
+          success: true,
+          products: [],
+          purchases: {},
+          bundle: { min: STACK_BUNDLE_MIN, discount: STACK_BUNDLE_DISCOUNT },
+        });
+      }
+
+      const { data: products } = await supabase
+        .from('shop_products')
+        .select('*, category:shop_categories(slug, name, icon)')
+        .in('id', productIds)
+        .eq('is_active', true)
+        .order('sort_order', { ascending: true });
+
+      // SECURITY: ocultar cost_price
+      const sanitized = (products || []).map((p: any) => {
+        const { cost_price, ...rest } = p;
+        return rest;
+      });
+
+      // Última compra pagada por producto (para badges ACTIVO / POR REPONER)
+      const { data: history } = await supabase
+        .from('shop_order_items')
+        .select('product_id, order:shop_orders!inner(user_id, status, paid_at)')
+        .eq('order.user_id', user.id)
+        .in('product_id', productIds)
+        .in('order.status', ['paid', 'preparing', 'shipped', 'delivered']);
+
+      const purchases: Record<string, { last_paid_at: string | null }> = {};
+      for (const row of history || []) {
+        const pid = (row as any).product_id;
+        const paidAt = (row as any).order?.paid_at || null;
+        if (!pid) continue;
+        const prev = purchases[pid]?.last_paid_at;
+        if (!prev || (paidAt && paidAt > prev)) {
+          purchases[pid] = { last_paid_at: paidAt };
+        }
+      }
+
+      return jsonResponse({
+        success: true,
+        products: sanitized,
+        purchases,
+        bundle: { min: STACK_BUNDLE_MIN, discount: STACK_BUNDLE_DISCOUNT },
+      });
+    }
+
+    // ===========================================================
     // CHECKOUT-CARD: cobra a tarjeta guardada o nueva (token)
     // Body: { cardId? | tokenId?, customer, shippingAddress?, customerNotes?, deviceSessionId? }
     // ===========================================================
@@ -341,7 +480,13 @@ serve(async (req) => {
       }
 
       const shippingCost = 0; // manual por ahora
-      const total = subtotal + shippingCost;
+
+      // Stack bundle discount: -10% si el cliente compra ≥3 productos vinculados a su Stack
+      let stackBundle = { eligible: false, matchedCount: 0, discount: 0 };
+      if (body.applyStackBundle) {
+        stackBundle = await computeStackBundleDiscount(supabase, user.id, items);
+      }
+      const total = subtotal + shippingCost - stackBundle.discount;
 
       if (shippingRequired && !shippingAddress) {
         throw new Error('Se requiere dirección de envío para productos físicos');
@@ -398,6 +543,15 @@ serve(async (req) => {
           shipping_required: shippingRequired,
           shipping_address: shippingRequired ? shippingAddress : null,
           customer_notes: customerNotes,
+          metadata: stackBundle.eligible
+            ? {
+                stack_bundle: {
+                  matched: stackBundle.matchedCount,
+                  discount: stackBundle.discount,
+                  pct: STACK_BUNDLE_DISCOUNT,
+                },
+              }
+            : {},
         })
         .select()
         .single();
@@ -547,6 +701,7 @@ serve(async (req) => {
           total,
           status: 'paid',
           openpay_charge_id: charge.id,
+          stack_bundle: stackBundle.eligible ? stackBundle : null,
         },
       });
     }
@@ -616,6 +771,13 @@ serve(async (req) => {
 
       const total = subtotal;
 
+      // Stack bundle discount también disponible en checkout-whatsapp
+      let waBundle = { eligible: false, matchedCount: 0, discount: 0 };
+      if (user && body.applyStackBundle) {
+        waBundle = await computeStackBundleDiscount(supabase, user.id, items);
+      }
+      const finalTotal = total - waBundle.discount;
+
       const { data: order, error: orderError } = await supabase
         .from('shop_orders')
         .insert({
@@ -624,13 +786,22 @@ serve(async (req) => {
           full_name: customer.name,
           phone: customer.phone,
           subtotal,
-          total,
+          total: finalTotal,
           currency: 'PEN',
           payment_method: 'whatsapp',
           status: 'pending',
           shipping_required: shippingRequired,
           shipping_address: shippingRequired ? shippingAddress : null,
           customer_notes: customerNotes,
+          metadata: waBundle.eligible
+            ? {
+                stack_bundle: {
+                  matched: waBundle.matchedCount,
+                  discount: waBundle.discount,
+                  pct: STACK_BUNDLE_DISCOUNT,
+                },
+              }
+            : {},
         })
         .select()
         .single();
@@ -657,7 +828,9 @@ serve(async (req) => {
         `*Cliente:* ${customer.name}\n` +
         `*Email:* ${customer.email}\n\n` +
         `*Items:*\n${itemsText}\n\n` +
-        `*Total:* S/ ${total.toFixed(2)}`;
+        (waBundle.eligible
+          ? `*Subtotal:* S/ ${total.toFixed(2)}\n*Descuento Stack:* -S/ ${waBundle.discount.toFixed(2)}\n*Total:* S/ ${finalTotal.toFixed(2)}`
+          : `*Total:* S/ ${finalTotal.toFixed(2)}`);
 
       const waUrl = `https://wa.me/${SHOP_WHATSAPP_NUMBER}?text=${encodeURIComponent(msg)}`;
 
@@ -666,8 +839,9 @@ serve(async (req) => {
         order: {
           id: order.id,
           order_number: order.order_number,
-          total,
+          total: finalTotal,
           status: 'pending',
+          stack_bundle: waBundle.eligible ? waBundle : null,
         },
         whatsappUrl: waUrl,
       });
@@ -824,6 +998,105 @@ serve(async (req) => {
         const { error } = await supabase.from('shop_categories').delete().eq('id', id);
         if (error) throw error;
         return jsonResponse({ success: true });
+      }
+
+      // -------------------- LANDING BANNERS --------------------
+      if (action === 'admin-list-banners') {
+        const { data, error } = await supabase
+          .from('shop_landing_banners')
+          .select('*')
+          .order('sort_order', { ascending: true })
+          .order('created_at', { ascending: false });
+        if (error) throw error;
+        return jsonResponse({ success: true, banners: data || [] });
+      }
+
+      if (action === 'admin-banner-create') {
+        const { banner } = body;
+        if (!banner?.image_url) throw new Error('image_url requerido');
+        const { data, error } = await supabase
+          .from('shop_landing_banners')
+          .insert({
+            title: banner.title || null,
+            image_url: banner.image_url,
+            link_url: banner.link_url || null,
+            sort_order: banner.sort_order ?? 0,
+            is_active: banner.is_active ?? true,
+          })
+          .select()
+          .single();
+        if (error) throw error;
+        return jsonResponse({ success: true, banner: data });
+      }
+
+      if (action === 'admin-banner-update') {
+        const { id, updates } = body;
+        if (!id) throw new Error('id requerido');
+        const allowed = ['title', 'image_url', 'link_url', 'sort_order', 'is_active'];
+        const filtered: any = {};
+        for (const k of allowed) if (updates[k] !== undefined) filtered[k] = updates[k];
+        const { data, error } = await supabase
+          .from('shop_landing_banners')
+          .update(filtered)
+          .eq('id', id)
+          .select()
+          .single();
+        if (error) throw error;
+        return jsonResponse({ success: true, banner: data });
+      }
+
+      if (action === 'admin-banner-delete') {
+        const { id } = body;
+        const { error } = await supabase.from('shop_landing_banners').delete().eq('id', id);
+        if (error) throw error;
+        return jsonResponse({ success: true });
+      }
+
+      // -------------------- LANDING PROMO PILL --------------------
+      if (action === 'admin-get-landing-promo') {
+        const { data, error } = await supabase
+          .from('shop_landing_promo')
+          .select('*')
+          .order('updated_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (error) throw error;
+        return jsonResponse({ success: true, promo: data || null });
+      }
+
+      if (action === 'admin-update-landing-promo') {
+        const { promo } = body;
+        if (!promo) throw new Error('promo requerido');
+        const allowed = ['tag', 'title', 'subtitle', 'image_url', 'link_url', 'is_active'];
+        const filtered: any = {};
+        for (const k of allowed) if (promo[k] !== undefined) filtered[k] = promo[k];
+
+        // Buscar fila existente (single-row pattern)
+        const { data: existing } = await supabase
+          .from('shop_landing_promo')
+          .select('id')
+          .order('updated_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (existing) {
+          const { data, error } = await supabase
+            .from('shop_landing_promo')
+            .update(filtered)
+            .eq('id', existing.id)
+            .select()
+            .single();
+          if (error) throw error;
+          return jsonResponse({ success: true, promo: data });
+        } else {
+          const { data, error } = await supabase
+            .from('shop_landing_promo')
+            .insert(filtered)
+            .select()
+            .single();
+          if (error) throw error;
+          return jsonResponse({ success: true, promo: data });
+        }
       }
 
       if (action === 'admin-refund-order') {

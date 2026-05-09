@@ -22,6 +22,7 @@ import { Image } from 'expo-image';
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useIsFocused } from '@react-navigation/native';
 import { supabase } from '../../../lib/supabase';
+import { VISUAL_ORDER, SHORT_LABEL, todayWeekday } from '../../../lib/weekday';
 import { useAuth } from '../../_layout';
 import {
   Sliders,
@@ -960,18 +961,25 @@ function GymScreen() {
     })
   ).current;
 
-  // Training Program State
+  // Training Program State (sistema weekday: 0=Dom..6=Sáb)
+  // days es un array de 7, indexado por weekday. Si no tiene ejercicios ni
+  // muscleGroups → es día de descanso.
   const [trainingProgram, setTrainingProgram] = useState<TrainingProgram>({
     frequency: 3,
     days: [
-      { id: '1', muscleGroups: 'Pecho y Espalda', exercises: [] },
-      { id: '2', muscleGroups: 'Hombros, Bíceps y Tríceps', exercises: [] },
-      { id: '3', muscleGroups: 'Piernas', exercises: [] },
+      { id: '0', muscleGroups: '', exercises: [] }, // Domingo
+      { id: '1', muscleGroups: 'Pecho y Espalda', exercises: [] }, // Lunes
+      { id: '2', muscleGroups: 'Hombros, Bíceps y Tríceps', exercises: [] }, // Martes
+      { id: '3', muscleGroups: 'Piernas', exercises: [] }, // Miércoles
+      { id: '4', muscleGroups: '', exercises: [] }, // Jueves
+      { id: '5', muscleGroups: '', exercises: [] }, // Viernes
+      { id: '6', muscleGroups: '', exercises: [] }, // Sábado
     ],
     lastAccessDate: null,
-    currentDayIndex: 0,
+    currentDayIndex: new Date().getDay(),
   });
-  const [selectedDayIndex, setSelectedDayIndex] = useState(0);
+  // Auto-seleccionar weekday actual al entrar
+  const [selectedDayIndex, setSelectedDayIndex] = useState<number>(new Date().getDay());
 
   // ============================================================================
   // DUAL SESSION STATE (2 entrenamientos por día)
@@ -1871,18 +1879,15 @@ function GymScreen() {
 
       await supabase
         .from('profiles')
-        .update({
-          training_last_access: todayISO,
-          training_current_day: targetDay,
-        })
+        .update({ training_last_access: todayISO })
         .eq('id', user.id);
 
       setTrainingProgram((prev) => ({
         ...prev,
         lastAccessDate: todayISO,
-        currentDayIndex: targetDay,
+        currentDayIndex: new Date().getDay(),
       }));
-      console.log('🏋️ Día de entrenamiento guardado al cerrar modal:', targetDay);
+      console.log('🏋️ Día de entrenamiento guardado al cerrar modal (weekday):', new Date().getDay());
     }
 
     // SOLUCIÓN: Limpiar estado de alternativas para empezar limpio
@@ -2392,16 +2397,7 @@ function GymScreen() {
           await supabase
             .from('profiles')
             .update({
-              training_frequency: personalizedDays.length,
               training_routine_names: routineNamesFromSchedule,
-            })
-            .eq('id', user.id);
-        } else {
-          // Solo actualizar frecuencia si cambió
-          await supabase
-            .from('profiles')
-            .update({
-              training_frequency: personalizedDays.length,
             })
             .eq('id', user.id);
         }
@@ -2422,17 +2418,21 @@ function GymScreen() {
         // Cargar profiles para verificar si tiene días configurados
         const { data: profileCheck } = await supabase
           .from('profiles')
-          .select('training_frequency, training_routine_names')
+          .select('training_routine_names')
           .eq('id', user.id)
           .single();
 
-        const hasManualDays = (profileCheck?.training_frequency ?? 0) > 0;
+        const _routineNamesCheck = (profileCheck?.training_routine_names || {}) as Record<string, string>;
+        const _activeKeys = Object.keys(_routineNamesCheck).filter(
+          (k) => (_routineNamesCheck[k] || '').trim().length > 0
+        );
+        const hasManualDays = _activeKeys.length > 0;
 
         if (hasManualDays && Object.keys(extSchedule).length === 0) {
           // Usuario tiene días en profiles pero no en external_schedule
           // Sincronizar automáticamente como modo personalizado
-          const routineNames = profileCheck?.training_routine_names || {};
-          const frequency = profileCheck?.training_frequency || 0;
+          const routineNames = _routineNamesCheck;
+          const frequency = _activeKeys.length;
 
           const syncedSchedule: Record<string, string> = {};
           for (let i = 0; i < frequency; i++) {
@@ -2475,7 +2475,7 @@ function GymScreen() {
       const { data: profile } = await supabase
         .from('profiles')
         .select(
-          'training_last_access, training_current_day, training_routine_names, training_frequency, training_session_names'
+          'training_last_access, training_routine_names, training_session_names'
         )
         .eq('id', user.id)
         .single();
@@ -2495,131 +2495,54 @@ function GymScreen() {
         setDualSessionDays(dsDays);
       }
 
-      // Cargar frecuencia desde la base de datos (0 significa sin plan)
-      const savedFrequency = profile?.training_frequency ?? 0;
-
-      // Cargar nombres de rutinas desde la base de datos
-      let routineNames = profile?.training_routine_names || {};
+      // Cargar nombres de rutinas (weekday keys: "0"=Dom..."6"=Sáb)
+      const routineNames: Record<string, string> = (profile?.training_routine_names as Record<string, string>) || {};
 
       // =========================================================================
-      // RECONSTRUIR DÍAS: SOLO SI NO ESTÁ EN MODO PERSONALIZADO
-      // En modo personalizado, los días ya se configuraron arriba con el formato correcto
+      // RECONSTRUIR LOS 7 DÍAS DE LA SEMANA
       // =========================================================================
       if (!externalModeConfigured) {
-        // Si frequency es 0, el usuario no tiene días de entrenamiento
-        if (savedFrequency === 0) {
-          setTrainingProgram((prev) => ({
-            ...prev,
-            frequency: 0,
-            days: [],
-            currentDayIndex: 0,
-          }));
-          console.warn('🏋️ GYM: Usuario sin plan de entrenamiento (0 días)');
-        } else {
-          // Si no hay nombres guardados, inicializar con los valores por defecto
-          if (Object.keys(routineNames).length === 0) {
-            const defaultNames: Record<string, string> = {};
-            trainingProgram.days.forEach((day, idx) => {
-              defaultNames[String(idx)] = day.muscleGroups;
-            });
-
-            // Guardar los nombres por defecto en la base de datos
-            await supabase
-              .from('profiles')
-              .update({ training_routine_names: defaultNames })
-              .eq('id', user.id);
-
-            routineNames = defaultNames;
-            console.warn('🏋️ GYM: Nombres de rutinas inicializados:', defaultNames);
-          }
-
-          // Reconstruir días basados en la frecuencia guardada (MODO GYM MODULE - naranja)
-          const numDays = savedFrequency;
-          const updatedDays = Array.from({ length: numDays }, (_, idx) => ({
-            id: String(idx + 1),
-            muscleGroups: routineNames[String(idx)] || `DÍA ${idx + 1}`,
-            exercises: [],
-          }));
-
-          setTrainingProgram((prev) => ({
-            ...prev,
-            frequency: numDays,
-            days: updatedDays,
-          }));
-        }
+        const weekdayDays = Array.from({ length: 7 }, (_, wd) => ({
+          id: String(wd),
+          muscleGroups: routineNames[String(wd)] || '',
+          exercises: [],
+        }));
+        const activeCount = weekdayDays.filter((d) => d.muscleGroups.trim().length > 0).length;
+        setTrainingProgram((prev) => ({
+          ...prev,
+          frequency: activeCount,
+          days: weekdayDays,
+          currentDayIndex: new Date().getDay(),
+        }));
       }
 
-      // Si no hay días, no hay nada más que hacer
-      if (savedFrequency === 0) {
-        return;
-      }
-
-      const numDays = savedFrequency;
+      // Sincronizar last_access (NO training_current_day: ya no se usa)
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       const todayISO = today.toISOString();
-
-      let newDayIndex = trainingProgram.currentDayIndex;
-
-      if (profile?.training_last_access) {
-        const lastAccess = new Date(profile.training_last_access);
-        lastAccess.setHours(0, 0, 0, 0);
-        const lastAccessISO = lastAccess.toISOString();
-
-        // Si han pasado uno o más días, avanzar al siguiente día de entrenamiento
-        if (todayISO > lastAccessISO) {
-          newDayIndex = (profile.training_current_day || 0) + 1;
-          if (newDayIndex >= numDays) {
-            newDayIndex = 0; // Reiniciar ciclo
-          }
-        } else {
-          // Mismo día, mantener el índice actual
-          newDayIndex = profile.training_current_day || 0;
-        }
-      } else {
-        // Primera vez, empezar en día 1 (índice 0)
-        newDayIndex = 0;
-      }
-
-      // Actualizar en Supabase
       await supabase
         .from('profiles')
-        .update({
-          training_last_access: todayISO,
-          training_current_day: newDayIndex,
-        })
+        .update({ training_last_access: todayISO })
         .eq('id', user.id);
 
-      // Actualizar estado local
+      const todayWd = new Date().getDay();
       setTrainingProgram((prev) => ({
         ...prev,
         lastAccessDate: todayISO,
-        currentDayIndex: newDayIndex,
+        currentDayIndex: todayWd,
       }));
-      // Solo actualizar si realmente cambió para evitar re-render innecesario
-      setSelectedDayIndex((prev) => (prev !== newDayIndex ? newDayIndex : prev));
+      setSelectedDayIndex((prev) => (prev !== todayWd ? todayWd : prev));
     } catch (error) {
       console.error('Error updating training day:', error);
     }
   };
 
-  // Sincronizar día seleccionado con profiles.training_current_day
-  // Esto permite que ADN y PLAN muestren el día correcto sin entrar a FOCUS
+  // Cambiar día seleccionado (sistema weekday: ya no hace falta sincronizar
+  // training_current_day con la DB; el día activo se deriva de new Date().getDay()).
   const syncSelectedDay = async (dayIndex: number) => {
     setSelectedDayIndex(dayIndex);
     // BUGFIX: Cargar ejercicios del día seleccionado
     loadExercises(dayIndex, true);
-
-    // Solo sincronizar en modo personalizado
-    if (!isExternalMode || !user) return;
-
-    try {
-      await supabase.from('profiles').update({ training_current_day: dayIndex }).eq('id', user.id);
-
-      console.log('🔄 GYM: Día sincronizado:', dayIndex);
-    } catch (error) {
-      console.error('Error syncing selected day:', error);
-    }
   };
 
   // ============================================================================
@@ -2917,132 +2840,85 @@ function GymScreen() {
   };
 
   // ============================================================================
-  // DELETE DAY - Lógica extraída para uso desde menú de opciones
+  // DELETE DAY (weekday) - Vaciar el weekday seleccionado:
+  //   - Pone routineNames[wd] = ""
+  //   - Quita wd de training_days[] de los ejercicios
+  //   - Limpia session names + dual session de ese weekday
   // ============================================================================
   const handleDeleteDay = async (deletedDayIndex: number) => {
     if (!user) return;
+    const wdKey = String(deletedDayIndex);
 
     try {
-      if (isExternalMode) {
-        // MODO PERSONALIZADO
-        const dayName = Object.keys(externalSchedule)[deletedDayIndex] || '';
-        const newSchedule = { ...externalSchedule };
-        delete newSchedule[dayName];
+      // 1) Vaciar el slot del weekday en routine_names
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('training_routine_names, training_session_names')
+        .eq('id', user.id)
+        .single();
 
-        await supabase
-          .from('user_profiles')
-          .update({
-            external_schedule: newSchedule,
-            training_days_per_week: Object.keys(newSchedule).length,
-          })
-          .eq('user_id', user.id);
+      const newRoutineNames: Record<string, string> = {
+        ...((profile?.training_routine_names as Record<string, string>) || {}),
+      };
+      newRoutineNames[wdKey] = '';
 
-        const newRoutineNames: Record<string, string> = {};
-        Object.entries(newSchedule).forEach(([day, muscle], idx) => {
-          newRoutineNames[String(idx)] = `${day}: ${muscle}`;
-        });
+      const newSessionNames: Record<string, Record<string, string>> = {
+        ...((profile?.training_session_names as Record<string, Record<string, string>>) || {}),
+      };
+      delete newSessionNames[wdKey];
 
-        await supabase
-          .from('profiles')
-          .update({
-            training_frequency: Object.keys(newSchedule).length,
-            training_routine_names: newRoutineNames,
-          })
-          .eq('id', user.id);
-
-        // Reindexar ejercicios
-        await reindexExercisesAfterDayDelete(deletedDayIndex);
-
-        setExternalSchedule(newSchedule);
-        setTrainingProgram((prev) => ({
-          ...prev,
-          frequency: Object.keys(newSchedule).length,
-          days: Object.entries(newSchedule).map(([day, muscle], idx) => ({
-            id: String(idx + 1),
-            muscleGroups: `${day}: ${muscle}`,
-            exercises: [],
-          })),
-        }));
-
-        if (Object.keys(newSchedule).length === 0) {
-          await supabase
-            .from('user_profiles')
-            .update({ training_mode: 'none' })
-            .eq('user_id', user.id);
-          setIsExternalMode(false);
-        }
-
-        const newIndex = Math.max(
-          0,
-          Math.min(selectedDayIndex, Object.keys(newSchedule).length - 1)
-        );
-        syncSelectedDay(newIndex);
-        loadExercises(newIndex);
-      } else {
-        // MODO GYM MODULE
-        const updatedDays = trainingProgram.days.filter((_, i) => i !== deletedDayIndex);
-        const newSelectedIndex =
-          updatedDays.length > 0 ? Math.min(selectedDayIndex, updatedDays.length - 1) : 0;
-
-        setTrainingProgram((prev) => ({
-          ...prev,
-          frequency: updatedDays.length,
-          days: updatedDays.map((d, i) => ({ ...d, id: String(i + 1) })),
-          currentDayIndex:
-            updatedDays.length > 0 ? Math.min(prev.currentDayIndex, updatedDays.length - 1) : 0,
-        }));
-        setSelectedDayIndex(newSelectedIndex);
-
-        const updatedNames: Record<string, string> = {};
-        updatedDays.forEach((d, i) => {
-          updatedNames[String(i)] = d.muscleGroups;
-        });
-
-        await supabase
-          .from('profiles')
-          .update({
-            training_frequency: updatedDays.length,
-            training_current_day:
-              updatedDays.length > 0
-                ? Math.min(trainingProgram.currentDayIndex, updatedDays.length - 1)
-                : 0,
-            training_routine_names: updatedNames,
-          })
-          .eq('id', user.id);
-
-        await reindexExercisesAfterDayDelete(deletedDayIndex);
-        loadExercises(newSelectedIndex);
-      }
-
-      // Limpiar dual session data del día eliminado
-      const newDsDays = { ...dualSessionDays };
-      delete newDsDays[String(deletedDayIndex)];
-      // Reindexar dual session days
-      const reindexedDsDays: Record<string, boolean> = {};
-      Object.entries(newDsDays).forEach(([key, val]) => {
-        const num = parseInt(key);
-        reindexedDsDays[String(num > deletedDayIndex ? num - 1 : num)] = val;
-      });
-      setDualSessionDays(reindexedDsDays);
-
-      // Reindexar session names
-      const newSNames: Record<string, Record<string, string>> = {};
-      Object.entries(sessionNames).forEach(([key, val]) => {
-        const num = parseInt(key);
-        if (num !== deletedDayIndex) {
-          newSNames[String(num > deletedDayIndex ? num - 1 : num)] = val;
-        }
-      });
-      setSessionNames(newSNames);
       await supabase
         .from('profiles')
-        .update({ training_session_names: newSNames })
+        .update({
+          training_routine_names: newRoutineNames,
+          training_session_names: newSessionNames,
+        })
         .eq('id', user.id);
 
+      // 2) Quitar el weekday de training_days[] en cada user_exercise_config
+      const { data: userExercises } = await supabase
+        .from('user_exercise_config')
+        .select('id, training_days')
+        .eq('user_id', user.id);
+
+      if (userExercises) {
+        for (const ex of userExercises) {
+          const days: number[] = ex.training_days || [];
+          if (days.includes(deletedDayIndex)) {
+            const newDays = days.filter((d) => d !== deletedDayIndex);
+            if (newDays.length === 0) {
+              await supabase.from('user_exercise_config').delete().eq('id', ex.id);
+            } else {
+              await supabase
+                .from('user_exercise_config')
+                .update({ training_days: newDays })
+                .eq('id', ex.id);
+            }
+          }
+        }
+      }
+
+      // 3) Actualizar estado local: vaciar slot de days[wd]
+      setTrainingProgram((prev) => {
+        const days = [...prev.days];
+        if (days[deletedDayIndex]) {
+          days[deletedDayIndex] = { ...days[deletedDayIndex], muscleGroups: '', exercises: [] };
+        }
+        const activeCount = days.filter((d) => d.muscleGroups.trim().length > 0).length;
+        return { ...prev, days, frequency: activeCount };
+      });
+
+      // 4) Limpiar dual session de este weekday
+      const newDsDays = { ...dualSessionDays };
+      delete newDsDays[wdKey];
+      setDualSessionDays(newDsDays);
+      setSessionNames(newSessionNames);
       setSelectedSessionIndex(0);
+
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      loadExercises(deletedDayIndex);
     } catch (error) {
-      console.error('Error deleting day:', error);
+      console.error('Error deleting weekday:', error);
     }
   };
 
@@ -5569,19 +5445,18 @@ function GymScreen() {
 
     if (exercises.length === 0) return;
 
-    // Actualizar el día actual en el perfil
+    // Actualizar el día actual en el perfil (weekday: ya no se persiste training_current_day)
     if (user) {
       await supabase
         .from('profiles')
         .update({
-          training_current_day: selectedDayIndex,
           training_last_access: new Date().toISOString(),
         })
         .eq('id', user.id);
 
       setTrainingProgram((prev) => ({
         ...prev,
-        currentDayIndex: selectedDayIndex,
+        currentDayIndex: new Date().getDay(),
         lastAccessDate: new Date().toISOString(),
       }));
     }
@@ -6677,31 +6552,33 @@ function GymScreen() {
                         );
                       })}
 
-                    {/* MODO GYM MODULE: Mostrar días del trainingProgram */}
+                    {/* MODO GYM MODULE: Mostrar 7 días de la semana (Lun primero) */}
                     {!isExternalMode &&
-                      trainingProgram.days.map((day, index) => {
-                        const isActive = selectedDayIndex === index;
-                        const isCurrent = trainingProgram.currentDayIndex === index;
+                      VISUAL_ORDER.map((wd) => {
+                        const day = trainingProgram.days[wd];
+                        if (!day) return null;
+                        const isActive = selectedDayIndex === wd;
+                        const isCurrent = todayWeekday() === wd;
+                        const isRest = !day.muscleGroups || day.muscleGroups.trim().length === 0;
 
                         return (
                           <TouchableOpacity
                             key={day.id}
                             onPress={() => {
-                              setSelectedDayIndex(index);
-                              // BUGFIX: Cargar ejercicios del día seleccionado
-                              loadExercises(index, true);
+                              setSelectedDayIndex(wd);
+                              loadExercises(wd, true);
                               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
                             }}
                             onLongPress={() => {
                               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-                              showDayOptions(index);
+                              showDayOptions(wd);
                             }}
                             className="mr-2.5 px-4 py-2.5 rounded-xl"
                             style={
                               isActive
                                 ? {
-                                    backgroundColor: '#F97316',
-                                    shadowColor: '#F97316',
+                                    backgroundColor: isRest ? '#3f3f46' : '#F97316',
+                                    shadowColor: isRest ? '#000' : '#F97316',
                                     shadowOffset: { width: 0, height: 4 },
                                     shadowOpacity: 0.5,
                                     shadowRadius: 12,
@@ -6709,32 +6586,39 @@ function GymScreen() {
                                 : {
                                     backgroundColor: '#18181b',
                                     borderWidth: 1,
-                                    borderColor: '#27272a',
+                                    borderColor: isCurrent ? '#22c55e80' : '#27272a',
                                   }
                             }
                           >
                             <View className="flex-row items-center gap-2">
-                              {/* Day Number Badge */}
                               <View
-                                className="w-6 h-6 rounded-lg items-center justify-center"
+                                className="w-7 h-7 rounded-lg items-center justify-center"
                                 style={{
                                   backgroundColor: isActive ? 'rgba(0,0,0,0.3)' : '#27272a',
                                 }}
                               >
                                 <Text
-                                  className={`font-bold text-xs font-mono ${isActive ? 'text-white' : 'text-zinc-500'}`}
+                                  className={`font-bold text-[10px] font-mono ${isActive ? 'text-white' : 'text-zinc-400'}`}
                                 >
-                                  {index + 1}
+                                  {SHORT_LABEL[wd]}
                                 </Text>
                               </View>
                               <View>
                                 <Text
                                   className={`font-bold text-xs uppercase tracking-wide ${
-                                    isActive ? 'text-black' : 'text-zinc-300'
+                                    isActive
+                                      ? isRest
+                                        ? 'text-zinc-300'
+                                        : 'text-black'
+                                      : isRest
+                                        ? 'text-zinc-500'
+                                        : 'text-zinc-300'
                                   }`}
                                   numberOfLines={1}
                                 >
-                                  {day.muscleGroups.replace(/^D[íi]a\s*\d+\s*:\s*/i, '')}
+                                  {isRest
+                                    ? 'DESCANSO'
+                                    : day.muscleGroups.replace(/^D[íi]a\s*\d+\s*:\s*/i, '')}
                                 </Text>
                                 {isCurrent && (
                                   <Text
@@ -6744,9 +6628,9 @@ function GymScreen() {
                                   </Text>
                                 )}
                               </View>
-                              {isActive && (
+                              {isActive && !isRest && (
                                 <TouchableOpacity
-                                  onPress={() => showDayOptions(index)}
+                                  onPress={() => showDayOptions(wd)}
                                   hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                                 >
                                   <MoreVertical size={16} color="rgba(0,0,0,0.5)" />
@@ -6757,32 +6641,8 @@ function GymScreen() {
                         );
                       })}
 
-                    {/* BOTÓN AGREGAR DÍA - En modo GYM y PERSONALIZADO */}
-                    <TouchableOpacity
-                      onPress={() => {
-                        if (trainingProgram.days.length >= 7) {
-                          Alert.alert('Límite alcanzado', 'Máximo 7 días de entrenamiento');
-                          return;
-                        }
-                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                        setSelectedMuscleGroups([]);
-                        setAddDayModalVisible(true);
-                      }}
-                      className="px-4 py-2.5 rounded-xl border-2 border-dashed items-center justify-center flex-row gap-2"
-                      style={{
-                        minWidth: 60,
-                        borderColor: isExternalMode ? '#a855f750' : '#3f3f46',
-                        backgroundColor: isExternalMode ? '#1a0a2e' : 'transparent',
-                      }}
-                    >
-                      <Plus size={16} color={isExternalMode ? '#a855f7' : '#F97316'} />
-                      <Text
-                        className="font-bold text-xs"
-                        style={{ color: isExternalMode ? '#a855f7' : '#F97316' }}
-                      >
-                        NUEVO
-                      </Text>
-                    </TouchableOpacity>
+                    {/* En modo weekday no hay botón "NUEVO" — siempre hay 7 días.
+                        Configurar un día = long-press / opciones del día. */}
                   </ScrollView>
                 </View>
 
@@ -7970,7 +7830,6 @@ function GymScreen() {
                               await supabase
                                 .from('profiles')
                                 .update({
-                                  training_frequency: updatedDays.length,
                                   training_routine_names: updatedNames,
                                   plan_source: 'custom', // Marcar como plan personalizado
                                 })
@@ -8469,7 +8328,6 @@ function GymScreen() {
                       await supabase
                         .from('profiles')
                         .update({
-                          training_frequency: updatedDays.length,
                           training_routine_names: updatedNames,
                           plan_source: 'custom',
                         })

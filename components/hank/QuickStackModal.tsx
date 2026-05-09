@@ -20,6 +20,9 @@ interface StackItem {
   isPostWorkout?: boolean;
   daysOfWeek?: number[];
   workoutSessionIndex?: number;
+  productId?: string;
+  productThumbnail?: string;
+  productPrice?: number;
 }
 
 interface QuickStackModalProps {
@@ -39,7 +42,7 @@ export const QuickStackModal: React.FC<QuickStackModalProps> = ({ visible, onClo
 
     const { data } = await supabase
       .from('supplement_stack')
-      .select('*')
+      .select('*, product:shop_products(id, name, thumbnail_url, price)')
       .eq('user_id', user.id)
       .eq('is_active', true);
 
@@ -57,6 +60,12 @@ export const QuickStackModal: React.FC<QuickStackModalProps> = ({ visible, onClo
           isPostWorkout: row.is_post_workout || false,
           daysOfWeek: row.days_of_week || undefined,
           workoutSessionIndex: row.workout_session_index ?? undefined,
+          productId: row.product_id || undefined,
+          productThumbnail: row.product?.thumbnail_url || undefined,
+          productPrice:
+            row.product?.price !== undefined && row.product?.price !== null
+              ? Number(row.product.price)
+              : undefined,
         }))
       );
     }
@@ -95,6 +104,7 @@ export const QuickStackModal: React.FC<QuickStackModalProps> = ({ visible, onClo
         is_active: true,
         days_of_week: item.daysOfWeek || null,
         workout_session_index: item.workoutSessionIndex ?? null,
+        product_id: item.productId || null,
       });
 
       if (!error) fetchItems();
@@ -107,23 +117,27 @@ export const QuickStackModal: React.FC<QuickStackModalProps> = ({ visible, onClo
     setItems((prev) => prev.filter((i) => i.id !== id));
   }, []);
 
-  const handleUpdate = useCallback(async (id: string, updates: Partial<Omit<StackItem, 'id'>>) => {
-    const dbUpdates: Record<string, any> = {};
-    if (updates.name !== undefined) dbUpdates.name = updates.name;
-    if (updates.dose !== undefined) dbUpdates.dose = updates.dose;
-    if (updates.type !== undefined) dbUpdates.type = updates.type;
-    if (updates.notes !== undefined) dbUpdates.notes = updates.notes;
-    if (updates.time !== undefined) dbUpdates.time = updates.time;
-    if (updates.times !== undefined) dbUpdates.times = updates.times;
-    if (updates.isPreWorkout !== undefined) dbUpdates.is_pre_workout = updates.isPreWorkout;
-    if (updates.isPostWorkout !== undefined) dbUpdates.is_post_workout = updates.isPostWorkout;
-    if (updates.daysOfWeek !== undefined) dbUpdates.days_of_week = updates.daysOfWeek;
-    if (updates.workoutSessionIndex !== undefined)
-      dbUpdates.workout_session_index = updates.workoutSessionIndex;
+  const handleUpdate = useCallback(
+    async (id: string, updates: Partial<Omit<StackItem, 'id'>>) => {
+      const dbUpdates: Record<string, any> = {};
+      if (updates.name !== undefined) dbUpdates.name = updates.name;
+      if (updates.dose !== undefined) dbUpdates.dose = updates.dose;
+      if (updates.type !== undefined) dbUpdates.type = updates.type;
+      if (updates.notes !== undefined) dbUpdates.notes = updates.notes;
+      if (updates.time !== undefined) dbUpdates.time = updates.time;
+      if (updates.times !== undefined) dbUpdates.times = updates.times;
+      if (updates.isPreWorkout !== undefined) dbUpdates.is_pre_workout = updates.isPreWorkout;
+      if (updates.isPostWorkout !== undefined) dbUpdates.is_post_workout = updates.isPostWorkout;
+      if (updates.daysOfWeek !== undefined) dbUpdates.days_of_week = updates.daysOfWeek;
+      if (updates.workoutSessionIndex !== undefined)
+        dbUpdates.workout_session_index = updates.workoutSessionIndex;
+      if (updates.productId !== undefined) dbUpdates.product_id = updates.productId || null;
 
-    await supabase.from('supplement_stack').update(dbUpdates).eq('id', id);
-    setItems((prev) => prev.map((i) => (i.id === id ? { ...i, ...updates } : i)));
-  }, []);
+      await supabase.from('supplement_stack').update(dbUpdates).eq('id', id);
+      await fetchItems();
+    },
+    [fetchItems]
+  );
 
   return (
     <StackManagerModal

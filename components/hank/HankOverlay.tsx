@@ -63,6 +63,7 @@ import { setHankChatOpen } from '../../lib/hankChatState';
 import { hankToolsEvent, type HankToolType } from '../../lib/hankToolsEvent';
 import { spotifyFabState, spotifyFabActions, type SpotifyFabData } from '../../lib/spotifyFabState';
 import { hankSpeakState } from '../../lib/hankSpeakState';
+import { hankSpeakActions } from '../../lib/hankSpeakAction';
 import type {
   HankToolResult,
   HankToolCall,
@@ -660,7 +661,13 @@ const HankFAB: React.FC<{
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
+      onStartShouldSetPanResponderCapture: () => true,
       onMoveShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponderCapture: (_evt, gestureState) => {
+        // Capturar antes que ScrollView padre cuando hay movimiento real
+        return Math.abs(gestureState.dx) > 5 || Math.abs(gestureState.dy) > 5;
+      },
+      onPanResponderTerminationRequest: () => false, // No ceder el gesto al ScrollView
 
       onPanResponderGrant: (evt) => {
         startPos.current = { x: evt.nativeEvent.pageX, y: evt.nativeEvent.pageY };
@@ -715,6 +722,14 @@ const HankFAB: React.FC<{
         if (dy > SWIPE_THRESHOLD && Math.abs(dx) < SWIPE_THRESHOLD) {
           gestureHandled.current = true;
           if (toolsOpenRef.current) closeTools();
+          return;
+        }
+
+        // Swipe LEFT → reproducir/parar audio de "lo que se viene"
+        if (dx < -SWIPE_THRESHOLD && Math.abs(dy) < SWIPE_THRESHOLD) {
+          gestureHandled.current = true;
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          hankSpeakActions.emit('toggle');
           return;
         }
 
@@ -1177,6 +1192,8 @@ const HankFAB: React.FC<{
             {/* Icon */}
             {isListening ? (
               <Mic size={28} color="#FFFFFF" />
+            ) : isSpeaking ? (
+              <Bot size={28} color="#FFFFFF" />
             ) : (
               <Wrench
                 size={28}

@@ -43,13 +43,40 @@ interface TrainingTemplate {
   days: TemplateDay[];
   is_active: boolean;
   sort_order: number;
+  coach_notes?: string;
 }
 
 interface TemplateDay {
   dayIndex: number;
   name: string;
   focus?: string;
+  notes?: string;
   exercises: TemplateDayExercise[];
+  cardio?: TemplateCardio[];
+  groups?: TemplateExerciseGroup[];
+}
+
+// Bloque de cardio dentro del día
+interface TemplateCardio {
+  id: string;
+  activity: string; // "Caminadora", "Bicicleta"...
+  cardio_type: 'LISS' | 'HIIT' | 'STEADY' | 'INTERVAL';
+  duration_minutes: number;
+  intensity?: string;
+  is_pre_workout?: boolean;
+  is_post_workout?: boolean;
+  is_fasted?: boolean;
+  notes?: string;
+}
+
+// Grupo de ejercicios (super-serie / circuito / drop-set)
+interface TemplateExerciseGroup {
+  id: string;
+  type: 'SUPERSERIES' | 'CIRCUITO' | 'DROP_SET' | 'TRISERIES';
+  exercise_ids: string[]; // exercise_id (no config_id porque es plantilla)
+  rest_after?: number; // segundos
+  rounds?: number;
+  notes?: string;
 }
 
 // Tipo de serie para configuración detallada
@@ -60,6 +87,9 @@ interface TemplateSeriesConfig {
   type: SeriesType;
   reps: number;
   note: string;
+  weight?: string; // Peso sugerido (ej. "60kg", "BW", "-")
+  tempo?: string; // Tempo (ej. "3-1-1-0")
+  rpe?: string; // RPE 1-10 (ej. "8", "9.5")
 }
 
 interface TemplateDayExercise {
@@ -68,6 +98,7 @@ interface TemplateDayExercise {
   thumbnail_url?: string;
   rest: string;
   series: TemplateSeriesConfig[]; // Series detalladas
+  notes?: string; // Instrucciones del coach al alumno
 }
 
 // Ejercicio de la DB
@@ -147,6 +178,7 @@ export default function AdminRutinasScreen() {
     target_goals: ['HIPERTROFIA'] as string[],
     equipment: ['gym-completo'] as string[],
     days: [] as TemplateDay[],
+    coach_notes: '',
   });
 
   // Day editor modal
@@ -155,7 +187,10 @@ export default function AdminRutinasScreen() {
   const [dayFormData, setDayFormData] = useState({
     name: '',
     focus: '',
+    notes: '',
     exercises: [] as TemplateDayExercise[],
+    cardio: [] as TemplateCardio[],
+    groups: [] as TemplateExerciseGroup[],
   });
   const [selectedMuscleGroups, setSelectedMuscleGroups] = useState<string[]>([]);
 
@@ -277,6 +312,7 @@ export default function AdminRutinasScreen() {
         target_goals: template.target_goals || ['HIPERTROFIA'],
         equipment: template.equipment || ['gym-completo'],
         days: template.days || [],
+        coach_notes: template.coach_notes || '',
       });
     } else {
       setEditingTemplate(null);
@@ -289,6 +325,7 @@ export default function AdminRutinasScreen() {
         target_goals: ['HIPERTROFIA'],
         equipment: ['gym-completo'],
         days: [],
+        coach_notes: '',
       });
     }
     setModalVisible(true);
@@ -323,6 +360,7 @@ export default function AdminRutinasScreen() {
             target_goals: formData.target_goals,
             equipment: formData.equipment,
             days: formData.days,
+            coach_notes: formData.coach_notes.trim() || null,
             updated_at: new Date().toISOString(),
           })
           .eq('id', editingTemplate.id);
@@ -339,6 +377,7 @@ export default function AdminRutinasScreen() {
           target_goals: formData.target_goals,
           equipment: formData.equipment,
           days: formData.days,
+          coach_notes: formData.coach_notes.trim() || null,
           is_active: true,
           sort_order: templates.length,
         });
@@ -419,13 +458,15 @@ export default function AdminRutinasScreen() {
   const openDayModal = (dayIndex?: number) => {
     if (dayIndex !== undefined && formData.days[dayIndex]) {
       setEditingDayIndex(dayIndex);
-      // Extraer grupos musculares del nombre (separados por " + ")
       const muscleNames = formData.days[dayIndex].name.split(' + ').map((m) => m.trim());
       setSelectedMuscleGroups(muscleNames);
       setDayFormData({
         name: formData.days[dayIndex].name,
         focus: formData.days[dayIndex].focus || '',
+        notes: formData.days[dayIndex].notes || '',
         exercises: formData.days[dayIndex].exercises || [],
+        cardio: formData.days[dayIndex].cardio || [],
+        groups: formData.days[dayIndex].groups || [],
       });
     } else {
       setEditingDayIndex(null);
@@ -433,7 +474,10 @@ export default function AdminRutinasScreen() {
       setDayFormData({
         name: '',
         focus: '',
+        notes: '',
         exercises: [],
+        cardio: [],
+        groups: [],
       });
     }
     setDayModalVisible(true);
@@ -451,8 +495,11 @@ export default function AdminRutinasScreen() {
     const newDay: TemplateDay = {
       dayIndex: editingDayIndex ?? formData.days.length,
       name: generatedName,
-      focus: undefined, // Ya no usamos focus
+      focus: undefined,
+      notes: dayFormData.notes.trim() || undefined,
       exercises: dayFormData.exercises,
+      cardio: dayFormData.cardio.length ? dayFormData.cardio : undefined,
+      groups: dayFormData.groups.length ? dayFormData.groups : undefined,
     };
 
     if (editingDayIndex !== null) {
@@ -559,6 +606,36 @@ export default function AdminRutinasScreen() {
     setCurrentExercise({ ...currentExercise, series: updated });
   };
 
+  // Actualizar peso sugerido de una serie
+  const updateSeriesWeight = (seriesIndex: number, weight: string) => {
+    if (!currentExercise) return;
+    const updated = [...currentExercise.series];
+    updated[seriesIndex] = { ...updated[seriesIndex], weight };
+    setCurrentExercise({ ...currentExercise, series: updated });
+  };
+
+  // Actualizar tempo de una serie
+  const updateSeriesTempo = (seriesIndex: number, tempo: string) => {
+    if (!currentExercise) return;
+    const updated = [...currentExercise.series];
+    updated[seriesIndex] = { ...updated[seriesIndex], tempo };
+    setCurrentExercise({ ...currentExercise, series: updated });
+  };
+
+  // Actualizar RPE de una serie
+  const updateSeriesRpe = (seriesIndex: number, rpe: string) => {
+    if (!currentExercise) return;
+    const updated = [...currentExercise.series];
+    updated[seriesIndex] = { ...updated[seriesIndex], rpe };
+    setCurrentExercise({ ...currentExercise, series: updated });
+  };
+
+  // Actualizar notas/instrucciones del ejercicio
+  const updateExerciseNotes = (notes: string) => {
+    if (!currentExercise) return;
+    setCurrentExercise({ ...currentExercise, notes });
+  };
+
   // Actualizar descanso
   const updateRest = (rest: string) => {
     if (!currentExercise) return;
@@ -576,6 +653,81 @@ export default function AdminRutinasScreen() {
     setSeriesEditorVisible(false);
     setCurrentExercise(null);
     setEditingExerciseIndex(null);
+  };
+
+  // ---- CARDIO del día ----
+  const addCardioBlock = () => {
+    setDayFormData((prev) => ({
+      ...prev,
+      cardio: [
+        ...prev.cardio,
+        {
+          id: String(Date.now()),
+          activity: 'Caminadora',
+          cardio_type: 'LISS',
+          duration_minutes: 20,
+          intensity: 'Moderada',
+          is_pre_workout: false,
+          is_post_workout: true,
+          is_fasted: false,
+        },
+      ],
+    }));
+  };
+  const updateCardioBlock = (idx: number, patch: Partial<TemplateCardio>) => {
+    setDayFormData((prev) => {
+      const updated = [...prev.cardio];
+      updated[idx] = { ...updated[idx], ...patch };
+      return { ...prev, cardio: updated };
+    });
+  };
+  const removeCardioBlock = (idx: number) => {
+    setDayFormData((prev) => ({ ...prev, cardio: prev.cardio.filter((_, i) => i !== idx) }));
+  };
+
+  // ---- SUPERSERIES / GRUPOS del día ----
+  const addExerciseGroup = () => {
+    if (dayFormData.exercises.length < 2) {
+      Alert.alert('Atención', 'Necesitas al menos 2 ejercicios para crear una superserie');
+      return;
+    }
+    setDayFormData((prev) => ({
+      ...prev,
+      groups: [
+        ...prev.groups,
+        {
+          id: String(Date.now()),
+          type: 'SUPERSERIES',
+          exercise_ids: [],
+          rest_after: 90,
+          rounds: 3,
+        },
+      ],
+    }));
+  };
+  const updateGroup = (idx: number, patch: Partial<TemplateExerciseGroup>) => {
+    setDayFormData((prev) => {
+      const updated = [...prev.groups];
+      updated[idx] = { ...updated[idx], ...patch };
+      return { ...prev, groups: updated };
+    });
+  };
+  const toggleGroupExercise = (groupIdx: number, exerciseId: string) => {
+    setDayFormData((prev) => {
+      const updated = [...prev.groups];
+      const current = updated[groupIdx];
+      const has = current.exercise_ids.includes(exerciseId);
+      updated[groupIdx] = {
+        ...current,
+        exercise_ids: has
+          ? current.exercise_ids.filter((id) => id !== exerciseId)
+          : [...current.exercise_ids, exerciseId],
+      };
+      return { ...prev, groups: updated };
+    });
+  };
+  const removeGroup = (idx: number) => {
+    setDayFormData((prev) => ({ ...prev, groups: prev.groups.filter((_, i) => i !== idx) }));
   };
 
   // Eliminar ejercicio del día
@@ -812,6 +964,21 @@ export default function AdminRutinasScreen() {
                 onChangeText={(text) => setFormData((prev) => ({ ...prev, description: text }))}
                 multiline
                 numberOfLines={3}
+              />
+
+              {/* Coach Notes — mensaje del coach al alumno */}
+              <Text className="text-zinc-400 text-xs font-mono mb-1">
+                📝 NOTAS DEL COACH (visible al alumno)
+              </Text>
+              <TextInput
+                className="bg-zinc-800 text-white p-3 rounded-lg mb-3 font-mono"
+                placeholder="Mensaje, recordatorios, técnica clave..."
+                placeholderTextColor={COLORS.zinc400}
+                value={formData.coach_notes}
+                onChangeText={(text) => setFormData((prev) => ({ ...prev, coach_notes: text }))}
+                multiline
+                numberOfLines={3}
+                maxLength={2000}
               />
 
               {/* Target Levels */}
@@ -1134,6 +1301,21 @@ export default function AdminRutinasScreen() {
                 </View>
               </View>
 
+              {/* Notas del día */}
+              <Text className="text-zinc-400 text-xs font-mono mb-1 mt-2">
+                📝 NOTAS DEL DÍA (opcional)
+              </Text>
+              <TextInput
+                className="bg-zinc-800 text-white p-3 rounded-lg mb-2 font-mono text-sm"
+                placeholder="Calentamiento específico, foco del día, recordatorios..."
+                placeholderTextColor={COLORS.zinc400}
+                value={dayFormData.notes}
+                onChangeText={(text) => setDayFormData((prev) => ({ ...prev, notes: text }))}
+                multiline
+                numberOfLines={2}
+                maxLength={500}
+              />
+
               {/* Exercises */}
               <View className="flex-row items-center justify-between mb-2 mt-2">
                 <Text className="text-zinc-400 text-xs font-mono">
@@ -1207,6 +1389,206 @@ export default function AdminRutinasScreen() {
                     </TouchableOpacity>
                   </View>
                 </TouchableOpacity>
+              ))}
+
+              {/* ===== SUPERSERIES / GRUPOS ===== */}
+              <View className="flex-row items-center justify-between mb-2 mt-4">
+                <Text className="text-zinc-400 text-xs font-mono">
+                  🔗 SUPERSERIES / CIRCUITOS ({dayFormData.groups.length})
+                </Text>
+                <TouchableOpacity
+                  className="flex-row items-center bg-purple-600 px-2 py-1 rounded"
+                  onPress={addExerciseGroup}
+                >
+                  <Plus size={14} color={COLORS.white} />
+                  <Text className="text-white text-xs font-bold ml-1">AGRUPAR</Text>
+                </TouchableOpacity>
+              </View>
+              {dayFormData.groups.map((g, gi) => (
+                <View
+                  key={g.id}
+                  className="bg-zinc-800 p-3 rounded-lg mb-2 border-l-4"
+                  style={{ borderLeftColor: '#8B5CF6' }}
+                >
+                  <View className="flex-row items-center justify-between mb-2">
+                    <View className="flex-row gap-1">
+                      {(['SUPERSERIES', 'TRISERIES', 'CIRCUITO', 'DROP_SET'] as const).map((t) => (
+                        <TouchableOpacity
+                          key={t}
+                          className="px-2 py-1 rounded"
+                          style={{ backgroundColor: g.type === t ? '#8B5CF6' : '#3f3f46' }}
+                          onPress={() => updateGroup(gi, { type: t })}
+                        >
+                          <Text className="text-white text-[9px] font-bold">{t}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                    <TouchableOpacity onPress={() => removeGroup(gi)} className="p-1">
+                      <Trash2 size={14} color={COLORS.red} />
+                    </TouchableOpacity>
+                  </View>
+
+                  <Text className="text-zinc-500 text-[10px] font-mono mb-1">
+                    EJERCICIOS DEL GRUPO ({g.exercise_ids.length})
+                  </Text>
+                  <View className="flex-row flex-wrap gap-1.5 mb-2">
+                    {dayFormData.exercises.map((ex) => {
+                      const selected = g.exercise_ids.includes(ex.exercise_id);
+                      return (
+                        <TouchableOpacity
+                          key={ex.exercise_id}
+                          className="px-2 py-1 rounded"
+                          style={{
+                            backgroundColor: selected ? '#8B5CF6' : '#3f3f46',
+                          }}
+                          onPress={() => toggleGroupExercise(gi, ex.exercise_id)}
+                        >
+                          <Text className="text-white text-[10px] font-bold">{ex.name}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+
+                  <View className="flex-row gap-2">
+                    <View className="flex-1">
+                      <Text className="text-zinc-500 text-[9px] font-mono mb-0.5">RONDAS</Text>
+                      <TextInput
+                        className="bg-zinc-700 text-white p-1.5 rounded text-xs font-mono"
+                        keyboardType="numeric"
+                        value={String(g.rounds ?? '')}
+                        onChangeText={(v) =>
+                          updateGroup(gi, { rounds: parseInt(v, 10) || undefined })
+                        }
+                        maxLength={3}
+                      />
+                    </View>
+                    <View className="flex-1">
+                      <Text className="text-zinc-500 text-[9px] font-mono mb-0.5">
+                        DESCANSO (s)
+                      </Text>
+                      <TextInput
+                        className="bg-zinc-700 text-white p-1.5 rounded text-xs font-mono"
+                        keyboardType="numeric"
+                        value={String(g.rest_after ?? '')}
+                        onChangeText={(v) =>
+                          updateGroup(gi, { rest_after: parseInt(v, 10) || undefined })
+                        }
+                        maxLength={4}
+                      />
+                    </View>
+                  </View>
+                  <TextInput
+                    className="bg-zinc-700 text-white p-1.5 rounded mt-2 text-xs font-mono"
+                    placeholder="Nota (opcional)..."
+                    placeholderTextColor={COLORS.zinc400}
+                    value={g.notes || ''}
+                    onChangeText={(v) => updateGroup(gi, { notes: v })}
+                  />
+                </View>
+              ))}
+
+              {/* ===== CARDIO DEL DÍA ===== */}
+              <View className="flex-row items-center justify-between mb-2 mt-4">
+                <Text className="text-zinc-400 text-xs font-mono">
+                  🏃 CARDIO ({dayFormData.cardio.length})
+                </Text>
+                <TouchableOpacity
+                  className="flex-row items-center bg-orange-600 px-2 py-1 rounded"
+                  onPress={addCardioBlock}
+                >
+                  <Plus size={14} color={COLORS.white} />
+                  <Text className="text-white text-xs font-bold ml-1">AGREGAR</Text>
+                </TouchableOpacity>
+              </View>
+              {dayFormData.cardio.map((c, ci) => (
+                <View
+                  key={c.id}
+                  className="bg-zinc-800 p-3 rounded-lg mb-2 border-l-4"
+                  style={{ borderLeftColor: '#F97316' }}
+                >
+                  <View className="flex-row items-center justify-between mb-2">
+                    <View className="flex-row gap-1">
+                      {(['LISS', 'HIIT', 'STEADY', 'INTERVAL'] as const).map((t) => (
+                        <TouchableOpacity
+                          key={t}
+                          className="px-2 py-1 rounded"
+                          style={{ backgroundColor: c.cardio_type === t ? '#F97316' : '#3f3f46' }}
+                          onPress={() => updateCardioBlock(ci, { cardio_type: t })}
+                        >
+                          <Text className="text-white text-[9px] font-bold">{t}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                    <TouchableOpacity onPress={() => removeCardioBlock(ci)} className="p-1">
+                      <Trash2 size={14} color={COLORS.red} />
+                    </TouchableOpacity>
+                  </View>
+
+                  <View className="flex-row gap-2 mb-2">
+                    <View className="flex-1">
+                      <Text className="text-zinc-500 text-[9px] font-mono mb-0.5">ACTIVIDAD</Text>
+                      <TextInput
+                        className="bg-zinc-700 text-white p-1.5 rounded text-xs font-mono"
+                        placeholder="Caminadora"
+                        placeholderTextColor={COLORS.zinc400}
+                        value={c.activity}
+                        onChangeText={(v) => updateCardioBlock(ci, { activity: v })}
+                      />
+                    </View>
+                    <View className="w-20">
+                      <Text className="text-zinc-500 text-[9px] font-mono mb-0.5">MIN</Text>
+                      <TextInput
+                        className="bg-zinc-700 text-white p-1.5 rounded text-xs font-mono"
+                        keyboardType="numeric"
+                        value={String(c.duration_minutes ?? '')}
+                        onChangeText={(v) =>
+                          updateCardioBlock(ci, { duration_minutes: parseInt(v, 10) || 0 })
+                        }
+                        maxLength={3}
+                      />
+                    </View>
+                    <View className="flex-1">
+                      <Text className="text-zinc-500 text-[9px] font-mono mb-0.5">INTENSIDAD</Text>
+                      <TextInput
+                        className="bg-zinc-700 text-white p-1.5 rounded text-xs font-mono"
+                        placeholder="Moderada"
+                        placeholderTextColor={COLORS.zinc400}
+                        value={c.intensity || ''}
+                        onChangeText={(v) => updateCardioBlock(ci, { intensity: v })}
+                      />
+                    </View>
+                  </View>
+
+                  <View className="flex-row gap-2 mb-2">
+                    {(
+                      [
+                        { key: 'is_pre_workout', label: 'PRE' },
+                        { key: 'is_post_workout', label: 'POST' },
+                        { key: 'is_fasted', label: 'AYUNAS' },
+                      ] as const
+                    ).map((opt) => {
+                      const active = !!c[opt.key];
+                      return (
+                        <TouchableOpacity
+                          key={opt.key}
+                          className="px-2 py-1 rounded"
+                          style={{ backgroundColor: active ? '#F97316' : '#3f3f46' }}
+                          onPress={() => updateCardioBlock(ci, { [opt.key]: !active })}
+                        >
+                          <Text className="text-white text-[9px] font-bold">{opt.label}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+
+                  <TextInput
+                    className="bg-zinc-700 text-white p-1.5 rounded text-xs font-mono"
+                    placeholder="Nota (opcional)..."
+                    placeholderTextColor={COLORS.zinc400}
+                    value={c.notes || ''}
+                    onChangeText={(v) => updateCardioBlock(ci, { notes: v })}
+                  />
+                </View>
               ))}
 
               <View style={{ height: 100 }} />
@@ -1452,6 +1834,23 @@ export default function AdminRutinasScreen() {
             </View>
 
             <ScrollView showsVerticalScrollIndicator={false} className="flex-1">
+              {/* Notas del ejercicio (instrucciones del coach) */}
+              <View className="bg-zinc-800 p-3 rounded-lg mb-3">
+                <Text className="text-zinc-400 text-xs font-mono mb-2">
+                  📝 NOTAS DEL EJERCICIO (visible al alumno)
+                </Text>
+                <TextInput
+                  className="bg-zinc-900 text-white p-2 rounded text-xs font-mono"
+                  placeholder="Técnica, rango de movimiento, contraindicaciones..."
+                  placeholderTextColor={COLORS.zinc400}
+                  value={currentExercise?.notes || ''}
+                  onChangeText={updateExerciseNotes}
+                  multiline
+                  numberOfLines={2}
+                  maxLength={500}
+                />
+              </View>
+
               {/* Rest time */}
               <View className="bg-zinc-800 p-3 rounded-lg mb-4">
                 <View className="flex-row items-center mb-2">
@@ -1526,6 +1925,44 @@ export default function AdminRutinasScreen() {
                         >
                           <Plus size={16} color={COLORS.white} />
                         </TouchableOpacity>
+                      </View>
+                    </View>
+
+                    {/* Peso / Tempo / RPE */}
+                    <View className="flex-row gap-2 mt-2">
+                      <View className="flex-1">
+                        <Text className="text-zinc-500 text-[9px] font-mono mb-0.5">PESO</Text>
+                        <TextInput
+                          className="bg-zinc-700 text-white p-1.5 rounded text-xs font-mono"
+                          placeholder="60kg / BW"
+                          placeholderTextColor={COLORS.zinc400}
+                          value={series.weight || ''}
+                          onChangeText={(text) => updateSeriesWeight(i, text)}
+                          maxLength={12}
+                        />
+                      </View>
+                      <View className="flex-1">
+                        <Text className="text-zinc-500 text-[9px] font-mono mb-0.5">TEMPO</Text>
+                        <TextInput
+                          className="bg-zinc-700 text-white p-1.5 rounded text-xs font-mono"
+                          placeholder="3-1-1-0"
+                          placeholderTextColor={COLORS.zinc400}
+                          value={series.tempo || ''}
+                          onChangeText={(text) => updateSeriesTempo(i, text)}
+                          maxLength={12}
+                        />
+                      </View>
+                      <View className="w-16">
+                        <Text className="text-zinc-500 text-[9px] font-mono mb-0.5">RPE</Text>
+                        <TextInput
+                          className="bg-zinc-700 text-white p-1.5 rounded text-xs font-mono"
+                          placeholder="8"
+                          placeholderTextColor={COLORS.zinc400}
+                          value={series.rpe || ''}
+                          onChangeText={(text) => updateSeriesRpe(i, text)}
+                          keyboardType="numeric"
+                          maxLength={4}
+                        />
                       </View>
                     </View>
 

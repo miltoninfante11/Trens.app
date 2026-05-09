@@ -32,6 +32,10 @@ import {
   RefreshCcw,
   Truck,
   Check,
+  Pill,
+  Syringe,
+  FlaskConical,
+  Droplets,
 } from 'lucide-react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
@@ -723,6 +727,68 @@ export default function AdminTiendaScreen() {
                 </TouchableOpacity>
               ))}
             </ScrollView>
+
+            {/* Tipo de suplemento — solo si la categoría seleccionada es "supplements" */}
+            {(() => {
+              const selectedCat = categories.find((c) => c.id === productForm.category_id);
+              if (selectedCat?.slug !== 'supplements') return null;
+              const SUPPLEMENT_TYPES: {
+                key: 'pill' | 'syringe' | 'powder' | 'liquid';
+                label: string;
+                Icon: typeof Pill;
+              }[] = [
+                { key: 'pill', label: 'Oral', Icon: Pill },
+                { key: 'syringe', label: 'Inyectable', Icon: Syringe },
+                { key: 'powder', label: 'Polvo', Icon: FlaskConical },
+                { key: 'liquid', label: 'Líquido', Icon: Droplets },
+              ];
+              return (
+                <View className="mb-3">
+                  <Text className="text-zinc-400 font-mono text-xs mb-2 mt-2">
+                    TIPO DE SUPLEMENTO
+                  </Text>
+                  <View className="flex-row" style={{ gap: 8 }}>
+                    {SUPPLEMENT_TYPES.map((t) => {
+                      const active = productForm.supplement_type === t.key;
+                      return (
+                        <TouchableOpacity
+                          key={t.key}
+                          onPress={() =>
+                            setProductForm({
+                              ...productForm,
+                              supplement_type: active ? undefined : t.key,
+                            })
+                          }
+                          className={`flex-1 items-center justify-center py-3 rounded-lg ${
+                            active ? 'bg-red-600' : 'bg-zinc-800'
+                          }`}
+                          style={{
+                            borderWidth: 1,
+                            borderColor: active ? '#DC2626' : '#27272a',
+                          }}
+                        >
+                          <t.Icon
+                            size={18}
+                            color={active ? '#FFFFFF' : '#A1A1AA'}
+                            strokeWidth={2.2}
+                          />
+                          <Text
+                            className={`font-mono text-[10px] font-bold mt-1 tracking-widest ${
+                              active ? 'text-white' : 'text-zinc-400'
+                            }`}
+                          >
+                            {t.label.toUpperCase()}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                  <Text className="text-zinc-500 font-mono text-[10px] mt-2 leading-4">
+                    Se mostrará al usuario al vincular este producto desde MI STACK.
+                  </Text>
+                </View>
+              );
+            })()}
 
             {/* Toggles */}
             <Toggle

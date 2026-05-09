@@ -348,12 +348,10 @@ function useTrainingDay(userId: string | undefined) {
 
       if (userId) {
         try {
+          // Sólo actualiza last_access; el "día actual" ahora es el weekday real.
           await supabase
             .from('profiles')
-            .update({
-              training_current_day: dayIdx,
-              training_last_access: new Date().toISOString(),
-            })
+            .update({ training_last_access: new Date().toISOString() })
             .eq('id', userId);
         } catch (e) {
           console.error('Save training day error:', e);

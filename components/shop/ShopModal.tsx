@@ -31,20 +31,26 @@ import {
   Minus,
   Trash2,
   ChevronLeft,
+  ChevronRight,
   CreditCard,
   MessageCircle,
   Check,
   Package,
   Crown,
   AlertCircle,
+  Layers,
+  Sparkles,
+  Zap,
+  Clock as ClockIcon,
 } from 'lucide-react-native';
 import shop, { ShopProduct, ShopCartItem, ShopCategory } from '../../services/shop';
-import { hankToolsEvent } from '../../lib/hankToolsEvent';
+import { hankToolsEvent, ShopOpenPayload } from '../../lib/hankToolsEvent';
 import { useAuth } from '../../app/_layout';
 import { useSubscription } from '../../context/SubscriptionContext';
 import { getMyCards } from '../../lib/openpay';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SavageBackground } from '../ui/SavageBackground';
+import BannerCarousel from './BannerCarousel';
 
 const GUEST_CART_KEY = '@trens/shop/guest_cart';
 
@@ -68,6 +74,15 @@ const COLORS = {
 };
 
 type ShopView = 'catalog' | 'product' | 'cart' | 'checkout' | 'success';
+
+// Sentinel para el filtro "MI STACK" (mismo slot que las categorías reales).
+const MY_STACK_KEY = '__my_stack__';
+
+interface MyStackData {
+  products: ShopProduct[];
+  purchases: Record<string, { last_paid_at: string | null }>;
+  bundle: { min: number; discount: number };
+}
 
 interface SavedCard {
   id: string;
@@ -102,6 +117,10 @@ export default function ShopModal({ asPage, onPageClose }: ShopModalProps = {}) 
   const [categories, setCategories] = useState<ShopCategory[]>([]);
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  // MI STACK state
+  const [myStack, setMyStack] = useState<MyStackData | null>(null);
+  const [myStackLoading, setMyStackLoading] = useState(false);
 
   // Detail
   const [selectedProduct, setSelectedProduct] = useState<ShopProduct | null>(null);
@@ -142,8 +161,26 @@ export default function ShopModal({ asPage, onPageClose }: ShopModalProps = {}) 
       if (user) loadCart();
       return;
     }
-    return hankToolsEvent.subscribe('shop', () => {
+    return hankToolsEvent.subscribe('shop', (payload?: any) => {
+      const p = payload as ShopOpenPayload | undefined;
       open();
+      if (p?.view === 'mystack') {
+        setActiveCategory(MY_STACK_KEY);
+      }
+      if (p?.productId) {
+        // Deep-link a un producto: lo abrimos cuando el catálogo termine de cargar.
+        (async () => {
+          try {
+            const prod = await shop.getProduct(p.productId!);
+            if (prod) {
+              setSelectedProduct(prod);
+              setView('product');
+            }
+          } catch (e) {
+            console.warn('[ShopModal] deep-link product error', e);
+          }
+        })();
+      }
     });
   }, [asPage]);
 
@@ -219,6 +256,67 @@ export default function ShopModal({ asPage, onPageClose }: ShopModalProps = {}) 
   useEffect(() => {
     if (visible) loadCatalog();
   }, [activeCategory]);
+
+  // ==========================================================================
+  // MI STACK — Productos vinculados al supplement_stack del usuario
+  // ==========================================================================
+  const loadMyStack = useCallback(async () => {
+    if (!user) {
+      setMyStack(null);
+      return;
+    }
+    setMyStackLoading(true);
+    try {
+      const r = await shop.myStackProducts();
+      setMyStack(r);
+    } catch (e) {
+      console.warn('[ShopModal] myStack load error', e);
+    } finally {
+      setMyStackLoading(false);
+    }
+  }, [user]);
+
+  // Cargar MI STACK al abrir el modal y cuando se selecciona el filtro
+  useEffect(() => {
+    if (!visible && !asPage) return;
+    if (!user) return;
+    if (activeCategory === MY_STACK_KEY || myStack === null) {
+      loadMyStack();
+    }
+  }, [visible, asPage, user, activeCategory]);
+
+  // "COMPRAR TODO MI STACK" — agrega al carrito todo el stack y lleva a checkout
+  const buyAllStack = useCallback(async () => {
+    if (!user) {
+      setLoginPromptVisible(true);
+      return;
+    }
+    if (!myStack || myStack.products.length === 0) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    try {
+      // Productos disponibles únicamente
+      const available = myStack.products.filter(
+        (p) => p.is_active && (p.stock_unlimited || p.is_digital || (p.stock || 0) > 0)
+      );
+      if (available.length === 0) {
+        Alert.alert('Stack vacío', 'Ninguno de tus productos del Stack está disponible.');
+        return;
+      }
+      for (const p of available) {
+        try {
+          await shop.addToCart(p.id, 1);
+        } catch (e) {
+          // continuar con el resto
+          console.warn('[buyAllStack] addToCart fail', p.id, e);
+        }
+      }
+      await loadCart();
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      goToCheckout();
+    } catch (e: any) {
+      Alert.alert('Error', e.message || 'No se pudo armar el bundle');
+    }
+  }, [user, myStack]);
 
   const loadCart = async () => {
     if (!user) return;
@@ -372,6 +470,7 @@ export default function ShopModal({ asPage, onPageClose }: ShopModalProps = {}) 
             }
           : undefined,
         customerNotes: checkoutForm.notes,
+        applyStackBundle: true,
       });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setSuccessOrder(order);
@@ -414,6 +513,7 @@ export default function ShopModal({ asPage, onPageClose }: ShopModalProps = {}) 
           : undefined,
         customerNotes: checkoutForm.notes,
         items: guestItems,
+        applyStackBundle: true,
       });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setSuccessOrder(order);
@@ -432,6 +532,10 @@ export default function ShopModal({ asPage, onPageClose }: ShopModalProps = {}) 
   // RENDER
   // ==========================================================================
   const cartCount = cartItems.reduce((s, it) => s + it.quantity, 0);
+  const cartTotal = cartItems.reduce(
+    (s, it) => s + it.quantity * Number(it.product?.price || 0),
+    0
+  );
 
   // Drag-to-close (solo modo modal in-app, no en asPage)
   const translateY = useSharedValue(0);
@@ -524,7 +628,7 @@ export default function ShopModal({ asPage, onPageClose }: ShopModalProps = {}) 
                 textShadowRadius: 12,
               }}
             >
-              TIENDA
+              TRENS SHOP
             </Text>
             <Text className="text-fire-orange font-mono text-[9px] tracking-[0.3em] uppercase">
               Savage Gear
@@ -609,6 +713,12 @@ export default function ShopModal({ asPage, onPageClose }: ShopModalProps = {}) 
             setView('product');
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
           }}
+          onQuickAdd={(p: ShopProduct) => addToCart(p, 1)}
+          asPage={asPage}
+          myStack={myStack}
+          myStackLoading={myStackLoading}
+          onBuyAllStack={buyAllStack}
+          isAuthenticated={!!user}
         />
       )}
 
@@ -748,6 +858,20 @@ export default function ShopModal({ asPage, onPageClose }: ShopModalProps = {}) 
         </View>
 
         <View className="flex-1">{renderBody(sheetView)}</View>
+
+        {/* Floating CheckoutBar (catalog/product views, with items) */}
+        {(sheetView === 'catalog' || sheetView === 'product') && cartItems.length > 0 && (
+          <CheckoutBar
+            items={cartItems}
+            total={cartTotal}
+            count={cartCount}
+            bottomInset={0}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+              goToCheckout();
+            }}
+          />
+        )}
       </Animated.View>
     </View>
   );
@@ -760,7 +884,7 @@ export default function ShopModal({ asPage, onPageClose }: ShopModalProps = {}) 
     const overlayActive = view === 'cart' || view === 'checkout' || view === 'success';
     const pageView: ShopView = overlayActive ? lastPageViewRef.current : view;
     return (
-      <View className="flex-1 bg-black" style={{ paddingTop: insets.top }}>
+      <View className="flex-1 bg-black">
         {/* SAVAGE LANDING-GRADE AMBIENT BACKDROP */}
         <SavageBackground variant="screen" />
 
@@ -779,8 +903,26 @@ export default function ShopModal({ asPage, onPageClose }: ShopModalProps = {}) 
           }}
         />
 
+        <View style={{ paddingTop: insets.top }} />
+
         {renderHeader(pageView)}
         {renderBody(pageView)}
+
+        {/* Floating CheckoutBar (catalog/product, with items) */}
+        {(pageView === 'catalog' || pageView === 'product') &&
+          !overlayActive &&
+          cartItems.length > 0 && (
+            <CheckoutBar
+              items={cartItems}
+              total={cartTotal}
+              count={cartCount}
+              bottomInset={insets.bottom}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                goToCheckout();
+              }}
+            />
+          )}
 
         {overlayActive && (
           <Modal visible animationType="slide" transparent onRequestClose={close}>
@@ -812,6 +954,12 @@ function CatalogView({
   setActiveCategory,
   loading,
   onProductPress,
+  onQuickAdd,
+  asPage,
+  myStack,
+  myStackLoading,
+  onBuyAllStack,
+  isAuthenticated,
 }: any) {
   if (loading) {
     return (
@@ -821,14 +969,27 @@ function CatalogView({
     );
   }
 
+  const inMyStackMode = activeCategory === MY_STACK_KEY;
+
   return (
-    <ScrollView className="flex-1" contentContainerStyle={{ paddingBottom: 80 }}>
-      {/* Categorías */}
+    <ScrollView className="flex-1" contentContainerStyle={{ paddingBottom: 140 }}>
+      {/* Banner carousel (oculto en MI STACK para ganar foco) */}
+      {!inMyStackMode && <BannerCarousel hideFirst={!asPage} />}
+
+      {/* Categorías (MI STACK · TODO · ...) */}
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={{ gap: 8, paddingHorizontal: 16, paddingVertical: 14 }}
       >
+        <MyStackPill
+          active={inMyStackMode}
+          count={myStack?.products?.length || 0}
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            setActiveCategory(inMyStackMode ? null : MY_STACK_KEY);
+          }}
+        />
         <CategoryPill
           label="TODO"
           active={!activeCategory}
@@ -844,8 +1005,17 @@ function CatalogView({
         ))}
       </ScrollView>
 
-      {/* Grid de productos */}
-      {products.length === 0 ? (
+      {/* Render según modo */}
+      {inMyStackMode ? (
+        <MyStackBody
+          data={myStack}
+          loading={myStackLoading}
+          isAuthenticated={isAuthenticated}
+          onProductPress={onProductPress}
+          onQuickAdd={onQuickAdd}
+          onBuyAll={onBuyAllStack}
+        />
+      ) : products.length === 0 ? (
         <View className="items-center justify-center py-20">
           <Package size={48} color={COLORS.zinc700} />
           <Text className="text-zinc-500 font-mono mt-4 text-sm">No hay productos disponibles</Text>
@@ -853,7 +1023,12 @@ function CatalogView({
       ) : (
         <View className="flex-row flex-wrap px-2">
           {products.map((p: ShopProduct) => (
-            <ProductCard key={p.id} product={p} onPress={() => onProductPress(p)} />
+            <ProductCard
+              key={p.id}
+              product={p}
+              onPress={() => onProductPress(p)}
+              onQuickAdd={() => onQuickAdd?.(p)}
+            />
           ))}
         </View>
       )}
@@ -913,11 +1088,442 @@ function CategoryPill({
 }
 
 // ============================================================================
+// MY STACK PILL — Botón especial a la izquierda de TODO. Color violeta para
+// distinguirlo de las categorías regulares (rojo/naranja).
+// ============================================================================
+function MyStackPill({
+  active,
+  count,
+  onPress,
+}: {
+  active: boolean;
+  count: number;
+  onPress: () => void;
+}) {
+  if (active) {
+    return (
+      <TouchableOpacity onPress={onPress} activeOpacity={0.85}>
+        <LinearGradient
+          colors={['#A855F7', '#7C3AED']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={{
+            paddingHorizontal: 16,
+            paddingVertical: 9,
+            borderRadius: 12,
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 6,
+            shadowColor: '#A855F7',
+            shadowOffset: { width: 0, height: 0 },
+            shadowOpacity: 0.7,
+            shadowRadius: 10,
+            elevation: 6,
+          }}
+        >
+          <Layers size={12} color="#FFFFFF" strokeWidth={2.6} />
+          <Text className="text-white font-mono text-xs font-black tracking-widest">MI STACK</Text>
+          {count > 0 && (
+            <View
+              style={{
+                backgroundColor: 'rgba(0,0,0,0.4)',
+                paddingHorizontal: 6,
+                paddingVertical: 1,
+                borderRadius: 6,
+                minWidth: 20,
+                alignItems: 'center',
+              }}
+            >
+              <Text className="text-white font-mono text-[10px] font-black">{count}</Text>
+            </View>
+          )}
+        </LinearGradient>
+      </TouchableOpacity>
+    );
+  }
+  return (
+    <TouchableOpacity
+      onPress={onPress}
+      activeOpacity={0.8}
+      className="px-4 py-2 rounded-xl flex-row items-center gap-1.5"
+      style={{
+        backgroundColor: 'rgba(15, 8, 18, 0.85)',
+        borderWidth: 1,
+        borderColor: 'rgba(168, 85, 247, 0.45)',
+      }}
+    >
+      <Layers size={11} color="#A855F7" strokeWidth={2.4} />
+      <Text className="text-purple-300 font-mono text-xs font-bold tracking-widest">MI STACK</Text>
+      {count > 0 && (
+        <Text className="text-purple-400 font-mono text-[10px] font-black ml-0.5">· {count}</Text>
+      )}
+    </TouchableOpacity>
+  );
+}
+
+// ============================================================================
+// MY STACK BODY — Render del filtro MI STACK con badges de estado y CTA bundle
+// ============================================================================
+type StackStatus = 'faltante' | 'activo' | 'reponer';
+
+function getStackStatus(lastPaidAt: string | null | undefined): StackStatus {
+  if (!lastPaidAt) return 'faltante';
+  const days = (Date.now() - new Date(lastPaidAt).getTime()) / (1000 * 60 * 60 * 24);
+  if (days >= 25) return 'reponer';
+  return 'activo';
+}
+
+function MyStackBody({
+  data,
+  loading,
+  isAuthenticated,
+  onProductPress,
+  onQuickAdd,
+  onBuyAll,
+}: {
+  data: MyStackData | null;
+  loading: boolean;
+  isAuthenticated: boolean;
+  onProductPress: (p: ShopProduct) => void;
+  onQuickAdd: (p: ShopProduct) => void;
+  onBuyAll: () => void;
+}) {
+  if (!isAuthenticated) {
+    return (
+      <View className="items-center justify-center py-16 px-6">
+        <Layers size={48} color={COLORS.zinc700} />
+        <Text className="text-white font-bold text-base mt-4 text-center">
+          Inicia sesión para ver MI STACK
+        </Text>
+        <Text className="text-zinc-500 font-mono text-xs mt-2 text-center leading-5">
+          MI STACK muestra los productos de la tienda que vinculaste con los compuestos de tu plan.
+        </Text>
+      </View>
+    );
+  }
+
+  if (loading) {
+    return (
+      <View className="py-16 items-center">
+        <ActivityIndicator color="#A855F7" />
+      </View>
+    );
+  }
+
+  if (!data || data.products.length === 0) {
+    return (
+      <View className="items-center justify-center py-16 px-6">
+        <Layers size={48} color={COLORS.zinc700} />
+        <Text className="text-white font-bold text-base mt-4 text-center">
+          Tu Stack aún no tiene productos vinculados
+        </Text>
+        <Text className="text-zinc-500 font-mono text-xs mt-2 text-center leading-5">
+          Ve a tu plan → Stack → Agregar Compuesto → "BUSCAR EN TIENDA" para vincular un producto.
+        </Text>
+      </View>
+    );
+  }
+
+  const eligibleForBundle = data.products.length >= data.bundle.min;
+  const discountPct = Math.round(data.bundle.discount * 100);
+
+  return (
+    <View>
+      {/* Bundle CTA */}
+      <View className="px-4 mb-2">
+        <TouchableOpacity onPress={onBuyAll} activeOpacity={0.9}>
+          <LinearGradient
+            colors={eligibleForBundle ? ['#A855F7', '#DC2626'] : ['#27272a', '#18181b']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={{
+              borderRadius: 16,
+              paddingVertical: 14,
+              paddingHorizontal: 16,
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 12,
+              borderWidth: 1.5,
+              borderColor: eligibleForBundle
+                ? 'rgba(220, 38, 38, 0.6)'
+                : 'rgba(168, 85, 247, 0.35)',
+              shadowColor: eligibleForBundle ? '#DC2626' : '#A855F7',
+              shadowOffset: { width: 0, height: 0 },
+              shadowOpacity: eligibleForBundle ? 0.5 : 0.2,
+              shadowRadius: 12,
+            }}
+          >
+            <View
+              style={{
+                width: 40,
+                height: 40,
+                borderRadius: 10,
+                backgroundColor: 'rgba(0,0,0,0.35)',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <Sparkles size={18} color="#FFFFFF" strokeWidth={2.4} />
+            </View>
+            <View className="flex-1">
+              <Text className="text-white font-black text-sm tracking-widest">
+                COMPRAR TODO MI STACK
+              </Text>
+              <Text className="text-white/85 font-mono text-[10px] mt-0.5 tracking-wider">
+                {eligibleForBundle
+                  ? `${data.products.length} productos · -${discountPct}% al pagar`
+                  : `Necesitas ${data.bundle.min}+ productos para el descuento (-${discountPct}%)`}
+              </Text>
+            </View>
+            <ChevronRight size={20} color="#FFFFFF" strokeWidth={3} />
+          </LinearGradient>
+        </TouchableOpacity>
+      </View>
+
+      {/* Grid */}
+      <View className="flex-row flex-wrap px-2">
+        {data.products.map((p) => {
+          const status = getStackStatus(data.purchases[p.id]?.last_paid_at);
+          return (
+            <MyStackProductCard
+              key={p.id}
+              product={p}
+              status={status}
+              onPress={() => onProductPress(p)}
+              onQuickAdd={() => onQuickAdd(p)}
+            />
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
+// ============================================================================
+// MY STACK PRODUCT CARD — Variante con badge de estado FALTANTE/ACTIVO/REPONER
+// ============================================================================
+const STATUS_THEME: Record<
+  StackStatus,
+  {
+    color: string;
+    bg: string;
+    border: string;
+    label: string;
+    Icon: React.ComponentType<{ size?: number; color?: string; strokeWidth?: number }>;
+  }
+> = {
+  faltante: {
+    color: '#DC2626',
+    bg: 'rgba(220, 38, 38, 0.18)',
+    border: 'rgba(220, 38, 38, 0.55)',
+    label: 'FALTANTE',
+    Icon: AlertCircle,
+  },
+  activo: {
+    color: '#22C55E',
+    bg: 'rgba(34, 197, 94, 0.15)',
+    border: 'rgba(34, 197, 94, 0.5)',
+    label: 'ACTIVO',
+    Icon: Check,
+  },
+  reponer: {
+    color: '#F97316',
+    bg: 'rgba(249, 115, 22, 0.15)',
+    border: 'rgba(249, 115, 22, 0.55)',
+    label: 'POR REPONER',
+    Icon: ClockIcon,
+  },
+};
+
+function MyStackProductCard({
+  product: p,
+  status,
+  onPress,
+  onQuickAdd,
+}: {
+  product: ShopProduct;
+  status: StackStatus;
+  onPress: () => void;
+  onQuickAdd: () => void;
+}) {
+  const theme = STATUS_THEME[status];
+  const Icon = theme.Icon;
+  const outOfStock = !p.stock_unlimited && !p.is_digital && p.stock === 0;
+  const [added, setAdded] = useState(false);
+  const handleQuickAdd = (e: any) => {
+    e?.stopPropagation?.();
+    if (outOfStock) return;
+    onQuickAdd();
+    setAdded(true);
+    setTimeout(() => setAdded(false), 1200);
+  };
+
+  return (
+    <TouchableOpacity onPress={onPress} className="w-1/2 p-2" activeOpacity={0.85}>
+      <View
+        className="rounded-2xl overflow-hidden"
+        style={{
+          backgroundColor: 'rgba(15, 8, 8, 0.92)',
+          borderWidth: 1.5,
+          borderColor: theme.border,
+          shadowColor: theme.color,
+          shadowOffset: { width: 0, height: 4 },
+          shadowOpacity: 0.3,
+          shadowRadius: 14,
+          elevation: 6,
+        }}
+      >
+        <View style={{ width: '100%', height: CARD_IMG, backgroundColor: '#0a0505' }}>
+          {p.thumbnail_url ? (
+            <Image
+              source={{ uri: p.thumbnail_url }}
+              style={{ width: '100%', height: '100%' }}
+              contentFit="cover"
+              transition={150}
+            />
+          ) : (
+            <View className="w-full h-full items-center justify-center">
+              <ShoppingBag size={36} color={COLORS.zinc700} />
+            </View>
+          )}
+
+          <LinearGradient
+            colors={['transparent', 'transparent', 'rgba(0, 0, 0, 0.55)']}
+            start={{ x: 0.5, y: 0 }}
+            end={{ x: 0.5, y: 1 }}
+            pointerEvents="none"
+            style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
+          />
+
+          <View
+            style={{
+              position: 'absolute',
+              top: 8,
+              left: 8,
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 4,
+              backgroundColor: theme.bg,
+              borderWidth: 1,
+              borderColor: theme.border,
+              paddingHorizontal: 8,
+              paddingVertical: 3,
+              borderRadius: 8,
+            }}
+          >
+            <Icon size={10} color={theme.color} strokeWidth={2.4} />
+            <Text
+              className="font-mono text-[9px] font-black tracking-widest"
+              style={{ color: theme.color }}
+            >
+              {theme.label}
+            </Text>
+          </View>
+
+          {outOfStock && (
+            <View className="absolute inset-0 items-center justify-center bg-black/60">
+              <View
+                className="px-3 py-1 rounded-md"
+                style={{
+                  backgroundColor: 'rgba(0, 0, 0, 0.85)',
+                  borderWidth: 1,
+                  borderColor: '#52525b',
+                }}
+              >
+                <Text className="text-zinc-300 font-mono text-[10px] font-bold tracking-widest">
+                  AGOTADO
+                </Text>
+              </View>
+            </View>
+          )}
+        </View>
+
+        <View className="p-3">
+          <Text className="text-white font-bold text-sm" numberOfLines={2}>
+            {p.name}
+          </Text>
+          <Text
+            className="text-fire-orange font-black text-base mt-1.5"
+            style={{
+              textShadowColor: 'rgba(249, 115, 22, 0.6)',
+              textShadowOffset: { width: 0, height: 0 },
+              textShadowRadius: 8,
+            }}
+          >
+            S/ {Number(p.price).toFixed(2)}
+          </Text>
+
+          <TouchableOpacity
+            onPress={handleQuickAdd}
+            disabled={outOfStock}
+            activeOpacity={0.85}
+            className="mt-2.5"
+            style={{ opacity: outOfStock ? 0.4 : 1 }}
+          >
+            <LinearGradient
+              colors={
+                added
+                  ? ['#16A34A', '#22C55E']
+                  : status === 'faltante'
+                    ? ['#DC2626', '#F97316']
+                    : ['#A855F7', '#7C3AED']
+              }
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 6,
+                paddingVertical: 8,
+                borderRadius: 10,
+              }}
+            >
+              {added ? (
+                <>
+                  <Check size={14} color="#FFFFFF" />
+                  <Text className="text-white font-mono text-[11px] font-black tracking-widest">
+                    AGREGADO
+                  </Text>
+                </>
+              ) : (
+                <>
+                  <Plus size={14} color="#FFFFFF" />
+                  <Text className="text-white font-mono text-[11px] font-black tracking-widest">
+                    {outOfStock ? 'AGOTADO' : 'COMPRAR'}
+                  </Text>
+                </>
+              )}
+            </LinearGradient>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </TouchableOpacity>
+  );
+}
+
+// ============================================================================
 // PRODUCT CARD — Premium fire-glow card with savage hover-style border
 // ============================================================================
-function ProductCard({ product: p, onPress }: { product: ShopProduct; onPress: () => void }) {
+function ProductCard({
+  product: p,
+  onPress,
+  onQuickAdd,
+}: {
+  product: ShopProduct;
+  onPress: () => void;
+  onQuickAdd?: () => void;
+}) {
   const outOfStock = !p.stock_unlimited && !p.is_digital && p.stock === 0;
   const lowStock = !p.stock_unlimited && !p.is_digital && p.stock <= 5 && p.stock > 0;
+  const [added, setAdded] = useState(false);
+  const handleQuickAdd = (e: any) => {
+    e?.stopPropagation?.();
+    if (outOfStock || !onQuickAdd) return;
+    onQuickAdd();
+    setAdded(true);
+    setTimeout(() => setAdded(false), 1200);
+  };
   const discount =
     p.compare_at_price && Number(p.compare_at_price) > Number(p.price)
       ? Math.round((1 - Number(p.price) / Number(p.compare_at_price)) * 100)
@@ -1029,9 +1635,215 @@ function ProductCard({ product: p, onPress }: { product: ShopProduct; onPress: (
               ¡Solo {p.stock} disponibles!
             </Text>
           )}
+
+          {/* Quick add to cart */}
+          <TouchableOpacity
+            onPress={handleQuickAdd}
+            disabled={outOfStock}
+            activeOpacity={0.85}
+            className="mt-2.5"
+            style={{ opacity: outOfStock ? 0.4 : 1 }}
+          >
+            <LinearGradient
+              colors={added ? ['#16A34A', '#22C55E'] : ['#DC2626', '#F97316']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 6,
+                paddingVertical: 8,
+                borderRadius: 10,
+                shadowColor: added ? '#22C55E' : '#DC2626',
+                shadowOffset: { width: 0, height: 0 },
+                shadowOpacity: 0.55,
+                shadowRadius: 8,
+                elevation: 4,
+              }}
+            >
+              {added ? (
+                <>
+                  <Check size={14} color="#FFFFFF" />
+                  <Text className="text-white font-mono text-[11px] font-black tracking-widest">
+                    AGREGADO
+                  </Text>
+                </>
+              ) : (
+                <>
+                  <Plus size={14} color="#FFFFFF" />
+                  <Text className="text-white font-mono text-[11px] font-black tracking-widest">
+                    {outOfStock ? 'AGOTADO' : 'AGREGAR'}
+                  </Text>
+                </>
+              )}
+            </LinearGradient>
+          </TouchableOpacity>
         </View>
       </View>
     </TouchableOpacity>
+  );
+}
+
+// ============================================================================
+// CHECKOUT BAR — Floating bar fija en la parte inferior con miniaturas + total
+// Aparece en vistas de listas/producto cuando hay items en el carrito.
+// ============================================================================
+function CheckoutBar({
+  items,
+  total,
+  count,
+  bottomInset,
+  onPress,
+}: {
+  items: ShopCartItem[];
+  total: number;
+  count: number;
+  bottomInset: number;
+  onPress: () => void;
+}) {
+  // Tomar hasta 4 thumbnails distintos
+  const thumbs = items
+    .map((it) => it.product?.thumbnail_url || it.product?.images?.[0])
+    .filter(Boolean)
+    .slice(0, 4) as string[];
+  const extra = Math.max(0, items.length - thumbs.length);
+
+  return (
+    <View
+      pointerEvents="box-none"
+      style={{
+        position: 'absolute',
+        left: 0,
+        right: 0,
+        bottom: 0,
+        paddingHorizontal: 12,
+        paddingTop: 10,
+        paddingBottom: (bottomInset || 0) + 12,
+        backgroundColor: 'rgba(0,0,0,0.85)',
+        borderTopWidth: 1,
+        borderTopColor: 'rgba(220,38,38,0.35)',
+        zIndex: 50,
+      }}
+    >
+      <TouchableOpacity activeOpacity={0.9} onPress={onPress}>
+        <LinearGradient
+          colors={['#DC2626', '#F97316']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={{
+            borderRadius: 16,
+            paddingVertical: 10,
+            paddingHorizontal: 12,
+            flexDirection: 'row',
+            alignItems: 'center',
+            shadowColor: '#DC2626',
+            shadowOffset: { width: 0, height: 0 },
+            shadowOpacity: 0.55,
+            shadowRadius: 14,
+            elevation: 8,
+          }}
+        >
+          {/* Miniaturas apiladas */}
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              marginRight: 10,
+            }}
+          >
+            {thumbs.map((uri, idx) => (
+              <View
+                key={`${uri}-${idx}`}
+                style={{
+                  width: 38,
+                  height: 38,
+                  borderRadius: 10,
+                  overflow: 'hidden',
+                  borderWidth: 2,
+                  borderColor: '#0a0a0a',
+                  backgroundColor: '#0a0a0a',
+                  marginLeft: idx === 0 ? 0 : -10,
+                }}
+              >
+                <Image
+                  source={{ uri }}
+                  style={{ width: '100%', height: '100%' }}
+                  contentFit="cover"
+                />
+              </View>
+            ))}
+            {extra > 0 && (
+              <View
+                style={{
+                  width: 38,
+                  height: 38,
+                  borderRadius: 10,
+                  borderWidth: 2,
+                  borderColor: '#0a0a0a',
+                  backgroundColor: 'rgba(0,0,0,0.7)',
+                  marginLeft: -10,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <Text className="text-white font-mono text-[10px] font-black">+{extra}</Text>
+              </View>
+            )}
+            {thumbs.length === 0 && (
+              <View
+                style={{
+                  width: 38,
+                  height: 38,
+                  borderRadius: 10,
+                  backgroundColor: 'rgba(0,0,0,0.55)',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <ShoppingCart size={18} color="#FFFFFF" />
+              </View>
+            )}
+          </View>
+
+          {/* Texto + total */}
+          <View style={{ flex: 1 }}>
+            <Text
+              className="text-white font-mono text-[10px] tracking-widest"
+              style={{ opacity: 0.9 }}
+            >
+              {count} {count === 1 ? 'PRODUCTO' : 'PRODUCTOS'}
+            </Text>
+            <Text
+              className="text-white font-black text-base"
+              style={{
+                textShadowColor: 'rgba(0,0,0,0.4)',
+                textShadowOffset: { width: 0, height: 1 },
+                textShadowRadius: 4,
+              }}
+            >
+              S/ {total.toFixed(2)}
+            </Text>
+          </View>
+
+          {/* CTA */}
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 4,
+              backgroundColor: 'rgba(0,0,0,0.25)',
+              paddingHorizontal: 14,
+              paddingVertical: 10,
+              borderRadius: 12,
+            }}
+          >
+            <Text className="text-white font-black text-sm tracking-wider">Realizar pedido</Text>
+            <ChevronRight size={18} color="#FFFFFF" strokeWidth={3} />
+          </View>
+        </LinearGradient>
+      </TouchableOpacity>
+    </View>
   );
 }
 
@@ -1232,7 +2044,7 @@ function CartView({
           Agrega productos para continuar
         </Text>
         <TouchableOpacity onPress={onContinue} className="mt-6 bg-red-600 rounded-xl px-6 py-3">
-          <Text className="text-white font-bold">EXPLORAR TIENDA</Text>
+          <Text className="text-white font-bold">EXPLORAR TRENS SHOP</Text>
         </TouchableOpacity>
       </View>
     );
