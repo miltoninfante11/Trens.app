@@ -852,9 +852,7 @@ export const TodayCards: React.FC<TodayCardsProps> = ({ userId }) => {
           .single(),
         supabase
           .from('profiles')
-          .select(
-            'training_routine_names, plan_source, training_session_names'
-          )
+          .select('training_routine_names, plan_source, training_session_names')
           .eq('id', userId)
           .single(),
         supabase

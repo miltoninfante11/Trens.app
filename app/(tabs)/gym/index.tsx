@@ -22,7 +22,7 @@ import { Image } from 'expo-image';
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useIsFocused } from '@react-navigation/native';
 import { supabase } from '../../../lib/supabase';
-import { VISUAL_ORDER, SHORT_LABEL, todayWeekday } from '../../../lib/weekday';
+import { VISUAL_ORDER, SHORT_LABEL, FULL_LABEL, todayWeekday } from '../../../lib/weekday';
 import { useAuth } from '../../_layout';
 import {
   Sliders,
@@ -761,6 +761,19 @@ function GymScreen() {
   // Modal para agregar nuevo día con selección de grupos musculares
   const [addDayModalVisible, setAddDayModalVisible] = useState(false);
   const [selectedMuscleGroups, setSelectedMuscleGroups] = useState<string[]>([]);
+  // Weekday objetivo cuando configuras un slot (0..6); null = comportamiento antiguo (append)
+  const [configureWeekdayTarget, setConfigureWeekdayTarget] = useState<number | null>(null);
+
+  // Modal para mover entrenamiento a otro weekday
+  const [moveDayModalVisible, setMoveDayModalVisible] = useState(false);
+  const [moveDayFromWd, setMoveDayFromWd] = useState<number | null>(null);
+
+  // Reset configureWeekdayTarget cuando se cierre el addDayModal
+  useEffect(() => {
+    if (!addDayModalVisible) {
+      setConfigureWeekdayTarget(null);
+    }
+  }, [addDayModalVisible]);
 
   // Grupos musculares disponibles para seleccionar - MÁS ESPECÍFICOS
   const MUSCLE_GROUPS = [
@@ -1877,17 +1890,17 @@ function GymScreen() {
       today.setHours(0, 0, 0, 0);
       const todayISO = today.toISOString();
 
-      await supabase
-        .from('profiles')
-        .update({ training_last_access: todayISO })
-        .eq('id', user.id);
+      await supabase.from('profiles').update({ training_last_access: todayISO }).eq('id', user.id);
 
       setTrainingProgram((prev) => ({
         ...prev,
         lastAccessDate: todayISO,
         currentDayIndex: new Date().getDay(),
       }));
-      console.log('🏋️ Día de entrenamiento guardado al cerrar modal (weekday):', new Date().getDay());
+      console.log(
+        '🏋️ Día de entrenamiento guardado al cerrar modal (weekday):',
+        new Date().getDay()
+      );
     }
 
     // SOLUCIÓN: Limpiar estado de alternativas para empezar limpio
@@ -2422,7 +2435,10 @@ function GymScreen() {
           .eq('id', user.id)
           .single();
 
-        const _routineNamesCheck = (profileCheck?.training_routine_names || {}) as Record<string, string>;
+        const _routineNamesCheck = (profileCheck?.training_routine_names || {}) as Record<
+          string,
+          string
+        >;
         const _activeKeys = Object.keys(_routineNamesCheck).filter(
           (k) => (_routineNamesCheck[k] || '').trim().length > 0
         );
@@ -2474,9 +2490,7 @@ function GymScreen() {
 
       const { data: profile } = await supabase
         .from('profiles')
-        .select(
-          'training_last_access, training_routine_names, training_session_names'
-        )
+        .select('training_last_access, training_routine_names, training_session_names')
         .eq('id', user.id)
         .single();
 
@@ -2496,7 +2510,8 @@ function GymScreen() {
       }
 
       // Cargar nombres de rutinas (weekday keys: "0"=Dom..."6"=Sáb)
-      const routineNames: Record<string, string> = (profile?.training_routine_names as Record<string, string>) || {};
+      const routineNames: Record<string, string> =
+        (profile?.training_routine_names as Record<string, string>) || {};
 
       // =========================================================================
       // RECONSTRUIR LOS 7 DÍAS DE LA SEMANA
@@ -2520,10 +2535,7 @@ function GymScreen() {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       const todayISO = today.toISOString();
-      await supabase
-        .from('profiles')
-        .update({ training_last_access: todayISO })
-        .eq('id', user.id);
+      await supabase.from('profiles').update({ training_last_access: todayISO }).eq('id', user.id);
 
       const todayWd = new Date().getDay();
       setTrainingProgram((prev) => ({
@@ -2837,6 +2849,109 @@ function GymScreen() {
         },
       ]
     );
+  };
+
+  // ============================================================================
+  // MOVE DAY (weekday) - Mueve la rutina de un weekday a otro slot vacío.
+  //   - Intercambia routine_names[from] ↔ routine_names[to]
+  //   - Mueve session_names[from] → session_names[to]
+  //   - Sustituye `from` por `to` en training_days[] de cada ejercicio
+  //   Si el destino tiene rutina, hace SWAP completo (intercambio bidireccional).
+  // ============================================================================
+  const handleMoveDay = async (fromWd: number, toWd: number) => {
+    if (!user || fromWd === toWd) return;
+    const fromKey = String(fromWd);
+    const toKey = String(toWd);
+
+    try {
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('training_routine_names, training_session_names')
+        .eq('id', user.id)
+        .single();
+
+      const routineNames = {
+        ...((profile?.training_routine_names as Record<string, string>) || {}),
+      };
+      const sessionNamesMap = {
+        ...((profile?.training_session_names as Record<string, Record<string, string>>) || {}),
+      };
+
+      // Swap routine names
+      const tmpName = routineNames[fromKey] || '';
+      routineNames[fromKey] = routineNames[toKey] || '';
+      routineNames[toKey] = tmpName;
+      if (!routineNames[fromKey]) delete routineNames[fromKey];
+      if (!routineNames[toKey]) delete routineNames[toKey];
+
+      // Swap session names
+      const tmpSess = sessionNamesMap[fromKey];
+      if (sessionNamesMap[toKey]) sessionNamesMap[fromKey] = sessionNamesMap[toKey];
+      else delete sessionNamesMap[fromKey];
+      if (tmpSess) sessionNamesMap[toKey] = tmpSess;
+      else delete sessionNamesMap[toKey];
+
+      await supabase
+        .from('profiles')
+        .update({
+          training_routine_names: routineNames,
+          training_session_names: sessionNamesMap,
+        })
+        .eq('id', user.id);
+
+      // Reasignar training_days[] en user_exercise_config (swap de fromWd ↔ toWd)
+      const { data: exercises } = await supabase
+        .from('user_exercise_config')
+        .select('id, training_days')
+        .eq('user_id', user.id);
+
+      if (exercises) {
+        for (const ex of exercises) {
+          const days: number[] = ex.training_days || [];
+          const hasFrom = days.includes(fromWd);
+          const hasTo = days.includes(toWd);
+          if (!hasFrom && !hasTo) continue;
+          let newDays = days.filter((d) => d !== fromWd && d !== toWd);
+          if (hasFrom) newDays.push(toWd);
+          if (hasTo) newDays.push(fromWd);
+          newDays = Array.from(new Set(newDays)).sort((a, b) => a - b);
+          await supabase
+            .from('user_exercise_config')
+            .update({ training_days: newDays })
+            .eq('id', ex.id);
+        }
+      }
+
+      // Actualizar estado local
+      setTrainingProgram((prev) => {
+        const days = [...prev.days];
+        const a = days[fromWd];
+        const b = days[toWd];
+        if (a && b) {
+          days[fromWd] = { ...a, muscleGroups: b.muscleGroups };
+          days[toWd] = { ...b, muscleGroups: a.muscleGroups };
+        }
+        return { ...prev, days };
+      });
+
+      // Swap dual-session flags y session names locales
+      setDualSessionDays((prev) => {
+        const next = { ...prev };
+        const tmp = next[fromKey];
+        if (next[toKey]) next[fromKey] = next[toKey];
+        else delete next[fromKey];
+        if (tmp) next[toKey] = tmp;
+        else delete next[toKey];
+        return next;
+      });
+      setSessionNames(sessionNamesMap);
+      setSelectedDayIndex(toWd);
+      loadExercises(toWd, true);
+
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (error) {
+      console.error('Error moving weekday:', error);
+    }
   };
 
   // ============================================================================
@@ -7796,19 +7911,30 @@ function GymScreen() {
                               return;
                             }
 
-                            const newDayIndex = trainingProgram.days.length;
+                            const newDayIndex =
+                              configureWeekdayTarget !== null
+                                ? configureWeekdayTarget
+                                : trainingProgram.days.length;
                             const muscleGroupsName = selectedMuscleGroups.join(' + ');
                             const newDay = {
-                              id: String(newDayIndex + 1),
+                              id: String(newDayIndex),
                               muscleGroups: muscleGroupsName,
                               exercises: [],
                             };
 
-                            // Actualizar estado local
-                            const updatedDays = [...trainingProgram.days, newDay];
+                            // Actualizar estado local: si es weekday target, reemplaza ese slot;
+                            // si no, comportamiento legacy (append).
+                            const updatedDays =
+                              configureWeekdayTarget !== null
+                                ? trainingProgram.days.map((d, i) =>
+                                    i === newDayIndex ? newDay : d
+                                  )
+                                : [...trainingProgram.days, newDay];
                             setTrainingProgram((prev) => ({
                               ...prev,
-                              frequency: updatedDays.length,
+                              frequency: updatedDays.filter(
+                                (d) => (d.muscleGroups || '').trim().length > 0
+                              ).length,
                               days: updatedDays,
                             }));
 
@@ -7902,7 +8028,9 @@ function GymScreen() {
                             }`}
                           >
                             {selectedMuscleGroups.length > 0
-                              ? `🔥 CREAR DÍA ${trainingProgram.days.length + 1}`
+                              ? configureWeekdayTarget !== null
+                                ? `🔥 GUARDAR ${FULL_LABEL[configureWeekdayTarget as 0 | 1 | 2 | 3 | 4 | 5 | 6].toUpperCase()}`
+                                : `🔥 CREAR DÍA ${trainingProgram.days.length + 1}`
                               : 'SELECCIONA GRUPOS MUSCULARES'}
                           </Text>
                         </TouchableOpacity>
@@ -8294,19 +8422,27 @@ function GymScreen() {
                       return;
                     }
 
-                    const newDayIndex = trainingProgram.days.length;
+                    const newDayIndex =
+                      configureWeekdayTarget !== null
+                        ? configureWeekdayTarget
+                        : trainingProgram.days.length;
                     const muscleGroupsName = selectedMuscleGroups.join(' + ');
                     const newDay = {
-                      id: String(newDayIndex + 1),
+                      id: String(newDayIndex),
                       muscleGroups: muscleGroupsName,
                       exercises: [],
                     };
 
-                    // Actualizar estado local
-                    const updatedDays = [...trainingProgram.days, newDay];
+                    // Actualizar estado local (replace si weekday target)
+                    const updatedDays =
+                      configureWeekdayTarget !== null
+                        ? trainingProgram.days.map((d, i) => (i === newDayIndex ? newDay : d))
+                        : [...trainingProgram.days, newDay];
                     setTrainingProgram((prev) => ({
                       ...prev,
-                      frequency: updatedDays.length,
+                      frequency: updatedDays.filter(
+                        (d) => (d.muscleGroups || '').trim().length > 0
+                      ).length,
                       days: updatedDays,
                     }));
 
@@ -8388,7 +8524,9 @@ function GymScreen() {
                     }`}
                   >
                     {selectedMuscleGroups.length > 0
-                      ? `🔥 CREAR DÍA ${trainingProgram.days.length + 1}`
+                      ? configureWeekdayTarget !== null
+                        ? `🔥 GUARDAR ${FULL_LABEL[configureWeekdayTarget as 0 | 1 | 2 | 3 | 4 | 5 | 6].toUpperCase()}`
+                        : `🔥 CREAR DÍA ${trainingProgram.days.length + 1}`
                       : 'SELECCIONA GRUPOS MUSCULARES'}
                   </Text>
                 </TouchableOpacity>
@@ -9417,8 +9555,12 @@ function GymScreen() {
     const dayKey = String(dayIndex);
     const hasDualSession = dualSessionDays[dayKey] ?? false;
     const dayData = trainingProgram.days[dayIndex];
-    const dayLabel =
-      dayData?.muscleGroups?.replace(/^D[íi]a\s*\d+\s*:\s*/i, '') || `DÍA ${dayIndex + 1}`;
+    const muscleRaw = dayData?.muscleGroups || '';
+    const dayLabel = muscleRaw.replace(/^D[íi]a\s*\d+\s*:\s*/i, '');
+    const isRest = !muscleRaw || muscleRaw.trim().length === 0;
+    const wd = dayIndex as 0 | 1 | 2 | 3 | 4 | 5 | 6;
+    const fullName = FULL_LABEL[wd]?.toUpperCase() || '';
+    const headerSubtitle = isRest ? 'DÍA DE DESCANSO' : dayLabel.toUpperCase();
 
     return (
       <Modal
@@ -9441,103 +9583,261 @@ function GymScreen() {
           >
             {/* Header */}
             <View className="px-5 py-4 border-b border-zinc-800">
-              <Text className="text-white font-bold text-base tracking-tight">
-                DÍA {dayIndex + 1}: {dayLabel}
-              </Text>
+              <Text className="text-white font-bold text-base tracking-tight">{fullName}</Text>
               <Text className="text-zinc-500 text-[10px] font-mono uppercase tracking-wider mt-0.5">
-                OPCIONES DEL DÍA
+                {headerSubtitle}
               </Text>
             </View>
 
-            {/* Option: Add dual session (solo si no tiene) */}
-            {!hasDualSession && (
+            {/* SLOT VACÍO: solo opción "Configurar día" */}
+            {isRest && (
               <Pressable
-                onPress={() => toggleDualSessionForDay(dayIndex)}
+                onPress={() => {
+                  setDayOptionsVisible(false);
+                  setConfigureWeekdayTarget(dayIndex);
+                  setSelectedMuscleGroups([]);
+                  setAddDayModalVisible(true);
+                }}
                 className="px-5 py-4 flex-row items-center gap-3 active:bg-zinc-900"
-                style={{ borderBottomWidth: 1, borderBottomColor: '#1a1a1a' }}
               >
                 <View
                   className="w-10 h-10 rounded-xl items-center justify-center"
-                  style={{ backgroundColor: 'rgba(34, 197, 94, 0.15)' }}
+                  style={{ backgroundColor: 'rgba(249, 115, 22, 0.15)' }}
                 >
-                  <Text style={{ fontSize: 18 }}>➕</Text>
+                  <Plus size={18} color="#F97316" />
                 </View>
                 <View className="flex-1">
-                  <Text className="text-white font-bold text-sm">Agregar 2° Entrenamiento</Text>
+                  <Text className="text-white font-bold text-sm">Configurar día</Text>
                   <Text className="text-zinc-500 text-xs mt-0.5">
-                    Dividir este día en Sesión A y Sesión B
+                    Asignar grupos musculares y entrenar este día
                   </Text>
                 </View>
               </Pressable>
             )}
 
-            {/* Option: Rename day */}
-            <Pressable
-              onPress={() => {
-                setDayOptionsVisible(false);
-                setEditingDayIndex(dayIndex);
-                setEditingDayName(dayLabel);
-                setDayNameModalVisible(true);
-              }}
-              className="px-5 py-4 flex-row items-center gap-3 active:bg-zinc-900"
-              style={{ borderBottomWidth: 1, borderBottomColor: '#1a1a1a' }}
-            >
-              <View
-                className="w-10 h-10 rounded-xl items-center justify-center"
-                style={{ backgroundColor: 'rgba(249, 115, 22, 0.15)' }}
-              >
-                <Edit3 size={18} color="#F97316" />
-              </View>
-              <View className="flex-1">
-                <Text className="text-white font-bold text-sm">Renombrar Día</Text>
-                <Text className="text-zinc-500 text-xs mt-0.5">
-                  Cambiar nombre de grupos musculares
-                </Text>
-              </View>
-            </Pressable>
+            {/* SLOT CON RUTINA: opciones completas */}
+            {!isRest && (
+              <>
+                {/* Agregar 2° entrenamiento */}
+                {!hasDualSession && (
+                  <Pressable
+                    onPress={() => toggleDualSessionForDay(dayIndex)}
+                    className="px-5 py-4 flex-row items-center gap-3 active:bg-zinc-900"
+                    style={{ borderBottomWidth: 1, borderBottomColor: '#1a1a1a' }}
+                  >
+                    <View
+                      className="w-10 h-10 rounded-xl items-center justify-center"
+                      style={{ backgroundColor: 'rgba(34, 197, 94, 0.15)' }}
+                    >
+                      <Text style={{ fontSize: 18 }}>➕</Text>
+                    </View>
+                    <View className="flex-1">
+                      <Text className="text-white font-bold text-sm">Agregar 2° Entrenamiento</Text>
+                      <Text className="text-zinc-500 text-xs mt-0.5">
+                        Dividir este día en Sesión A y Sesión B
+                      </Text>
+                    </View>
+                  </Pressable>
+                )}
 
-            {/* Option: Delete day */}
-            <Pressable
-              onPress={() => {
-                setDayOptionsVisible(false);
-                // Llamar al handler de eliminar existente con confirmación
-                const dayName = isExternalMode ? Object.keys(externalSchedule)[dayIndex] || '' : '';
-                const muscleGroup = isExternalMode
-                  ? Object.values(externalSchedule)[dayIndex] || ''
-                  : dayLabel;
+                {/* Renombrar */}
+                <Pressable
+                  onPress={() => {
+                    setDayOptionsVisible(false);
+                    setEditingDayIndex(dayIndex);
+                    setEditingDayName(dayLabel);
+                    setDayNameModalVisible(true);
+                  }}
+                  className="px-5 py-4 flex-row items-center gap-3 active:bg-zinc-900"
+                  style={{ borderBottomWidth: 1, borderBottomColor: '#1a1a1a' }}
+                >
+                  <View
+                    className="w-10 h-10 rounded-xl items-center justify-center"
+                    style={{ backgroundColor: 'rgba(249, 115, 22, 0.15)' }}
+                  >
+                    <Edit3 size={18} color="#F97316" />
+                  </View>
+                  <View className="flex-1">
+                    <Text className="text-white font-bold text-sm">Renombrar día</Text>
+                    <Text className="text-zinc-500 text-xs mt-0.5">
+                      Cambiar nombre de grupos musculares
+                    </Text>
+                  </View>
+                </Pressable>
 
-                Alert.alert(
-                  '🗑️ Eliminar día',
-                  `¿Eliminar "${isExternalMode ? `${dayName}: ${muscleGroup}` : dayLabel}" y todos sus ejercicios?`,
-                  [
-                    { text: 'Cancelar', style: 'cancel' },
-                    {
-                      text: 'Eliminar',
-                      style: 'destructive',
-                      onPress: () => handleDeleteDay(dayIndex),
-                    },
-                  ]
-                );
-              }}
-              className="px-5 py-4 flex-row items-center gap-3 active:bg-zinc-900"
-            >
-              <View
-                className="w-10 h-10 rounded-xl items-center justify-center"
-                style={{ backgroundColor: 'rgba(220, 38, 38, 0.15)' }}
-              >
-                <Trash2 size={18} color="#DC2626" />
-              </View>
-              <View className="flex-1">
-                <Text className="text-savage-red font-bold text-sm">Eliminar Día</Text>
-                <Text className="text-zinc-500 text-xs mt-0.5">
-                  Eliminar día y todos sus ejercicios
-                </Text>
-              </View>
-            </Pressable>
+                {/* Mover entrenamiento a otro día */}
+                <Pressable
+                  onPress={() => {
+                    setDayOptionsVisible(false);
+                    setMoveDayFromWd(dayIndex);
+                    setMoveDayModalVisible(true);
+                  }}
+                  className="px-5 py-4 flex-row items-center gap-3 active:bg-zinc-900"
+                  style={{ borderBottomWidth: 1, borderBottomColor: '#1a1a1a' }}
+                >
+                  <View
+                    className="w-10 h-10 rounded-xl items-center justify-center"
+                    style={{ backgroundColor: 'rgba(59, 130, 246, 0.15)' }}
+                  >
+                    <Text style={{ fontSize: 18 }}>↔️</Text>
+                  </View>
+                  <View className="flex-1">
+                    <Text className="text-white font-bold text-sm">Mover entrenamiento</Text>
+                    <Text className="text-zinc-500 text-xs mt-0.5">
+                      Cambiar este entrenamiento a otro día de la semana
+                    </Text>
+                  </View>
+                </Pressable>
+
+                {/* Vaciar día (antes Eliminar) */}
+                <Pressable
+                  onPress={() => {
+                    setDayOptionsVisible(false);
+                    Alert.alert(
+                      'Vaciar día',
+                      `¿Quitar el entrenamiento de ${FULL_LABEL[wd]}? Los ejercicios asignados solo a este día se eliminarán.`,
+                      [
+                        { text: 'Cancelar', style: 'cancel' },
+                        {
+                          text: 'Vaciar',
+                          style: 'destructive',
+                          onPress: () => handleDeleteDay(dayIndex),
+                        },
+                      ]
+                    );
+                  }}
+                  className="px-5 py-4 flex-row items-center gap-3 active:bg-zinc-900"
+                >
+                  <View
+                    className="w-10 h-10 rounded-xl items-center justify-center"
+                    style={{ backgroundColor: 'rgba(220, 38, 38, 0.15)' }}
+                  >
+                    <Trash2 size={18} color="#DC2626" />
+                  </View>
+                  <View className="flex-1">
+                    <Text className="text-savage-red font-bold text-sm">Vaciar día</Text>
+                    <Text className="text-zinc-500 text-xs mt-0.5">
+                      Convertir este día en día de descanso
+                    </Text>
+                  </View>
+                </Pressable>
+              </>
+            )}
 
             {/* Cancel button */}
             <Pressable
               onPress={() => setDayOptionsVisible(false)}
+              className="px-5 py-4 items-center active:bg-zinc-900"
+              style={{ borderTopWidth: 1, borderTopColor: '#27272a' }}
+            >
+              <Text className="text-zinc-400 font-bold text-sm">CANCELAR</Text>
+            </Pressable>
+          </View>
+        </Pressable>
+      </Modal>
+    );
+  };
+
+  // ============================================================================
+  // MOVE DAY MODAL — picker de weekday destino
+  // ============================================================================
+  const renderMoveDayModal = () => {
+    if (moveDayFromWd === null) return null;
+    const fromWd = moveDayFromWd;
+    const fromName = FULL_LABEL[fromWd as 0 | 1 | 2 | 3 | 4 | 5 | 6];
+    const fromRoutine = trainingProgram.days[fromWd]?.muscleGroups || '';
+
+    return (
+      <Modal
+        visible={moveDayModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setMoveDayModalVisible(false)}
+      >
+        <Pressable
+          className="flex-1 bg-black/80 justify-center items-center px-6"
+          onPress={() => setMoveDayModalVisible(false)}
+        >
+          <View
+            className="w-full max-w-sm rounded-2xl overflow-hidden"
+            style={{
+              backgroundColor: '#0a0a0a',
+              borderWidth: 1.5,
+              borderColor: 'rgba(59, 130, 246, 0.4)',
+            }}
+          >
+            <View className="px-5 py-4 border-b border-zinc-800">
+              <Text className="text-white font-bold text-base tracking-tight">
+                MOVER ENTRENAMIENTO
+              </Text>
+              <Text className="text-zinc-500 text-[10px] font-mono uppercase tracking-wider mt-0.5">
+                {fromName} → ?
+              </Text>
+              <Text className="text-zinc-400 text-xs mt-2" numberOfLines={2}>
+                {fromRoutine}
+              </Text>
+            </View>
+
+            <View className="px-3 py-2">
+              {VISUAL_ORDER.map((wd) => {
+                const isSelf = wd === fromWd;
+                const target = trainingProgram.days[wd]?.muscleGroups || '';
+                const targetIsEmpty = target.trim().length === 0;
+                const labelSubtitle = isSelf
+                  ? '(actual)'
+                  : targetIsEmpty
+                    ? 'Descanso — mover aquí'
+                    : `Intercambiar con: ${target}`;
+                return (
+                  <Pressable
+                    key={wd}
+                    disabled={isSelf}
+                    onPress={async () => {
+                      setMoveDayModalVisible(false);
+                      await handleMoveDay(fromWd, wd);
+                      setMoveDayFromWd(null);
+                    }}
+                    className="px-3 py-3 my-0.5 rounded-xl flex-row items-center gap-3 active:bg-zinc-900"
+                    style={{
+                      backgroundColor: isSelf ? 'transparent' : '#0f0f0f',
+                      borderWidth: 1,
+                      borderColor: isSelf ? '#27272a' : '#1a1a1a',
+                      opacity: isSelf ? 0.4 : 1,
+                    }}
+                  >
+                    <View
+                      className="w-9 h-9 rounded-lg items-center justify-center"
+                      style={{
+                        backgroundColor: targetIsEmpty
+                          ? 'rgba(34, 197, 94, 0.15)'
+                          : 'rgba(59, 130, 246, 0.15)',
+                      }}
+                    >
+                      <Text
+                        className="font-bold text-[10px] font-mono"
+                        style={{ color: targetIsEmpty ? '#22c55e' : '#3b82f6' }}
+                      >
+                        {SHORT_LABEL[wd as 0 | 1 | 2 | 3 | 4 | 5 | 6]}
+                      </Text>
+                    </View>
+                    <View className="flex-1">
+                      <Text className="text-white font-bold text-sm">
+                        {FULL_LABEL[wd as 0 | 1 | 2 | 3 | 4 | 5 | 6]}
+                      </Text>
+                      <Text className="text-zinc-500 text-xs mt-0.5" numberOfLines={1}>
+                        {labelSubtitle}
+                      </Text>
+                    </View>
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            <Pressable
+              onPress={() => {
+                setMoveDayModalVisible(false);
+                setMoveDayFromWd(null);
+              }}
               className="px-5 py-4 items-center active:bg-zinc-900"
               style={{ borderTopWidth: 1, borderTopColor: '#27272a' }}
             >
@@ -10703,6 +11003,7 @@ function GymScreen() {
       {renderAddDayModal()}
       {renderFocusSeriesModal()}
       {renderDayOptionsModal()}
+      {renderMoveDayModal()}
       {renderSessionOptionsModal()}
       {renderSessionRenameModal()}
       {renderSessionMuscleSelectorModal()}

@@ -6535,7 +6535,9 @@ export async function trainingDesignPlan(
     const daysDetail = (template.days || [])
       .map((d: any) => {
         const wd = weekdayMap[d.dayIndex] ?? 1;
-        const wdLabel = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'][wd];
+        const wdLabel = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'][
+          wd
+        ];
         const exercises = (d.exercises || []).map((e: any) => e.name).join(', ');
         return `📅 **${wdLabel.toUpperCase()}: ${d.name}**\n   ${exercises || 'Por configurar'}`;
       })
@@ -6923,7 +6925,15 @@ Día actual: ${currentDay + 1}
       };
     }
 
-    const WEEKDAY_LABEL = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+    const WEEKDAY_LABEL = [
+      'Domingo',
+      'Lunes',
+      'Martes',
+      'Miércoles',
+      'Jueves',
+      'Viernes',
+      'Sábado',
+    ];
     const VISUAL_ORDER_LOCAL = [1, 2, 3, 4, 5, 6, 0];
     const daysInfo = VISUAL_ORDER_LOCAL.filter(
       (wd) => (routineNames[String(wd)] || '').trim().length > 0
