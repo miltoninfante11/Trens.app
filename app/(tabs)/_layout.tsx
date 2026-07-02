@@ -28,7 +28,6 @@ import { useEffect, useRef, useCallback, useState, useMemo } from 'react';
 import { PanResponder, Dimensions, Animated as RNAnimated } from 'react-native';
 import { useAuth, useProRecording } from '../_layout';
 import { useSport } from '../../context/SportContext';
-import FloatingLoginButton from '../../components/auth/FloatingLoginButton';
 import { HankOverlay } from '../../components/hank/HankOverlay';
 import { SpotifyOverlay } from '../../components/spotify/SpotifyOverlay';
 import * as Haptics from '../../lib/haptics';
@@ -357,9 +356,6 @@ export default function TabsLayout() {
   const Tab4Icon = getIconComponent(tabConfig.tab4.icon);
   const Tab5Icon = getIconComponent(tabConfig.tab5.icon);
   const sportColor = tabConfig.color;
-
-  // Login ya es obligatorio desde index.tsx, no necesitamos botón flotante
-  const showLoginButton = !user;
 
   // Altura dinámica del tab bar basada en safe area
   // En web insets.bottom es 0, necesitamos padding mínimo para que el texto no se corte
@@ -697,9 +693,6 @@ export default function TabsLayout() {
       {/* Overlays globales - aquí tienen contexto de navegación */}
       <HankOverlay />
       <SpotifyOverlay />
-
-      {/* Botón flotante de login (solo para usuarios no autenticados) */}
-      <FloatingLoginButton visible={showLoginButton} />
     </View>
   );
 }

@@ -18,7 +18,7 @@ import {
   LayoutChangeEvent,
   Platform,
 } from 'react-native';
-import { X, Play, Download, Share2, Dumbbell } from 'lucide-react-native';
+import { X, Play, Download, Share2, Dumbbell, LogIn } from 'lucide-react-native';
 import * as Sharing from 'expo-sharing';
 import * as MediaLibrary from 'expo-media-library';
 import { VideoView, useVideoPlayer } from 'expo-video';
@@ -95,6 +95,9 @@ export interface ProMediaEditorProps {
   }) => void;
   saving: boolean;
   keepSpotifyPlaying?: boolean;
+  /** Si es invitado sin sesión, muestra overlay de login al compartir/guardar */
+  isGuest?: boolean;
+  onGuestLogin?: () => void;
 }
 
 // =============================================================================
@@ -126,11 +129,14 @@ export function ProMediaEditor({
   onClose,
   onSave,
   saving,
+  isGuest = false,
+  onGuestLogin,
 }: ProMediaEditorProps) {
   const isVideo = mediaData?.type === 'video';
   const viewShotRef = useRef<any>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [savedToGallery, setSavedToGallery] = useState(false);
+  const [guestPromptVisible, setGuestPromptVisible] = useState(false);
   // --- Video ---
   const [isPlaying, setIsPlaying] = useState(true);
   const [currentVideoTime, setCurrentVideoTime] = useState(0);
@@ -264,6 +270,7 @@ export function ProMediaEditor({
       setShowWorkoutFields(false);
       setIsPublic(true);
       setSavedToGallery(false);
+      setGuestPromptVisible(false);
       dismissY.value = 0;
     } else if (!visible) {
       hasInitializedRef.current = false;
@@ -816,6 +823,11 @@ export function ProMediaEditor({
 
   // --- Share ---
   const handleShare = useCallback(async () => {
+    if (isGuest) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      setGuestPromptVisible(true);
+      return;
+    }
     setIsSaving(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     try {
@@ -884,10 +896,15 @@ export function ProMediaEditor({
     } finally {
       setIsSaving(false);
     }
-  }, [capturePhoto, captureVideoCropped, isVideo, mediaData]);
+  }, [capturePhoto, captureVideoCropped, isVideo, mediaData, isGuest]);
 
   // --- Save to gallery ---
   const handleSaveToGallery = useCallback(async () => {
+    if (isGuest) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      setGuestPromptVisible(true);
+      return;
+    }
     setIsSaving(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     try {
@@ -950,7 +967,7 @@ export function ProMediaEditor({
     } finally {
       setIsSaving(false);
     }
-  }, [capturePhoto, captureVideoCropped, isVideo, mediaData]);
+  }, [capturePhoto, captureVideoCropped, isVideo, mediaData, isGuest]);
 
   // --- Render ---
   if (!mediaData) return null;
@@ -1565,6 +1582,60 @@ export function ProMediaEditor({
               </View>
             )}
           </View>
+
+          {/* GUEST PROMPT OVERLAY — dentro del editor, siempre al frente */}
+          {guestPromptVisible && (
+            <View
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                zIndex: 100,
+                backgroundColor: 'rgba(0,0,0,0.88)',
+              }}
+              className="items-center justify-center px-6"
+            >
+              <View
+                className="w-full rounded-3xl p-6 items-center"
+                style={{
+                  backgroundColor: '#111',
+                  maxWidth: 400,
+                  borderWidth: 1,
+                  borderColor: 'rgba(220,38,38,0.3)',
+                }}
+              >
+                <View
+                  className="w-16 h-16 rounded-2xl items-center justify-center mb-4"
+                  style={{ backgroundColor: '#DC262620', borderWidth: 1, borderColor: '#DC2626' }}
+                >
+                  <Share2 size={32} color="#DC2626" />
+                </View>
+                <Text className="text-white text-2xl font-bold mb-1">PRO Share</Text>
+                <Text className="text-zinc-400 text-sm text-center mb-6">
+                  Comparte tus clips con overlay de datos, canción de Spotify y marca TRENS a tus
+                  redes.
+                </Text>
+                <TouchableOpacity
+                  onPress={() => {
+                    setGuestPromptVisible(false);
+                    onGuestLogin?.();
+                  }}
+                  className="w-full py-4 rounded-2xl items-center mb-3"
+                  style={{ backgroundColor: '#DC2626' }}
+                >
+                  <View className="flex-row items-center gap-2">
+                    <LogIn size={18} color="#fff" />
+                    <Text className="text-white font-bold text-base">Iniciar sesión</Text>
+                  </View>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => setGuestPromptVisible(false)} className="py-3">
+                  <Text className="text-zinc-500 text-sm">Seguir explorando</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
         </Animated.View>
       </GestureHandlerRootView>
     </Modal>
