@@ -61,21 +61,22 @@ export default function Index() {
   // PWA autenticada o nativo: redirigir según rol
   // ============================================================================
   if (Platform.OS === 'web') {
-    // En PWA: Si no está autenticado, ir a login
-    if (!isAuthenticated) {
-      return <Redirect href={'/(auth)/login' as Href} />;
+    // En PWA autenticado: ir a la app según rol
+    if (isAuthenticated) {
+      if (isAdmin) return <Redirect href={'/(admin)/usuarios' as Href} />;
+      return <Redirect href={'/(tabs)/feed' as Href} />;
     }
-    if (isAdmin) return <Redirect href={'/(admin)/usuarios' as Href} />;
+    // Invitado en PWA: ir al feed (puede explorar sin cuenta)
     return <Redirect href={'/(tabs)/feed' as Href} />;
   }
 
   // ============================================================================
-  // NATIVO: Login obligatorio
+  // NATIVO: Feed por defecto, login opcional desde los módulos
   // ============================================================================
-  if (!isAuthenticated) {
-    return <Redirect href={'/(auth)/login' as Href} />;
+  if (isAuthenticated) {
+    if (isAdmin) return <Redirect href={'/(admin)/usuarios' as Href} />;
+    return <Redirect href={'/(tabs)/feed' as Href} />;
   }
-
-  if (isAdmin) return <Redirect href={'/(admin)/usuarios' as Href} />;
+  // Invitado nativo: ir al feed
   return <Redirect href={'/(tabs)/feed' as Href} />;
 }

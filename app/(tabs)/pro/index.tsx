@@ -5,15 +5,25 @@
 // Compatibilidad: Nativo (cámara completa) + PWA (solo galería)
 // =============================================================================
 
-import { View, Text, TouchableOpacity, ActivityIndicator, Platform } from 'react-native';
+import { View, Text, TouchableOpacity, ActivityIndicator, Platform, Modal } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
-import { RotateCcw, Zap, ZapOff, Lock, Camera, Image as ImageIcon } from 'lucide-react-native';
+import {
+  RotateCcw,
+  Zap,
+  ZapOff,
+  Lock,
+  Camera,
+  Image as ImageIcon,
+  LogIn,
+  Share2,
+  Film,
+} from 'lucide-react-native';
 import { PWAGuard } from '../../../components/auth/PWAGuard';
 import * as Haptics from '../../../lib/haptics';
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useFocusEffect } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -57,12 +67,16 @@ import { supabase } from '../../../lib/supabase';
 // ============================================================================
 
 function ProScreenContent() {
-  const { user, isPro, spotifyPremium, spotifyConnected } = useUserRoleContext();
+  const { user, isPro, spotifyPremium, spotifyConnected, isAuthenticated } = useUserRoleContext();
   const { context: proContext, clearContext } = useProContext();
   const { registerHandlers, setRecordingState, setSpotifyState, setExerciseState } =
     useProRecording();
   const { triggerRefresh, setScreenContext } = useHank();
   const { canSave } = useSaveGuard();
+  const router = useRouter();
+
+  // Modal invitado (al intentar compartir sin sesión)
+  const [showGuestShareModal, setShowGuestShareModal] = useState(false);
 
   // ÉLITE status
   const [isElite, setIsElite] = useState(false);
@@ -734,10 +748,14 @@ function ProScreenContent() {
   };
 
   // -------------------------------------------------------------------------
-  // SAVE HANDLER (cleanup only — share/save now handled inside editor)
+  // SAVE HANDLER — intercepta compartir para invitados sin sesión
   // -------------------------------------------------------------------------
 
   const handleEditorSave = async () => {
+    if (!isAuthenticated) {
+      setShowGuestShareModal(true);
+      return;
+    }
     discardMedia();
   };
 
@@ -956,6 +974,51 @@ function ProScreenContent() {
             onClose={() => setShowUpgradeModal(false)}
             feature="camera"
           />
+
+          {/* MODAL INVITADO — web version */}
+          <Modal
+            visible={showGuestShareModal}
+            transparent
+            animationType="fade"
+            onRequestClose={() => setShowGuestShareModal(false)}
+          >
+            <View className="flex-1 bg-black/80 items-center justify-center px-6">
+              <View
+                className="w-full rounded-3xl overflow-hidden"
+                style={{ backgroundColor: '#111' }}
+              >
+                <LinearGradient colors={['#1a0a00', '#000']} className="p-6 items-center">
+                  <View
+                    className="w-16 h-16 rounded-2xl items-center justify-center mb-4"
+                    style={{ backgroundColor: '#DC262620', borderWidth: 1, borderColor: '#DC2626' }}
+                  >
+                    <Share2 size={32} color="#DC2626" />
+                  </View>
+                  <Text className="text-white text-2xl font-bold mb-1">PRO Share</Text>
+                  <Text className="text-zinc-400 text-sm text-center mb-6">
+                    Comparte tus clips con overlay de datos, canción de Spotify y marca TRENS a tus
+                    redes.
+                  </Text>
+                  <TouchableOpacity
+                    onPress={() => {
+                      setShowGuestShareModal(false);
+                      router.push('/(auth)/login' as any);
+                    }}
+                    className="w-full py-4 rounded-2xl items-center mb-3"
+                    style={{ backgroundColor: '#DC2626' }}
+                  >
+                    <View className="flex-row items-center gap-2">
+                      <LogIn size={18} color="#fff" />
+                      <Text className="text-white font-bold text-base">Iniciar sesión</Text>
+                    </View>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => setShowGuestShareModal(false)} className="py-3">
+                    <Text className="text-zinc-500 text-sm">Seguir explorando</Text>
+                  </TouchableOpacity>
+                </LinearGradient>
+              </View>
+            </View>
+          </Modal>
         </View>
       </GestureHandlerRootView>
     );
@@ -1138,6 +1201,71 @@ function ProScreenContent() {
           onClose={() => setShowUpgradeModal(false)}
           feature="camera"
         />
+
+        {/* MODAL INVITADO — aparece al intentar compartir sin sesión */}
+        <Modal
+          visible={showGuestShareModal}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowGuestShareModal(false)}
+        >
+          <View className="flex-1 bg-black/80 items-center justify-center px-6">
+            <View
+              className="w-full rounded-3xl overflow-hidden"
+              style={{ backgroundColor: '#111' }}
+            >
+              <LinearGradient colors={['#1a0a00', '#000']} className="p-6 items-center">
+                <View
+                  className="w-16 h-16 rounded-2xl items-center justify-center mb-4"
+                  style={{ backgroundColor: '#DC262620', borderWidth: 1, borderColor: '#DC2626' }}
+                >
+                  <Share2 size={32} color="#DC2626" />
+                </View>
+                <Text className="text-white text-2xl font-bold mb-1">PRO Share</Text>
+                <Text className="text-zinc-400 text-sm text-center mb-6">
+                  Comparte tus clips con overlay de datos, canción de Spotify y marca TRENS
+                  directamente a tus redes sociales.
+                </Text>
+
+                <View className="w-full gap-3 mb-6">
+                  {[
+                    { icon: Film, label: 'Overlay de datos en tiempo real' },
+                    { icon: Share2, label: 'Comparte directo a IG, TikTok y más' },
+                    { icon: Zap, label: 'Canción de Spotify sincronizada' },
+                  ].map(({ icon: Icon, label }) => (
+                    <View key={label} className="flex-row items-center gap-3">
+                      <View
+                        className="w-8 h-8 rounded-xl items-center justify-center"
+                        style={{ backgroundColor: '#DC262615' }}
+                      >
+                        <Icon size={16} color="#DC2626" />
+                      </View>
+                      <Text className="text-zinc-300 text-sm flex-1">{label}</Text>
+                    </View>
+                  ))}
+                </View>
+
+                <TouchableOpacity
+                  onPress={() => {
+                    setShowGuestShareModal(false);
+                    router.push('/(auth)/login' as any);
+                  }}
+                  className="w-full py-4 rounded-2xl items-center mb-3"
+                  style={{ backgroundColor: '#DC2626' }}
+                >
+                  <View className="flex-row items-center gap-2">
+                    <LogIn size={18} color="#fff" />
+                    <Text className="text-white font-bold text-base">Iniciar sesión</Text>
+                  </View>
+                </TouchableOpacity>
+
+                <TouchableOpacity onPress={() => setShowGuestShareModal(false)} className="py-3">
+                  <Text className="text-zinc-500 text-sm">Seguir explorando</Text>
+                </TouchableOpacity>
+              </LinearGradient>
+            </View>
+          </View>
+        </Modal>
       </View>
     </GestureHandlerRootView>
   );

@@ -16,6 +16,7 @@ import {
   Platform,
 } from 'react-native';
 import { PWAGuard } from '../../../components/auth/PWAGuard';
+import { GuestModuleLanding } from '../../../components/auth/GuestModuleLanding';
 import { ErrorBoundary } from '../../../components/ui/ErrorBoundary';
 import { Alert } from '../../../lib/alert';
 import { Image } from 'expo-image';
@@ -599,6 +600,7 @@ function GymScreen() {
     spotifyPremium,
     spotifyConnected: contextSpotifyConnected,
     updateSpotifyStatus,
+    isAuthenticated,
   } = useUserRoleContext();
   const { canSave } = useSaveGuard();
   const isFocused = useIsFocused(); // Detecta si esta pantalla está activa
@@ -5596,6 +5598,13 @@ function GymScreen() {
   };
 
   // ============================================================================
+  // GUEST: Invitado sin sesión — mostrar landing del módulo
+  // ============================================================================
+  if (!isAuthenticated) {
+    return <GuestModuleLanding module="gym" />;
+  }
+
+  // ============================================================================
   // RENDER LOADING
   // ============================================================================
   if (viewMode === 'LOADING' || loading) {
@@ -8440,9 +8449,8 @@ function GymScreen() {
                         : [...trainingProgram.days, newDay];
                     setTrainingProgram((prev) => ({
                       ...prev,
-                      frequency: updatedDays.filter(
-                        (d) => (d.muscleGroups || '').trim().length > 0
-                      ).length,
+                      frequency: updatedDays.filter((d) => (d.muscleGroups || '').trim().length > 0)
+                        .length,
                       days: updatedDays,
                     }));
 

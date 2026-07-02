@@ -6,6 +6,8 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { View, Text, ScrollView, Pressable, RefreshControl } from 'react-native';
 import { PWAGuard } from '../../../components/auth/PWAGuard';
+import { GuestModuleLanding } from '../../../components/auth/GuestModuleLanding';
+import { useUserRoleContext } from '../../../context/UserRoleContext';
 import { Alert } from '../../../lib/alert';
 import Animated, { useAnimatedStyle, withSpring } from 'react-native-reanimated';
 import { Plus, Pill, Sparkles, ShoppingBag, StickyNote, Flame, Layers } from 'lucide-react-native';
@@ -361,6 +363,7 @@ function PlanScreen() {
   const { refreshTrigger, setScreenContext } = useHank();
   const { canSave } = useSaveGuard();
   const { syncNotifications } = useNotifications();
+  const { isAuthenticated } = useUserRoleContext();
 
   // Sincronizar contexto con HANK
   useFocusEffect(
@@ -2821,6 +2824,10 @@ function PlanScreen() {
   // ============================================================================
   // RENDER
   // ============================================================================
+  if (!isAuthenticated) {
+    return <GuestModuleLanding module="plan" />;
+  }
+
   if (isLoading) {
     return (
       <View className="flex-1 bg-black items-center justify-center">

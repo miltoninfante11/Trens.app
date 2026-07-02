@@ -359,7 +359,7 @@ export default function TabsLayout() {
   const sportColor = tabConfig.color;
 
   // Login ya es obligatorio desde index.tsx, no necesitamos botón flotante
-  const showLoginButton = false;
+  const showLoginButton = !user;
 
   // Altura dinámica del tab bar basada en safe area
   // En web insets.bottom es 0, necesitamos padding mínimo para que el texto no se corte

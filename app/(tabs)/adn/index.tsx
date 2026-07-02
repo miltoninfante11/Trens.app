@@ -49,6 +49,7 @@ import TrensID from '../../../components/adn/TrensID';
 import RecordCard from '../../../components/adn/RecordCard';
 import InstagramConnectButton from '../../../components/adn/InstagramConnectButton';
 import SelectRecordVideoModal from '../../../components/adn/SelectRecordVideoModal';
+import { GuestModuleLanding } from '../../../components/auth/GuestModuleLanding';
 import { SportBadges } from '../../../components/adn/SportBadges';
 import { TodayCards } from '../../../components/adn/TodayCards';
 import { ProUpgradeModal } from '../../../components/pro/ProUpgradeModal';
@@ -845,6 +846,13 @@ function AdnScreenContent() {
 
   // Videos privados para la "Bóveda"
   const vaultVideos = videos.filter((v) => !v.is_public);
+
+  // -------------------------------------------------------------------------
+  // RENDER: Invitado (no autenticado) — mini landing del módulo
+  // -------------------------------------------------------------------------
+  if (!isAuthenticated) {
+    return <GuestModuleLanding module="adn" />;
+  }
 
   // -------------------------------------------------------------------------
   // RENDER: Loading (solo si hay usuario y está cargando)
