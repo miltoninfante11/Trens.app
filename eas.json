@@ -25,7 +25,8 @@
         "distribution": "internal"
       },
       "env": {
-        "EXPO_NO_CAPABILITY_SYNC": "1"
+        "EXPO_NO_CAPABILITY_SYNC": "1",
+        "EXPO_PUBLIC_GEMINI_API_KEY": "$EXPO_PUBLIC_GEMINI_API_KEY"
       }
     },
     "production": {
@@ -37,6 +38,9 @@
       "ios": {
         "image": "latest",
         "autoIncrement": true
+      },
+      "env": {
+        "EXPO_PUBLIC_GEMINI_API_KEY": "$EXPO_PUBLIC_GEMINI_API_KEY"
       }
     }
   },

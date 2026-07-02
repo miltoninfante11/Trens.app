@@ -11,7 +11,7 @@
     "web:export": "expo export --platform web && bash scripts/inject-pwa-meta.sh",
     "web:preview": "npx serve dist",
     "web:deploy": "npm run web:export && npx wrangler pages deploy dist --project-name=trens-app --branch=main --commit-dirty=true",
-    "deploy:fast": "expo export --platform web --clear && bash scripts/inject-pwa-meta.sh && npx wrangler pages deploy dist --branch main",
+    "deploy:fast": "NODE_OPTIONS=\"--max-old-space-size=2048\" expo export --platform web --clear && bash scripts/inject-pwa-meta.sh && npx wrangler pages deploy dist --branch main",
     "lint": "eslint . --ext .ts,.tsx",
     "lint:fix": "eslint . --ext .ts,.tsx --fix",
     "type-check": "tsc --noEmit",

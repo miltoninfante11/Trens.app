@@ -75,7 +75,14 @@ let Purchases: any = null;
  */
 export async function initRevenueCat(userId?: string): Promise<boolean> {
   if (Platform.OS === 'web') {
-    console.warn('[RevenueCat] Web platform - skipping initialization');
+    return false;
+  }
+
+  // Pagos nativos desactivados — todo pago es vía web con OpenPay
+  const appleKeyIsPlaceholder = REVENUECAT_CONFIG.appleApiKey.includes('YOUR_');
+  const googleKeyIsPlaceholder = REVENUECAT_CONFIG.googleApiKey.includes('YOUR_');
+  if (appleKeyIsPlaceholder && googleKeyIsPlaceholder) {
+    console.warn('[RevenueCat] Keys no configuradas — IAP desactivado. Pagos via web.');
     return false;
   }
 

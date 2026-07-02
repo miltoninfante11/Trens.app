@@ -141,13 +141,13 @@ export function UserRoleProvider({ children }: { children: ReactNode }) {
         setLoading(false);
       });
 
-    // Failsafe: si en 8s no resolvió, desbloquear loading
+    // Failsafe: si en 4s no resolvió, desbloquear loading
     const failsafe = setTimeout(() => {
       setLoading((prev) => {
-        if (prev) console.warn('⚠️ Auth loading failsafe triggered after 8s');
+        if (prev) console.warn('⚠️ Auth loading failsafe triggered after 4s');
         return false;
       });
-    }, 8000);
+    }, 4000);
 
     // Escuchar cambios de autenticación
     const {

@@ -23,13 +23,16 @@ import * as Sentry from '@sentry/react-native';
 import * as WebBrowser from 'expo-web-browser';
 import '../global.css';
 
-// Initialize Sentry for crash reporting
-Sentry.init({
-  dsn: 'YOUR_SENTRY_DSN', // TODO: Replace with real DSN from sentry.io
-  debug: __DEV__,
-  tracesSampleRate: __DEV__ ? 1.0 : 0.2,
-  enabled: !__DEV__,
-});
+// Initialize Sentry for crash reporting (solo si hay DSN real configurado)
+const SENTRY_DSN = process.env.EXPO_PUBLIC_SENTRY_DSN || '';
+if (SENTRY_DSN && !SENTRY_DSN.includes('YOUR_')) {
+  Sentry.init({
+    dsn: SENTRY_DSN,
+    debug: __DEV__,
+    tracesSampleRate: __DEV__ ? 1.0 : 0.2,
+    enabled: !__DEV__,
+  });
+}
 
 // IMPORTANTE: Completar OAuth sessions pendientes (Spotify, etc.)
 // Debe ejecutarse antes de que Expo Router intercepte los deep links

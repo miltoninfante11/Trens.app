@@ -12,40 +12,43 @@ export default function Index() {
   const [checkingPWA, setCheckingPWA] = useState(true);
   const [isShopSubdomain, setIsShopSubdomain] = useState(false);
 
-  // Detectar si estamos en PWA (solo en web)
+  // Detectar PWA y subdominio — solo una vez al montar, NO depende de auth
   useEffect(() => {
     if (Platform.OS === 'web') {
-      // Detectar subdominio shop.trens.app
       try {
         const host = typeof window !== 'undefined' ? window.location.hostname : '';
-        if (host.startsWith('shop.')) {
-          setIsShopSubdomain(true);
-        }
+        if (host.startsWith('shop.')) setIsShopSubdomain(true);
       } catch {}
 
-      // Pequeño delay para asegurar que window está listo
+      // isPWA() es síncrona, el delay mínimo es solo para asegurar que window esté listo
       const timer = setTimeout(() => {
         const pwaStatus = isPWA();
         setIsStandalone(pwaStatus);
         setCheckingPWA(false);
-
-        // Debug en consola
-        console.log('[TRENS] PWA Detection:', {
-          isPWA: pwaStatus,
-          isAuthenticated,
-          isPro,
-          userAgent: navigator.userAgent.substring(0, 50),
-        });
-      }, 100);
+        console.log('[TRENS] PWA:', pwaStatus, '| host:', window.location.hostname);
+      }, 50);
       return () => clearTimeout(timer);
     } else {
-      // En nativo siempre es "standalone"
       setIsStandalone(true);
       setCheckingPWA(false);
     }
-  }, [isAuthenticated, isPro]);
+  }, []); // ← sin dependencias: solo se ejecuta una vez
 
-  // Mientras carga la sesión o detecta PWA, mostrar loading
+  // ============================================================================
+  // WEB BROWSER (no PWA): mostrar contenido SIN esperar a que auth cargue
+  // La landing page no necesita saber si el usuario está autenticado para mostrarse
+  // ============================================================================
+  if (Platform.OS === 'web' && !checkingPWA && !isStandalone) {
+    if (isShopSubdomain) return <Redirect href={'/shop' as Href} />;
+    if (isAuthenticated) {
+      if (isAdmin) return <Redirect href={'/(admin)/usuarios' as Href} />;
+      return <Redirect href={'/(tabs)/feed' as Href} />;
+    }
+    // Mostrar landing inmediatamente — sin esperar 8s de auth
+    return <LandingPage />;
+  }
+
+  // Para PWA o nativo: esperar a que auth resuelva
   if (loading || checkingPWA) {
     return (
       <View className="flex-1 bg-black items-center justify-center">
@@ -55,31 +58,13 @@ export default function Index() {
   }
 
   // ============================================================================
-  // WEB: Lógica de redirección según PWA vs Browser
+  // PWA autenticada o nativo: redirigir según rol
   // ============================================================================
   if (Platform.OS === 'web') {
-    // Subdominio shop.trens.app → siempre llevamos a la tienda standalone
-    if (isShopSubdomain) {
-      return <Redirect href={'/shop' as Href} />;
-    }
-
-    // Si NO está en modo PWA (standalone)
-    if (!isStandalone) {
-      // Si está autenticado, permitir acceso (clientes en efectivo)
-      if (isAuthenticated) {
-        if (isAdmin) return <Redirect href={'/(admin)/usuarios' as Href} />;
-        return <Redirect href={'/(tabs)/feed' as Href} />;
-      }
-      // Si NO está autenticado, mostrar landing DIRECTAMENTE en /
-      return <LandingPage />;
-    }
-
     // En PWA: Si no está autenticado, ir a login
     if (!isAuthenticated) {
       return <Redirect href={'/(auth)/login' as Href} />;
     }
-
-    // En PWA autenticado: ir a la app
     if (isAdmin) return <Redirect href={'/(admin)/usuarios' as Href} />;
     return <Redirect href={'/(tabs)/feed' as Href} />;
   }
