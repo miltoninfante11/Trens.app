@@ -989,7 +989,7 @@ export default function LandingPage() {
               className="px-6 py-2 rounded-full"
             >
               <Text className="text-white font-mono text-sm tracking-[0.3em] uppercase">
-                High Performance Fitness
+                La App Definitiva del Atleta
               </Text>
             </LinearGradient>
           </Animated.View>
@@ -1000,13 +1000,13 @@ export default function LandingPage() {
             className="items-center mb-8 max-w-3xl"
           >
             <Text className="text-white text-3xl md:text-5xl font-bold text-center leading-tight">
-              Inicia, monitorea y{' '}
-              <Text style={{ color: PREMIUM_COLORS.fireRed }}>alcanza tus objetivos</Text>
+              La app que los atletas serios{' '}
+              <Text style={{ color: PREMIUM_COLORS.fireRed }}>estaban esperando</Text>
             </Text>
             <Text className="text-zinc-400 text-lg md:text-xl text-center mt-6 max-w-2xl leading-relaxed">
-              Rutinas con cada serie configurable, plan nutricional por horario, stack de
-              suplementos ilimitado, múltiples cardios, 2 entrenamientos al día, cámara PRO con
-              Spotify integrado y feed extremo. Todo conectado en una sola plataforma.
+              Prepárate como un profesional. Rutinas con series al detalle, nutrición exacta,
+              suplementación precisa, cardios configurables, cámara PRO 9:16 y Spotify integrado.
+              Todo en una sola plataforma diseñada para atletas y aspirantes que van en serio.
             </Text>
           </Animated.View>
 
@@ -1080,22 +1080,6 @@ export default function LandingPage() {
               </Animated.View>
             </View>
           </Animated.View>
-        </View>
-
-        {/* ================================================================== */}
-        {/* STATS SECTION */}
-        {/* ================================================================== */}
-        <View className="px-6 py-16 bg-zinc-950/50">
-          <View
-            className="flex-row flex-wrap justify-center items-center gap-8 md:gap-16"
-            style={{ maxWidth: 1000, alignSelf: 'center' }}
-          >
-            <StatCounter value="10K" suffix="+" label="Atletas Activos" delay={100} />
-            <View className="w-px h-12 bg-zinc-800 hidden md:flex" />
-            <StatCounter value="500K" suffix="+" label="Sets Grabados" delay={200} />
-            <View className="w-px h-12 bg-zinc-800 hidden md:flex" />
-            <StatCounter value="98" suffix="%" label="Satisfacción" delay={300} />
-          </View>
         </View>
 
         {/* ================================================================== */}
@@ -1188,6 +1172,418 @@ export default function LandingPage() {
         </View>
 
         {/* ================================================================== */}
+        {/* REGISTRO RÁPIDO - CONVERSIÓN TEMPRANA */}
+        {/* ================================================================== */}
+        <View
+          nativeID="registro-rapido"
+          className="px-4 py-16 bg-zinc-950 relative overflow-hidden"
+        >
+          <GlowOrb color={PREMIUM_COLORS.fireRed} size={400} top="30%" left="50%" delay={0} />
+
+          <Animated.View
+            entering={FadeInUp.duration(600)}
+            className="items-center mb-12 relative z-10"
+          >
+            <View className="flex-row items-center gap-3 mb-4">
+              <Flame size={18} color={PREMIUM_COLORS.fireRed} fill={PREMIUM_COLORS.fireRed} />
+              <Text className="text-red-500 font-mono text-sm tracking-[0.3em] uppercase">
+                Empieza hoy
+              </Text>
+            </View>
+            <Text
+              className="text-white font-bold text-center px-2"
+              style={{ fontSize: SCREEN_WIDTH < 640 ? 22 : SCREEN_WIDTH < 768 ? 30 : 40 }}
+            >
+              ¿Listo para entrenar{' '}
+              <Text style={{ color: PREMIUM_COLORS.fireRed }}>como un atleta?</Text>
+            </Text>
+            <Text className="text-zinc-400 text-center mt-4 max-w-lg px-4">
+              Crea tu cuenta en segundos y accede a todos los módulos desde el primer día. Sin
+              compromiso, cancela cuando quieras.
+            </Text>
+          </Animated.View>
+
+          <View
+            className="flex-row flex-wrap justify-center"
+            style={{
+              maxWidth: 1100,
+              alignSelf: 'center',
+              width: '100%',
+              paddingHorizontal: SCREEN_WIDTH < 640 ? 8 : 16,
+              gap: SCREEN_WIDTH < 640 ? 16 : 32,
+            }}
+          >
+            {/* Plan Card */}
+            <Animated.View
+              entering={SlideInLeft.delay(200).duration(800).springify()}
+              style={{
+                width: SCREEN_WIDTH < 768 ? '100%' : undefined,
+                flex: SCREEN_WIDTH < 768 ? undefined : 1,
+                maxWidth: SCREEN_WIDTH < 768 ? '100%' : 420,
+              }}
+            >
+              <View className="relative">
+                <View
+                  style={{
+                    position: 'absolute',
+                    top: -20,
+                    left: -20,
+                    right: -20,
+                    bottom: -20,
+                    borderRadius: 40,
+                    backgroundColor: PREMIUM_COLORS.fireRed,
+                    opacity: 0.15,
+                  }}
+                  className="blur-3xl"
+                />
+                <LinearGradient
+                  colors={['#1a0808', '#0d0d0d']}
+                  className="rounded-[32px] border-2 border-red-600/50 relative overflow-hidden"
+                  style={{ padding: SCREEN_WIDTH < 640 ? 20 : 32 }}
+                >
+                  <View className="absolute top-0 right-0">
+                    <LinearGradient
+                      colors={[PREMIUM_COLORS.fireRed, PREMIUM_COLORS.fireOrange]}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      className="px-4 py-2 rounded-bl-2xl rounded-tr-[30px]"
+                    >
+                      <Text className="text-white text-xs font-bold tracking-widest">POPULAR</Text>
+                    </LinearGradient>
+                  </View>
+                  <LinearGradient
+                    colors={['rgba(220, 38, 38, 0.1)', 'transparent']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={{
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      borderRadius: 30,
+                    }}
+                  />
+                  <View className="flex-row items-center gap-3 mb-6">
+                    <Flame size={28} color={PREMIUM_COLORS.fireRed} fill={PREMIUM_COLORS.fireRed} />
+                    <Text className="text-white text-2xl font-bold">{planDetails.name}</Text>
+                  </View>
+                  <View className="flex-row items-baseline mb-2">
+                    <Text className="text-zinc-500 text-xl line-through mr-3">S/ 99.90</Text>
+                  </View>
+                  <View className="flex-row items-baseline mb-8">
+                    <Text
+                      className="text-white text-6xl font-bold"
+                      style={{
+                        textShadowColor: PREMIUM_COLORS.glowRed,
+                        textShadowOffset: { width: 0, height: 2 },
+                        textShadowRadius: 20,
+                      }}
+                    >
+                      S/ 59
+                    </Text>
+                    <Text className="text-white text-3xl font-bold">.90</Text>
+                    <Text className="text-zinc-500 text-lg ml-2">/ mes</Text>
+                  </View>
+                  <View className="mb-8">
+                    {planDetails.features.map((feature, index) => (
+                      <PricingFeature key={index} text={feature} delay={300 + index * 100} />
+                    ))}
+                  </View>
+                  <View className="border border-red-600/20 rounded-2xl p-5">
+                    <View className="flex-row items-center justify-center gap-2 mb-2">
+                      <Shield size={18} color={PREMIUM_COLORS.fireRed} />
+                      <Text className="text-white text-sm font-bold">
+                        Pago 100% seguro con Openpay
+                      </Text>
+                    </View>
+                    <Text className="text-zinc-400 text-xs text-center leading-relaxed">
+                      Certificación PCI DSS • Encriptación SSL 256-bit
+                    </Text>
+                    <View className="h-px bg-zinc-800/50 my-3" />
+                    <Text className="text-zinc-400 text-xs text-center">
+                      {
+                        '✓ Cancela cuando quieras, sin penalidad\n✓ Sin letras chicas ni cargos ocultos\n✓ Acceso total desde el primer día'
+                      }
+                    </Text>
+                  </View>
+                </LinearGradient>
+              </View>
+            </Animated.View>
+
+            {/* Form Card */}
+            <Animated.View
+              entering={SlideInRight.delay(400).duration(800).springify()}
+              style={{
+                width: SCREEN_WIDTH < 768 ? '100%' : undefined,
+                flex: SCREEN_WIDTH < 768 ? undefined : 1,
+                maxWidth: SCREEN_WIDTH < 768 ? '100%' : 480,
+              }}
+            >
+              <View
+                className="bg-zinc-900/40 border border-zinc-800/50 rounded-[32px] relative overflow-hidden"
+                style={{ padding: SCREEN_WIDTH < 640 ? 20 : 32 }}
+              >
+                <LinearGradient
+                  colors={['rgba(255, 255, 255, 0.02)', 'transparent']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    borderRadius: 30,
+                  }}
+                />
+                <View className="flex-row items-center gap-3 mb-8">
+                  {step === 'info' ? (
+                    <User size={24} color={PREMIUM_COLORS.fireRed} />
+                  ) : (
+                    <CreditCard size={24} color={PREMIUM_COLORS.fireRed} />
+                  )}
+                  <Text className="text-white text-xl font-bold">
+                    {step === 'info' ? 'Crea tu cuenta de atleta' : 'Datos de pago'}
+                  </Text>
+                </View>
+                <View className="flex-row items-center gap-2 mb-6">
+                  <View
+                    className={`flex-1 h-1 rounded-full ${step === 'info' ? 'bg-red-600' : 'bg-zinc-700'}`}
+                  />
+                  <View
+                    className={`flex-1 h-1 rounded-full ${step === 'payment' ? 'bg-red-600' : 'bg-zinc-700'}`}
+                  />
+                </View>
+                {error && (
+                  <Animated.View
+                    entering={FadeInDown.duration(300)}
+                    className="bg-red-900/30 border border-red-600/50 rounded-2xl p-4 mb-6"
+                  >
+                    <Text className="text-red-400 text-sm text-center">{error}</Text>
+                  </Animated.View>
+                )}
+                {step === 'info' ? (
+                  <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+                    <View data-form-type="registration">
+                      <View className="mb-5">
+                        <Text className="text-zinc-400 text-sm mb-2 font-medium">
+                          Nombre completo
+                        </Text>
+                        <View className="flex-row items-center bg-zinc-800/50 rounded-2xl px-4 border border-zinc-700/50">
+                          <User size={20} color="#71717a" />
+                          <TextInput
+                            value={name}
+                            onChangeText={setName}
+                            placeholder="Juan Pérez"
+                            placeholderTextColor="#52525b"
+                            className="flex-1 text-white py-4 px-3 text-base"
+                            autoCapitalize="words"
+                            autoComplete="name"
+                          />
+                        </View>
+                      </View>
+                      <View className="mb-5">
+                        <Text className="text-zinc-400 text-sm mb-2 font-medium">
+                          Correo electrónico
+                        </Text>
+                        <View className="flex-row items-center bg-zinc-800/50 rounded-2xl px-4 border border-zinc-700/50">
+                          <Mail size={20} color="#71717a" />
+                          <TextInput
+                            value={email}
+                            onChangeText={setEmail}
+                            placeholder="tu@email.com"
+                            placeholderTextColor="#52525b"
+                            className="flex-1 text-white py-4 px-3 text-base"
+                            keyboardType="email-address"
+                            autoCapitalize="none"
+                            autoComplete="email"
+                          />
+                        </View>
+                      </View>
+                      <View className="mb-5">
+                        <Text className="text-zinc-400 text-sm mb-2 font-medium">Celular</Text>
+                        <PhoneInput
+                          value={phone}
+                          onChangeText={setPhone}
+                          selectedCountry={phoneCountry}
+                          onCountryChange={setPhoneCountry}
+                          placeholder="999 999 999"
+                          disabled={loading}
+                        />
+                      </View>
+                      <View className="mb-8">
+                        <Text className="text-zinc-400 text-sm mb-2 font-medium">Contraseña</Text>
+                        <View className="flex-row items-center bg-zinc-800/50 rounded-2xl px-4 border border-zinc-700/50">
+                          <Lock size={20} color="#71717a" />
+                          <TextInput
+                            value={password}
+                            onChangeText={setPassword}
+                            placeholder="Mínimo 6 caracteres"
+                            placeholderTextColor="#52525b"
+                            className="flex-1 text-white py-4 px-3 text-base"
+                            secureTextEntry={!showPassword}
+                            autoComplete="new-password"
+                          />
+                          <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
+                            {showPassword ? (
+                              <EyeOff size={20} color="#71717a" />
+                            ) : (
+                              <Eye size={20} color="#71717a" />
+                            )}
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    </View>
+                    <TouchableOpacity onPress={goToPayment} activeOpacity={0.9}>
+                      <LinearGradient
+                        colors={[PREMIUM_COLORS.fireRed, '#B91C1C']}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
+                        className="py-5 rounded-2xl flex-row items-center justify-center gap-3"
+                        style={{
+                          shadowColor: PREMIUM_COLORS.fireRed,
+                          shadowOffset: { width: 0, height: 6 },
+                          shadowOpacity: 0.4,
+                          shadowRadius: 12,
+                        }}
+                      >
+                        <Text className="text-white text-lg font-bold">Continuar</Text>
+                        <ArrowRight size={22} color="white" />
+                      </LinearGradient>
+                    </TouchableOpacity>
+                  </KeyboardAvoidingView>
+                ) : (
+                  <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+                    <View data-form-type="payment">
+                      <View className="mb-5">
+                        <Text className="text-zinc-400 text-sm mb-2 font-medium">
+                          Número de tarjeta
+                        </Text>
+                        <View className="flex-row items-center bg-zinc-800/50 rounded-2xl px-4 border border-zinc-700/50">
+                          <CreditCard size={20} color="#71717a" />
+                          <TextInput
+                            value={cardNumber}
+                            onChangeText={handleCardNumberChange}
+                            placeholder="4111 1111 1111 1111"
+                            placeholderTextColor="#52525b"
+                            className="flex-1 text-white py-4 px-3 font-mono text-base"
+                            keyboardType="number-pad"
+                            maxLength={19}
+                            autoComplete="cc-number"
+                          />
+                          {cardNumber.length > 0 && (
+                            <Text className="text-zinc-500 text-xs uppercase font-bold">
+                              {getCardBrand(cardNumber)}
+                            </Text>
+                          )}
+                        </View>
+                      </View>
+                      <View className="mb-5">
+                        <Text className="text-zinc-400 text-sm mb-2 font-medium">
+                          Nombre en la tarjeta
+                        </Text>
+                        <View className="flex-row items-center bg-zinc-800/50 rounded-2xl px-4 border border-zinc-700/50">
+                          <User size={20} color="#71717a" />
+                          <TextInput
+                            value={cardName}
+                            onChangeText={(v) => setCardName(v.toUpperCase())}
+                            placeholder="JUAN PEREZ"
+                            placeholderTextColor="#52525b"
+                            className="flex-1 text-white py-4 px-3 text-base"
+                            autoCapitalize="characters"
+                            autoComplete="cc-name"
+                          />
+                        </View>
+                      </View>
+                      <View className="flex-row gap-4 mb-8">
+                        <View className="flex-1">
+                          <Text className="text-zinc-400 text-sm mb-2 font-medium">
+                            Vencimiento
+                          </Text>
+                          <View className="flex-row items-center bg-zinc-800/50 rounded-2xl px-4 border border-zinc-700/50">
+                            <TextInput
+                              value={expiry}
+                              onChangeText={handleExpiryChange}
+                              placeholder="MM/YY"
+                              placeholderTextColor="#52525b"
+                              className="flex-1 text-white py-4 font-mono text-center text-base"
+                              keyboardType="number-pad"
+                              maxLength={5}
+                              autoComplete="cc-exp"
+                            />
+                          </View>
+                        </View>
+                        <View className="flex-1">
+                          <Text className="text-zinc-400 text-sm mb-2 font-medium">CVV</Text>
+                          <View className="flex-row items-center bg-zinc-800/50 rounded-2xl px-4 border border-zinc-700/50">
+                            <TextInput
+                              value={cvv}
+                              onChangeText={setCvv}
+                              placeholder="123"
+                              placeholderTextColor="#52525b"
+                              className="flex-1 text-white py-4 font-mono text-center text-base"
+                              keyboardType="number-pad"
+                              maxLength={4}
+                              secureTextEntry
+                              autoComplete="cc-csc"
+                            />
+                          </View>
+                        </View>
+                      </View>
+                    </View>
+                    <TouchableOpacity
+                      onPress={() => setStep('info')}
+                      className="mb-4 py-2"
+                      activeOpacity={0.7}
+                    >
+                      <Text className="text-zinc-400 text-center">← Volver a mis datos</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={handleSubscribe}
+                      activeOpacity={0.9}
+                      disabled={loading}
+                    >
+                      <LinearGradient
+                        colors={
+                          loading ? ['#3f3f46', '#27272a'] : [PREMIUM_COLORS.fireRed, '#B91C1C']
+                        }
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
+                        className="py-5 rounded-2xl flex-row items-center justify-center gap-3"
+                        style={{
+                          shadowColor: loading ? 'transparent' : PREMIUM_COLORS.fireRed,
+                          shadowOffset: { width: 0, height: 6 },
+                          shadowOpacity: 0.4,
+                          shadowRadius: 12,
+                        }}
+                      >
+                        {loading ? (
+                          <ActivityIndicator color="white" />
+                        ) : (
+                          <>
+                            <Shield size={22} color="white" />
+                            <Text className="text-white text-lg font-bold">
+                              Pagar {getFormattedPrice()}
+                            </Text>
+                          </>
+                        )}
+                      </LinearGradient>
+                    </TouchableOpacity>
+                    <View className="flex-row items-center justify-center gap-2 mt-5">
+                      <Lock size={14} color="#52525b" />
+                      <Text className="text-zinc-500 text-xs">
+                        Pago seguro procesado por Openpay • SSL
+                      </Text>
+                    </View>
+                  </KeyboardAvoidingView>
+                )}
+              </View>
+            </Animated.View>
+          </View>
+        </View>
+
+        {/* ================================================================== */}
         {/* FEATURES GRID - UTILITY FOCUSED */}
         {/* ================================================================== */}
         <View
@@ -1209,7 +1605,7 @@ export default function LandingPage() {
                 className="text-red-500 font-mono tracking-[0.3em] uppercase"
                 style={{ fontSize: SCREEN_WIDTH < 640 ? 11 : 14 }}
               >
-                Herramientas
+                Arsenal del Atleta
               </Text>
               <Sparkles size={20} color={PREMIUM_COLORS.fireRed} />
             </View>
@@ -1217,12 +1613,12 @@ export default function LandingPage() {
               className="text-white font-bold text-center max-w-2xl leading-tight px-2"
               style={{ fontSize: SCREEN_WIDTH < 640 ? 22 : SCREEN_WIDTH < 768 ? 32 : 40 }}
             >
-              Configura <Text style={{ color: PREMIUM_COLORS.fireRed }}>cada detalle</Text> de tu
-              entrenamiento
+              Todo lo que un atleta necesita,{' '}
+              <Text style={{ color: PREMIUM_COLORS.fireRed }}>en un solo lugar</Text>
             </Text>
             <Text className="text-zinc-400 text-center mt-4 max-w-xl px-4">
-              Desde el calentamiento hasta el último suplemento del día. TRENS te da control total
-              sobre cada variable de tu rendimiento.
+              Desde el primer calentamiento hasta el último suplemento. TRENS cubre cada variable de
+              tu preparación física: fuerza, nutrición, cardio, recuperación y progreso visual.
             </Text>
           </Animated.View>
 
@@ -1325,14 +1721,14 @@ export default function LandingPage() {
                 className="text-red-500 font-mono tracking-[0.3em] uppercase mb-4"
                 style={{ fontSize: SCREEN_WIDTH < 640 ? 11 : 14 }}
               >
-                ¿Para quién es?
+                ¿Para quién es TRENS?
               </Text>
               <Text
                 className="text-white font-bold text-center px-2"
                 style={{ fontSize: SCREEN_WIDTH < 640 ? 22 : SCREEN_WIDTH < 768 ? 28 : 36 }}
               >
-                Si quieres <Text style={{ color: PREMIUM_COLORS.fireRed }}>resultados reales</Text>,
-                necesitas un sistema real
+                Para atletas y aspirantes que{' '}
+                <Text style={{ color: PREMIUM_COLORS.fireRed }}>no improvisan</Text>
               </Text>
             </Animated.View>
 
@@ -1356,9 +1752,9 @@ export default function LandingPage() {
                   <Text className="text-white font-bold text-lg">Quieres ordenarte</Text>
                 </View>
                 <Text className="text-zinc-400 text-sm leading-relaxed mb-4">
-                  Entrenas pero no tienes estructura. Un día haces pecho, otro improvias pierna.
-                  Comes lo que hay. No sabes qué suplementos tomar ni cuándo. No llevas registro de
-                  nada.
+                  Llevas tiempo entrenando pero sin estructura real. Entrenas por intuición, comes
+                  lo que hay, y no llevas registro. TRENS te da el sistema que un atleta serio
+                  necesita para progresar con propósito.
                 </Text>
                 <View className="gap-2">
                   {[
@@ -2464,11 +2860,12 @@ export default function LandingPage() {
           <Animated.View entering={FadeInUp.duration(800)} className="items-center relative z-10">
             <Flame size={48} color={PREMIUM_COLORS.fireRed} fill={PREMIUM_COLORS.fireRed} />
             <Text className="text-white text-4xl md:text-5xl font-bold text-center mt-6 mb-4">
-              Tu mejor versión empieza hoy
+              Entrena como el atleta que quieres ser
             </Text>
             <Text className="text-zinc-400 text-lg text-center mb-4 max-w-xl">
-              Deja de improvisar. Con TRENS ordenas tu rutina, tu nutrición, tus suplementos, tus
-              cardios y tu progreso en una sola plataforma. Cada detalle bajo control.
+              Para de improvisar. TRENS te da el sistema completo de preparación: rutina al detalle,
+              nutrición exacta, suplementación precisa y registro visual de tu progreso. Todo bajo
+              control, desde el día 1.
             </Text>
             <Text className="text-zinc-500 text-base text-center mb-8 max-w-md">
               Solo <Text className="text-red-500 font-bold">{getFormattedPrice()}/mes</Text>.

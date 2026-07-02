@@ -242,7 +242,36 @@ async function handleSyncOfficial(supabaseAdmin: any): Promise<SyncResult> {
     return { success: false, synced: 0, skipped: 0, errors: [error], source: 'official' };
   }
 
-  const result = await upsertReels(supabaseAdmin, reels, null, true, 'cron');
+  // Reels que SÍ tienen #trensreels → los que se activarán
+  const reelsWithHashtag = new Set(
+    reels.filter((r) => extractHashtags(r.caption).includes('#trensreels')).map((r) => r.id)
+  );
+
+  // Desactivar reels oficiales que ya no tienen #trensreels
+  if (reels.length > 0) {
+    const { data: activeReels } = await supabaseAdmin
+      .from('trens_feed')
+      .select('ig_media_id')
+      .eq('is_official', true)
+      .eq('is_active', true);
+
+    if (activeReels && activeReels.length > 0) {
+      const toDeactivate = activeReels
+        .map((r: any) => r.ig_media_id)
+        .filter((id: string) => !reelsWithHashtag.has(id));
+
+      if (toDeactivate.length > 0) {
+        await supabaseAdmin
+          .from('trens_feed')
+          .update({ is_active: false })
+          .in('ig_media_id', toDeactivate);
+        console.log(`🚫 Deactivated ${toDeactivate.length} reels (hashtag removed)`);
+      }
+    }
+  }
+
+  // Sincronizar Reels con #trensreels (upsert activa los nuevos y reactiva los existentes)
+  const result = await upsertReels(supabaseAdmin, reels, null, true, 'cron', '#trensreels');
 
   console.log(`✅ Official sync: ${result.synced} synced, ${result.skipped} skipped`);
 

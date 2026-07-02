@@ -9,48 +9,21 @@
   "customizations": {
     "vscode": {
       "extensions": [
-        // =====================================================
-        // 🤖 AI & Copilot - Asistencia IA
-        // =====================================================
         "GitHub.copilot",
         "GitHub.copilot-chat",
-
-        // =====================================================
-        // 📝 Code Quality - Calidad de código
-        // =====================================================
         "dbaeumer.vscode-eslint",
         "esbenp.prettier-vscode",
-
-        // =====================================================
-        // 🎨 Frontend - React Native & Tailwind
-        // =====================================================
         "bradlc.vscode-tailwindcss",
         "expo.vscode-expo-tools",
         "formulahendry.auto-rename-tag",
         "dsznajder.es7-react-js-snippets",
         "unifiedjs.vscode-mdx",
-
-        // =====================================================
-        // 🗄️ Database - Supabase & SQL
-        // =====================================================
         "cweijan.vscode-database-client2",
         "supabase.vscode-supabase-extension",
         "mtxr.sqltools",
         "mtxr.sqltools-driver-pg",
-
-        // =====================================================
-        // 🌐 API Testing - HTTP Client
-        // =====================================================
         "humao.rest-client",
-
-        // =====================================================
-        // 🎬 Media & Design
-        // =====================================================
         "yopenspace.media-preview",
-
-        // =====================================================
-        // 🔧 Utilities - Herramientas generales
-        // =====================================================
         "mikestead.dotenv",
         "christian-kohler.path-intellisense",
         "usernamehw.errorlens",
@@ -62,7 +35,8 @@
         "oderwat.indent-rainbow",
         "vitest.explorer",
         "streetsidesoftware.code-spell-checker",
-        "streetsidesoftware.code-spell-checker-spanish"
+        "streetsidesoftware.code-spell-checker-spanish",
+        "Gruntfuggly.todo-tree"
       ],
       "settings": {
         "editor.formatOnSave": true,
