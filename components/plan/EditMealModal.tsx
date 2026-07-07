@@ -22,7 +22,7 @@ import Animated, { useSharedValue, useAnimatedStyle, withSpring } from 'react-na
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from '../../lib/haptics';
 import { Alert } from '../../lib/alert';
-import { X, Plus, Trash2, Sparkles, Scale, Lock } from 'lucide-react-native';
+import { X, Plus, Trash2, Scale, Lock } from 'lucide-react-native';
 
 // ============================================================================
 // TYPES
@@ -34,13 +34,6 @@ interface Ingredient {
   portion?: string;
   skipGrams?: boolean;
   weightType?: 'cocido' | 'crudo';
-  nutritionInfo?: {
-    calories: number;
-    protein: number;
-    carbs: number;
-    fat: number;
-    suggestedGrams?: number;
-  };
 }
 
 interface MealOption {
@@ -55,12 +48,6 @@ interface Meal {
   time: string;
   options: MealOption[];
   selectedOption: number;
-  targetMacros?: {
-    calories: number;
-    protein: number;
-    carbs: number;
-    fat: number;
-  };
 }
 
 interface EditMealModalProps {
@@ -73,10 +60,6 @@ interface EditMealModalProps {
     ingredients: Ingredient[],
     notes?: string
   ) => Promise<void>;
-  onCalculateMacros?: (
-    ingredients: Ingredient[],
-    targetMacros?: { calories: number; protein: number; carbs: number; fat: number }
-  ) => Promise<Ingredient[]>;
 }
 
 // ============================================================================
@@ -118,13 +101,7 @@ const combineNamePortion = (name: string, portion?: string): string => {
 // ============================================================================
 // COMPONENT
 // ============================================================================
-export const EditMealModal: React.FC<EditMealModalProps> = ({
-  visible,
-  meal,
-  onClose,
-  onSave,
-  onCalculateMacros,
-}) => {
+export const EditMealModal: React.FC<EditMealModalProps> = ({ visible, meal, onClose, onSave }) => {
   const insets = useSafeAreaInsets();
   const [ingredients, setIngredients] = useState<Ingredient[]>([]);
   const [weightInputs, setWeightInputs] = useState<string[]>([]);
@@ -363,7 +340,6 @@ export const EditMealModal: React.FC<EditMealModalProps> = ({
               <View className="flex-1 mt-2">
                 <View className="flex-row items-center gap-2">
                   <Text className="text-white font-bold text-lg">Editar Comida</Text>
-                  <Sparkles size={14} color="#22C55E" />
                 </View>
                 <Text className="text-zinc-500 text-xs">
                   {formatTimeToAMPM(meal.time)} • {currentOption?.name || 'Opción Principal'}
@@ -383,8 +359,7 @@ export const EditMealModal: React.FC<EditMealModalProps> = ({
                     <Text className="text-yellow-400 text-xs font-bold">Alternativa</Text>
                   </View>
                   <Text className="text-yellow-300/70 text-xs">
-                    Las cantidades se calculan automáticamente según los macros del platillo
-                    principal. Puedes cambiar los ingredientes y se recalcularán las cantidades.
+                    Puedes cambiar los ingredientes de este platillo alternativo.
                   </Text>
                 </View>
               ) : (

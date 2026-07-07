@@ -33,7 +33,7 @@ import { CardioBlock } from '../plan/CardioBlockCard';
 // ============================================================================
 interface FocusCardioSlideProps {
   cardio: CardioBlock;
-  position: 'PRE' | 'POST';
+  position: 'PRE' | 'POST' | 'SCHEDULED';
   screenWidth: number;
   contentHeight: number;
   onEdit?: (cardioId: string) => void;
@@ -163,7 +163,11 @@ export const FocusCardioSlide: React.FC<FocusCardioSlideProps> = ({
             className="text-[11px] font-bold font-mono tracking-[3px]"
             style={{ color: typeColor }}
           >
-            {position === 'PRE' ? 'PRE-ENTRENO' : 'POST-ENTRENO'}
+            {position === 'PRE'
+              ? 'PRE-ENTRENO'
+              : position === 'POST'
+                ? 'POST-ENTRENO'
+                : 'CARDIO DEL DÍA'}
           </Text>
         </View>
 

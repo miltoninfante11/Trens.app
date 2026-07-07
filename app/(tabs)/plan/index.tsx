@@ -3,14 +3,14 @@
 // Línea de tiempo con Comidas, Stacks y Bloque de Entrenamiento
 // ============================================================================
 
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { View, Text, ScrollView, Pressable, RefreshControl } from 'react-native';
 import { PWAGuard } from '../../../components/auth/PWAGuard';
 import { GuestModuleLanding } from '../../../components/auth/GuestModuleLanding';
 import { useUserRoleContext } from '../../../context/UserRoleContext';
 import { Alert } from '../../../lib/alert';
 import Animated, { useAnimatedStyle, withSpring } from 'react-native-reanimated';
-import { Plus, Pill, Sparkles, ShoppingBag, StickyNote, Flame, Layers } from 'lucide-react-native';
+import { Plus, Pill, ShoppingBag, StickyNote, Flame, Layers } from 'lucide-react-native';
 import * as Haptics from '../../../lib/haptics';
 import { useRouter, useFocusEffect } from 'expo-router';
 
@@ -32,14 +32,6 @@ import { useHank } from '../../../context/HankContext';
 import { useSaveGuard } from '../../_layout';
 import { useSport } from '../../../context/SportContext';
 import { useNotifications } from '../../../context/NotificationContext';
-import {
-  calculateMacrosWithAI,
-  calculateUserDailyMacros,
-  recalculateAllMealsForNewCount,
-  calculateMealWithUserMacros,
-  calculateNutritionFromQuantities,
-  convertGramsPortions,
-} from '../../../services/hank/nutrition';
 
 // Import sport-specific screens
 import RaceScreen from '../race';
@@ -56,13 +48,6 @@ interface Ingredient {
   portion?: string;
   skipGrams?: boolean;
   weightType?: 'cocido' | 'crudo';
-  nutritionInfo?: {
-    calories: number;
-    protein: number;
-    carbs: number;
-    fat: number;
-    suggestedGrams?: number;
-  };
 }
 
 interface MealOption {
@@ -78,18 +63,6 @@ interface Meal {
   time: string;
   options: MealOption[];
   selectedOption: number;
-  targetMacros?: {
-    calories: number;
-    protein: number;
-    carbs: number;
-    fat: number;
-  };
-  actualMacros?: {
-    calories: number;
-    protein: number;
-    carbs: number;
-    fat: number;
-  };
 }
 
 interface StackItem {
@@ -163,43 +136,6 @@ const getSmartMealName = (index: number, total: number): string => {
     );
   }
   return `COMIDA ${index + 1}`;
-};
-
-/**
- * Calcula los macros REALES de una comida sumando la nutritionInfo de cada ingrediente
- * de la opción seleccionada. Retorna undefined si no hay datos de nutrición.
- */
-const computeActualMacros = (
-  options: MealOption[],
-  selectedOption: number
-): { calories: number; protein: number; carbs: number; fat: number } | undefined => {
-  const opt = options[selectedOption];
-  if (!opt) return undefined;
-
-  let cal = 0,
-    pro = 0,
-    car = 0,
-    fat = 0;
-  let hasNutrition = false;
-
-  for (const ing of opt.ingredients) {
-    if (ing.nutritionInfo) {
-      hasNutrition = true;
-      cal += ing.nutritionInfo.calories || 0;
-      pro += ing.nutritionInfo.protein || 0;
-      car += ing.nutritionInfo.carbs || 0;
-      fat += ing.nutritionInfo.fat || 0;
-    }
-  }
-
-  return hasNutrition
-    ? {
-        calories: Math.round(cal),
-        protein: Math.round(pro),
-        carbs: Math.round(car),
-        fat: Math.round(fat),
-      }
-    : undefined;
 };
 
 /**
@@ -431,28 +367,8 @@ function PlanScreen() {
   const [showAddOption, setShowAddOption] = useState(false);
   const [addOptionMealId, setAddOptionMealId] = useState<string | null>(null);
   const [addOptionMealName, setAddOptionMealName] = useState('');
-  const [mealMacros, setMealMacros] = useState<{
-    calories: number;
-    protein: number;
-    carbs: number;
-    fat: number;
-  } | null>(null);
-  // Macros diarios totales (para calcular por comida cuando el usuario agrega comidas)
-  const [dailyMacroTotals, setDailyMacroTotals] = useState<{
-    calories: number;
-    protein: number;
-    carbs: number;
-    fat: number;
-  } | null>(null);
-  const [newMealMacros, setNewMealMacros] = useState<{
-    calories: number;
-    protein: number;
-    carbs: number;
-    fat: number;
-  } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [isAdjustingMacros, setIsAdjustingMacros] = useState(false);
 
   // Cardio blocks state
   const [cardioBlocks, setCardioBlocks] = useState<CardioBlock[]>([]);
@@ -479,31 +395,6 @@ function PlanScreen() {
   const hasScrolledThisFocus = useRef(false);
   // Contador de veces que la pantalla recibió focus (para detectar navegación de regreso)
   const focusCount = useRef(0);
-
-  // ============================================================================
-  // HELPER: Obtener perfil completo con medidas corporales Y macros cacheados
-  // ============================================================================
-  const getFullProfileWithMeasurements = async (userId: string) => {
-    // Obtener perfil (incluyendo macros cacheados)
-    const { data: profile } = await supabase
-      .from('user_profiles')
-      .select(
-        'weight, height, goal, age, sex, body_fat_percentage, muscle_mass, activity_level, training_experience, metabolic_rate, training_days_per_week, cached_daily_macros, cached_macros_meal_count, cached_macros_updated_at'
-      )
-      .eq('user_id', userId)
-      .single();
-
-    // Obtener medidas corporales
-    const { data: measurements } = await supabase
-      .from('body_measurements')
-      .select('name, value, is_dominant')
-      .eq('user_id', userId);
-
-    return {
-      profile,
-      bodyMeasurements: measurements || [],
-    };
-  };
 
   // ============================================================================
   // DATA FETCHING
@@ -563,91 +454,6 @@ function PlanScreen() {
       });
 
       if (mealsData && mealsData.length > 0) {
-        // Calcular macros objetivo por comida
-        let perMealMacros: {
-          calories: number;
-          protein: number;
-          carbs: number;
-          fat: number;
-        } | null = null;
-
-        // Obtener perfil con macros cacheados
-        const { profile, bodyMeasurements } = await getFullProfileWithMeasurements(user.id);
-
-        // Verificar si podemos usar macros cacheados de la DB
-        const dbCachedMacros = profile?.cached_daily_macros as any;
-        const dbCachedMealCount = profile?.cached_macros_meal_count as number;
-        const canUseDBCache =
-          dbCachedMacros && dbCachedMacros.perMeal && dbCachedMealCount === mealsData.length;
-
-        if (canUseDBCache) {
-          // Usar macros de la base de datos
-          if (__DEV__) {
-            console.log('💾 PLAN: Usando macros cacheados de DB');
-          }
-          perMealMacros = dbCachedMacros.perMeal;
-          // Guardar totales en estado para uso al agregar comidas
-          if (dbCachedMacros.totalCalories) {
-            setDailyMacroTotals({
-              calories: dbCachedMacros.totalCalories,
-              protein: dbCachedMacros.totalProtein,
-              carbs: dbCachedMacros.totalCarbs,
-              fat: dbCachedMacros.totalFat,
-            });
-          }
-        } else {
-          // Calcular nuevos macros con IA
-          if (__DEV__) {
-            console.log('🧠 PLAN: Calculando macros con IA...');
-          }
-          try {
-            if (profile) {
-              const dailyMacros = await calculateUserDailyMacros({
-                weight: profile.weight || '75 KG',
-                height: profile.height || '1.75 M',
-                goal: profile.goal || 'MANTENER',
-                mealCount: mealsData.length || 3,
-                // Datos adicionales para ultra personalización
-                age: profile.age || undefined,
-                sex: profile.sex || undefined,
-                bodyFatPercentage: profile.body_fat_percentage || undefined,
-                muscleMass: profile.muscle_mass || undefined,
-                activityLevel: profile.activity_level || 'MODERADO',
-                trainingExperience: profile.training_experience || undefined,
-                metabolicRate: profile.metabolic_rate || undefined,
-                trainingDaysPerWeek: profile.training_days_per_week || undefined,
-                // Medidas corporales
-                bodyMeasurements: bodyMeasurements,
-              });
-              perMealMacros = dailyMacros.perMeal || null;
-
-              // Guardar macros totales en estado para uso al agregar comidas
-              setDailyMacroTotals({
-                calories: dailyMacros.totalCalories,
-                protein: dailyMacros.totalProtein,
-                carbs: dailyMacros.totalCarbs,
-                fat: dailyMacros.totalFat,
-              });
-
-              // Guardar en DB para próximas cargas
-              await supabase
-                .from('user_profiles')
-                .update({
-                  cached_daily_macros: dailyMacros,
-                  cached_macros_meal_count: mealsData.length,
-                  cached_macros_updated_at: new Date().toISOString(),
-                })
-                .eq('user_id', user.id);
-
-              if (__DEV__) {
-                console.log('💾 PLAN: Macros guardados en DB para cache');
-              }
-            }
-          } catch (error) {
-            console.error('Error calculating daily macros:', error);
-          }
-        }
-
         const formattedMeals: Meal[] = mealsData.map((meal: any, index: number) => {
           // Ingredientes principales de la comida (JSONB en meals.ingredients)
           const jsonIngredients = meal.ingredients || [];
@@ -664,28 +470,14 @@ function PlanScreen() {
               id: `main-${meal.id}`,
               name: 'Principal',
               notes: meal.notes || undefined,
-              ingredients: jsonIngredients.map((ing: any, idx: number) => {
-                // Normalizar nutritionInfo: soportar formato anidado y top-level
-                const nutrition = ing.nutritionInfo
-                  ? ing.nutritionInfo
-                  : ing.calories != null || ing.protein != null
-                    ? {
-                        calories: ing.calories || 0,
-                        protein: ing.protein || 0,
-                        carbs: ing.carbs || 0,
-                        fat: ing.fat || 0,
-                      }
-                    : undefined;
-                return {
-                  id: ing.id || `ing-${idx}`,
-                  name: ing.name,
-                  quantity: ing.skipGrams ? '' : ing.quantity || '~100g',
-                  portion: ing.portion,
-                  skipGrams: ing.skipGrams || undefined,
-                  weightType: ing.weightType || undefined,
-                  ...(nutrition ? { nutritionInfo: nutrition } : {}),
-                };
-              }),
+              ingredients: jsonIngredients.map((ing: any, idx: number) => ({
+                id: ing.id || `ing-${idx}`,
+                name: ing.name,
+                quantity: ing.skipGrams ? '' : ing.quantity || '~100g',
+                portion: ing.portion,
+                skipGrams: ing.skipGrams || undefined,
+                weightType: ing.weightType || undefined,
+              })),
             });
           }
 
@@ -699,40 +491,22 @@ function PlanScreen() {
                 id: opt.id,
                 name: opt.name || 'Alternativa',
                 notes: opt.notes || undefined,
-                ingredients: (opt.ingredients || []).map((ing: any, idx: number) => {
-                  // Normalizar nutritionInfo: soportar formato anidado y top-level
-                  const nutrition = ing.nutritionInfo
-                    ? ing.nutritionInfo
-                    : ing.calories != null || ing.protein != null
-                      ? {
-                          calories: ing.calories || 0,
-                          protein: ing.protein || 0,
-                          carbs: ing.carbs || 0,
-                          fat: ing.fat || 0,
-                        }
-                      : undefined;
-                  return {
-                    id: ing.id || `opt-ing-${idx}`,
-                    name: ing.name,
-                    quantity: ing.skipGrams ? '' : ing.quantity || '~100g',
-                    portion: ing.portion,
-                    skipGrams: ing.skipGrams || undefined,
-                    weightType: ing.weightType || undefined,
-                    ...(nutrition ? { nutritionInfo: nutrition } : {}),
-                  };
-                }),
+                ingredients: (opt.ingredients || []).map((ing: any, idx: number) => ({
+                  id: ing.id || `opt-ing-${idx}`,
+                  name: ing.name,
+                  quantity: ing.skipGrams ? '' : ing.quantity || '~100g',
+                  portion: ing.portion,
+                  skipGrams: ing.skipGrams || undefined,
+                  weightType: ing.weightType || undefined,
+                })),
               });
             });
           }
 
           // Validar selected_option: si excede el número de opciones, usar 0
-          // Esto maneja el caso donde se eliminó una alternativa
           const savedSelection = meal.selected_option ?? 0;
           const validSelection =
             options.length > 0 ? Math.min(Math.max(0, savedSelection), options.length - 1) : 0;
-
-          // Calcular macros reales desde nutritionInfo de ingredientes
-          const actual = computeActualMacros(options, validSelection);
 
           return {
             id: meal.id,
@@ -741,8 +515,6 @@ function PlanScreen() {
               meal.scheduled_time?.slice(0, 5) ||
               `${String(7 + ((index * 3) % 15)).padStart(2, '0')}:00`,
             selectedOption: validSelection,
-            targetMacros: perMealMacros || undefined,
-            actualMacros: actual,
             options,
           };
         });
@@ -753,7 +525,6 @@ function PlanScreen() {
           const expectedName = getSmartMealName(i, total);
           if (formattedMeals[i].name !== expectedName) {
             formattedMeals[i].name = expectedName;
-            // Actualizar en DB silenciosamente
             supabase
               .from('meals')
               .update({ name: expectedName, position: i })
@@ -763,11 +534,6 @@ function PlanScreen() {
         }
 
         setMeals(formattedMeals);
-
-        // Guardar macros por comida en el estado para uso posterior
-        if (perMealMacros) {
-          setMealMacros(perMealMacros);
-        }
       }
 
       // Fetch supplement stack (con datos del producto vinculado si existe)
@@ -1530,9 +1296,6 @@ function PlanScreen() {
               .eq('id', newMeals[i].id);
           }
 
-          // Recalcular macros diarios sumando las comidas restantes (bottom-up)
-          // NO tocamos cantidades de otras comidas
-          await recalculateDailyMacrosFromMeals();
           await fetchData();
         },
       },
@@ -1586,263 +1349,6 @@ function PlanScreen() {
     ]);
   };
 
-  // ============================================================================
-  // SYNC: Actualizar cached_daily_macros en Supabase para sincronización
-  // ============================================================================
-  const updateCachedDailyMacros = async (mealCount: number) => {
-    try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) return;
-
-      // Obtener perfil completo
-      const { profile, bodyMeasurements } = await getFullProfileWithMeasurements(user.id);
-      if (!profile) return;
-
-      // Calcular macros diarios con IA
-      const dailyMacros = await calculateUserDailyMacros({
-        weight: profile.weight || '75 KG',
-        height: profile.height || '1.75 M',
-        goal: profile.goal || 'MANTENER',
-        mealCount: mealCount,
-        age: profile.age || undefined,
-        sex: profile.sex || undefined,
-        bodyFatPercentage: profile.body_fat_percentage || undefined,
-        muscleMass: profile.muscle_mass || undefined,
-        activityLevel: profile.activity_level || 'MODERADO',
-        trainingExperience: profile.training_experience || undefined,
-        metabolicRate: profile.metabolic_rate || undefined,
-        trainingDaysPerWeek: profile.training_days_per_week || undefined,
-        bodyMeasurements: bodyMeasurements,
-      });
-
-      // Guardar en Supabase para sincronización entre dispositivos
-      await supabase
-        .from('user_profiles')
-        .update({
-          cached_daily_macros: dailyMacros,
-          cached_macros_meal_count: mealCount,
-          cached_macros_updated_at: new Date().toISOString(),
-        })
-        .eq('user_id', user.id);
-
-      console.log('💾 SYNC: Macros guardados en Supabase para sincronización');
-
-      // Actualizar estado local
-      setMealMacros(dailyMacros.perMeal || null);
-    } catch (error) {
-      console.error('Error updating cached daily macros:', error);
-    }
-  };
-
-  // ============================================================================
-  // RECALCULAR MACROS DIARIOS DESDE COMIDAS REALES (bottom-up)
-  // Suma la nutritionInfo de todos los ingredientes de todas las comidas.
-  // NO modifica cantidades ni porciones — solo calcula los totales reales.
-  // ============================================================================
-  const recalculateDailyMacrosFromMeals = async () => {
-    try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) return;
-
-      // Obtener TODAS las comidas del usuario con ingredientes JSONB
-      const { data: allMeals } = await supabase
-        .from('meals')
-        .select('id, ingredients, selected_option, meal_options(id, ingredients, is_selected)')
-        .eq('user_id', user.id);
-
-      if (!allMeals || allMeals.length === 0) {
-        // Sin comidas: limpiar macros
-        setDailyMacroTotals(null);
-        setMealMacros(null);
-        await supabase
-          .from('user_profiles')
-          .update({
-            cached_daily_macros: null,
-            cached_macros_meal_count: 0,
-            cached_macros_updated_at: new Date().toISOString(),
-          })
-          .eq('user_id', user.id);
-        console.log('🗑️ SYNC: Macros limpiados (sin comidas)');
-        return;
-      }
-
-      // Sumar nutritionInfo de la opción seleccionada de cada comida
-      let totalCal = 0,
-        totalPro = 0,
-        totalCarbs = 0,
-        totalFat = 0;
-      let hasAnyNutrition = false;
-
-      for (const meal of allMeals) {
-        // Determinar los ingredientes de la opción seleccionada
-        let activeIngredients: any[] = meal.ingredients || [];
-
-        // Si hay opciones (meal_options), usar la seleccionada
-        const options = (meal as any).meal_options;
-        if (options && options.length > 0) {
-          const selectedOpt = options.find((o: any) => o.is_selected);
-          if (selectedOpt && selectedOpt.ingredients) {
-            activeIngredients = selectedOpt.ingredients;
-          }
-        }
-
-        // Sumar nutritionInfo de cada ingrediente
-        for (const ing of activeIngredients) {
-          if (ing.nutritionInfo) {
-            hasAnyNutrition = true;
-            totalCal += ing.nutritionInfo.calories || 0;
-            totalPro += ing.nutritionInfo.protein || 0;
-            totalCarbs += ing.nutritionInfo.carbs || 0;
-            totalFat += ing.nutritionInfo.fat || 0;
-          }
-        }
-      }
-
-      if (!hasAnyNutrition) {
-        console.log('⚠️ Ninguna comida tiene nutritionInfo, no se puede recalcular');
-        return;
-      }
-
-      const realDailyTotals = {
-        calories: Math.round(totalCal),
-        protein: Math.round(totalPro),
-        carbs: Math.round(totalCarbs),
-        fat: Math.round(totalFat),
-      };
-
-      const mealCount = allMeals.length;
-      const perMealAvg = {
-        calories: Math.round(totalCal / mealCount),
-        protein: Math.round(totalPro / mealCount),
-        carbs: Math.round(totalCarbs / mealCount),
-        fat: Math.round(totalFat / mealCount),
-      };
-
-      // Actualizar estado local
-      setDailyMacroTotals(realDailyTotals);
-      setMealMacros(perMealAvg);
-
-      // Guardar en Supabase para sincronización
-      const cachedMacros = {
-        totalCalories: realDailyTotals.calories,
-        totalProtein: realDailyTotals.protein,
-        totalCarbs: realDailyTotals.carbs,
-        totalFat: realDailyTotals.fat,
-        perMeal: perMealAvg,
-      };
-
-      await supabase
-        .from('user_profiles')
-        .update({
-          cached_daily_macros: cachedMacros,
-          cached_macros_meal_count: mealCount,
-          cached_macros_updated_at: new Date().toISOString(),
-        })
-        .eq('user_id', user.id);
-
-      console.log('📊 SYNC: Macros diarios recalculados desde comidas reales:', realDailyTotals);
-    } catch (error) {
-      console.error('❌ Error recalculando macros desde comidas:', error);
-    }
-  };
-
-  // Recalcular macros de todas las comidas cuando cambia la cantidad
-  const recalculateAllMealsAfterChange = async (newMealCount: number, mealIds?: string[]) => {
-    try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) return;
-
-      // Obtener perfil del usuario
-      const { data: profile } = await supabase
-        .from('user_profiles')
-        .select('weight, height, goal')
-        .eq('user_id', user.id)
-        .single();
-
-      if (!profile) return;
-
-      // Usar mealIds proporcionados o obtenerlos de la base de datos
-      let targetMealIds = mealIds;
-      if (!targetMealIds) {
-        const { data: currentMeals } = await supabase
-          .from('meals')
-          .select('id')
-          .eq('user_id', user.id);
-        targetMealIds = currentMeals?.map((m) => m.id) || [];
-      }
-
-      if (targetMealIds.length === 0) return;
-
-      // Obtener todas las comidas con sus ingredientes (JSONB)
-      const { data: allMeals } = await supabase
-        .from('meals')
-        .select('id, ingredients')
-        .in('id', targetMealIds);
-
-      if (!allMeals || allMeals.length === 0) return;
-
-      // Preparar datos para recálculo - usar ingredientes JSONB de cada comida
-      const mealsToRecalculate = allMeals
-        .filter((m) => m.ingredients && m.ingredients.length > 0)
-        .map((m) => ({
-          optionId: m.id, // Usamos el ID de la comida como optionId
-          ingredients: (m.ingredients as any[]).map((ing) => ({
-            name: ing.name,
-          })),
-        }));
-
-      if (mealsToRecalculate.length === 0) {
-        console.log('⚠️ No hay comidas con ingredientes para recalcular');
-        return;
-      }
-
-      console.log(
-        `🔄 Recalculando ${mealsToRecalculate.length} comidas para ${newMealCount} comidas/día...`
-      );
-
-      // Recalcular con IA
-      const recalculated = await recalculateAllMealsForNewCount(mealsToRecalculate, {
-        weight: profile.weight || '75 KG',
-        height: profile.height || '1.75 M',
-        goal: profile.goal || 'MANTENER',
-        mealCount: newMealCount,
-      });
-
-      // Actualizar cada comida en la base de datos (JSONB) - preservar nutritionInfo
-      for (const option of recalculated) {
-        const ingredientsJsonb = option.ingredients.map((ing: any) => ({
-          name: ing.name,
-          quantity: ing.quantity,
-          portion: ing.portion || '',
-          ...(ing.nutritionInfo ? { nutritionInfo: ing.nutritionInfo } : {}),
-        }));
-
-        await supabase
-          .from('meals')
-          .update({ ingredients: ingredientsJsonb })
-          .eq('id', option.optionId);
-      }
-
-      console.log('✅ Recálculo completado, actualizando cached_daily_macros...');
-
-      // Actualizar cached_daily_macros en user_profiles
-      await updateCachedDailyMacros(newMealCount);
-
-      // Refrescar datos para actualizar la UI
-      await fetchData();
-
-      console.log('✅ UI y cache actualizados');
-    } catch (error) {
-      console.error('❌ Error recalculando comidas:', error);
-    }
-  };
-
   // Editar comida (abre modal)
   const handleEditMeal = (mealId: string, optionIndex?: number) => {
     const meal = meals.find((m) => m.id === mealId);
@@ -1869,40 +1375,15 @@ function PlanScreen() {
     const isAlternative = !optionId.startsWith('main-');
 
     try {
+      const ingredientsToSave = ingredients.map((ing) => ({
+        name: ing.name,
+        quantity: ing.skipGrams ? '' : ing.quantity || '~100g',
+        portion: ing.portion || '',
+        ...(ing.skipGrams ? { skipGrams: true } : {}),
+        ...(ing.weightType ? { weightType: ing.weightType } : {}),
+      }));
+
       if (isAlternative) {
-        // ═══════════════════════════════════════════════════════════════
-        // FLUJO ALTERNATIVA: Recalcular cantidades según macros de la comida principal
-        // ═══════════════════════════════════════════════════════════════
-
-        // Obtener macros actuales de la comida principal
-        const meal = meals.find((m) => m.id === mealId);
-        const mainMacros = meal?.actualMacros || meal?.targetMacros;
-
-        if (!mainMacros || mainMacros.calories <= 0) {
-          Alert.alert('Error', 'No se encontraron macros de la comida principal para recalcular');
-          return;
-        }
-
-        console.log('🔄 Guardando alternativa con recálculo de macros:', mainMacros);
-
-        // Recalcular cantidades de los ingredientes para que coincidan con los macros de la principal
-        const recalced = await calculateMealWithUserMacros(
-          ingredients.map((ing, idx) => ({
-            id: ing.id || `alt-${idx}`,
-            name: ing.name,
-            quantity: ing.quantity || '',
-            portion: ing.portion || '',
-          })),
-          mainMacros
-        );
-
-        const ingredientsToSave = recalced.map((ing) => ({
-          name: ing.name,
-          quantity: ing.quantity || '~100g',
-          portion: ing.portion || '',
-          ...(ing.nutritionInfo ? { nutritionInfo: ing.nutritionInfo } : {}),
-        }));
-
         const { error } = await supabase
           .from('meal_options')
           .update({
@@ -1910,77 +1391,8 @@ function PlanScreen() {
             ...(notes !== undefined ? { notes: notes || null } : {}),
           })
           .eq('id', optionId);
-
         if (error) throw error;
-
-        console.log('✅ Alternativa guardada con cantidades recalculadas');
       } else {
-        // ═══════════════════════════════════════════════════════════════
-        // FLUJO COMIDA PRINCIPAL: Sincronizar, calcular y guardar
-        // ═══════════════════════════════════════════════════════════════
-
-        // PASO 1: Sincronizar gramos ↔ porciones (solo para ingredientes sin skipGrams)
-        let synced = ingredients;
-        try {
-          // Separar ingredientes con y sin skipGrams
-          const toConvert = ingredients
-            .map((ing, i) => ({ ing, i }))
-            .filter(({ ing }) => !ing.skipGrams);
-
-          if (toConvert.length > 0) {
-            const converted = await convertGramsPortions(
-              toConvert.map(({ ing }) => ({
-                name: ing.name,
-                quantity: ing.quantity?.trim() || undefined,
-                portion: ing.portion?.trim() || undefined,
-              }))
-            );
-            synced = [...ingredients];
-            toConvert.forEach(({ i }, ci) => {
-              const c = converted[ci];
-              synced[i] = {
-                ...ingredients[i],
-                quantity: ingredients[i].quantity || c.quantity || '~100g',
-                portion: ingredients[i].portion || c.portion || '',
-              };
-            });
-          }
-        } catch (convError) {
-          console.warn('Error sincronizando gramos/porciones:', convError);
-        }
-
-        // PASO 2: Calcular nutritionInfo desde las cantidades sincronizadas
-        // Para skipGrams: se calcula macros basado en el nombre/porción sin asignar gramos
-        let finalIngredients = synced;
-        try {
-          const ingredientsWithIds = synced.map((ing, i) => ({
-            id: ing.id || `edit-${i}`,
-            name: ing.name,
-            quantity: ing.skipGrams ? '' : ing.quantity || '~100g',
-            portion: ing.portion || '',
-            skipGrams: ing.skipGrams || false,
-          }));
-          const calculated = await calculateNutritionFromQuantities(ingredientsWithIds);
-          finalIngredients = calculated.map((cal, i) => ({
-            ...synced[i],
-            quantity: synced[i].skipGrams ? '' : synced[i].quantity || '~100g',
-            portion: synced[i].skipGrams ? '' : synced[i].portion || '',
-            nutritionInfo: cal.nutritionInfo || synced[i].nutritionInfo,
-          }));
-        } catch (calcError) {
-          console.warn('Error calculando nutrición:', calcError);
-        }
-
-        // PASO 3: Guardar ingredientes
-        const ingredientsToSave = finalIngredients.map((ing) => ({
-          name: ing.name,
-          quantity: ing.skipGrams ? '' : ing.quantity || '~100g',
-          portion: ing.portion || '',
-          ...(ing.nutritionInfo ? { nutritionInfo: ing.nutritionInfo } : {}),
-          ...(ing.skipGrams ? { skipGrams: true } : {}),
-          ...(ing.weightType ? { weightType: ing.weightType } : {}),
-        }));
-
         const { error } = await supabase
           .from('meals')
           .update({
@@ -1988,113 +1400,13 @@ function PlanScreen() {
             ...(notes !== undefined ? { notes: notes || null } : {}),
           })
           .eq('id', mealId);
-
         if (error) throw error;
-
-        // PASO 4: Recalcular alternativas (meal_options) con los nuevos macros
-        try {
-          const newMealMacros = finalIngredients.reduce(
-            (acc, ing) => {
-              if (ing.nutritionInfo) {
-                acc.calories += ing.nutritionInfo.calories || 0;
-                acc.protein += ing.nutritionInfo.protein || 0;
-                acc.carbs += ing.nutritionInfo.carbs || 0;
-                acc.fat += ing.nutritionInfo.fat || 0;
-              }
-              return acc;
-            },
-            { calories: 0, protein: 0, carbs: 0, fat: 0 }
-          );
-
-          if (newMealMacros.calories > 0) {
-            const { data: options } = await supabase
-              .from('meal_options')
-              .select('id, ingredients')
-              .eq('meal_id', mealId);
-
-            if (options && options.length > 0) {
-              console.log(
-                `🔄 Recalculando ${options.length} alternativas con nuevos macros:`,
-                newMealMacros
-              );
-              for (const opt of options) {
-                const optIngredients = (opt.ingredients as any[]) || [];
-                if (optIngredients.length === 0) continue;
-
-                try {
-                  const recalced = await calculateMealWithUserMacros(
-                    optIngredients.map((ing: any, idx: number) => ({
-                      id: `opt-${idx}`,
-                      name: ing.name,
-                      quantity: ing.quantity || '',
-                      portion: ing.portion || '',
-                    })),
-                    newMealMacros
-                  );
-
-                  const optIngredientsToSave = recalced.map((ing) => ({
-                    name: ing.name,
-                    quantity: ing.quantity,
-                    portion: ing.portion || '',
-                    ...(ing.nutritionInfo ? { nutritionInfo: ing.nutritionInfo } : {}),
-                  }));
-
-                  await supabase
-                    .from('meal_options')
-                    .update({ ingredients: optIngredientsToSave })
-                    .eq('id', opt.id);
-                } catch (optError) {
-                  console.warn(`Error recalculando alternativa ${opt.id}:`, optError);
-                }
-              }
-            }
-          }
-        } catch (optionsError) {
-          console.warn('Error recalculando alternativas:', optionsError);
-        }
       }
 
-      // Recalcular macros diarios sumando TODAS las comidas reales (bottom-up)
-      await recalculateDailyMacrosFromMeals();
-
-      // Refresh data para actualizar la UI
       await fetchData();
     } catch (error) {
       console.error('Error saving ingredients:', error);
       Alert.alert('Error', 'No se pudieron guardar los cambios');
-      throw error;
-    }
-  };
-
-  // Calcular macros con IA usando targetMacros (preserva nutritionInfo)
-  const handleCalculateMacros = async (
-    ingredients: Ingredient[],
-    targetMacros?: { calories: number; protein: number; carbs: number; fat: number }
-  ): Promise<Ingredient[]> => {
-    try {
-      // Si hay targetMacros, usar la función precisa
-      if (targetMacros) {
-        const calculated = await calculateMealWithUserMacros(ingredients, targetMacros);
-        return calculated.map((ing) => ({
-          id: ing.id,
-          name: ing.name,
-          quantity: ing.quantity,
-          portion: ing.portion,
-          nutritionInfo: ing.nutritionInfo,
-        }));
-      }
-
-      // Fallback a la función genérica
-      const calculated = await calculateMacrosWithAI(ingredients);
-      return calculated.map((ing) => ({
-        id: ing.id,
-        name: ing.name,
-        quantity: ing.quantity,
-        portion: ing.portion,
-        nutritionInfo: ing.nutritionInfo,
-      }));
-    } catch (error) {
-      console.error('Error calculating macros:', error);
       throw error;
     }
   };
@@ -2123,52 +1435,13 @@ function PlanScreen() {
       } = await supabase.auth.getUser();
       if (!user) return;
 
-      // Formatear hora correctamente (acepta "7", "07", "7:30", "07:30")
+      // Formatear hora correctamente
       let formattedTime = time.trim();
       if (!formattedTime.includes(':')) {
         formattedTime = formattedTime.padStart(2, '0') + ':00';
       } else {
         const [hours, minutes] = formattedTime.split(':');
         formattedTime = hours.padStart(2, '0') + ':' + (minutes || '00').padStart(2, '0');
-      }
-
-      // Calcular nutritionInfo SIN cambiar cantidades del usuario
-      let finalIngredients: {
-        name: string;
-        quantity: string;
-        portion: string;
-        skipGrams?: boolean;
-        weightType?: 'cocido' | 'crudo';
-        nutritionInfo?: {
-          calories: number;
-          protein: number;
-          carbs: number;
-          fat: number;
-          suggestedGrams?: number;
-        };
-      }[] = ingredients;
-
-      setIsAdjustingMacros(true);
-      try {
-        const ingredientsWithIds = ingredients.map((ing, i) => ({
-          id: `temp-${i}`,
-          name: ing.name,
-          quantity: ing.skipGrams ? '' : ing.quantity || '',
-          portion: ing.portion || '',
-          skipGrams: ing.skipGrams || false,
-        }));
-
-        const calculated = await calculateNutritionFromQuantities(ingredientsWithIds);
-        finalIngredients = calculated.map((ing, i) => ({
-          name: ingredients[i].name,
-          quantity: ingredients[i].skipGrams ? '' : ingredients[i].quantity || '',
-          portion: ingredients[i].skipGrams ? '' : ingredients[i].portion || '',
-          nutritionInfo: ing.nutritionInfo,
-          skipGrams: ingredients[i].skipGrams || undefined,
-          weightType: ingredients[i].weightType || undefined,
-        }));
-      } catch (error) {
-        console.warn('Error calculando nutrición, guardando sin nutritionInfo:', error);
       }
 
       // Calcular posición (última + 1) y nombre inteligente
@@ -2181,11 +1454,10 @@ function PlanScreen() {
         user_id: user.id,
         name: mealName,
         scheduled_time: formattedTime,
-        ingredients: finalIngredients.map((ing) => ({
+        ingredients: ingredients.map((ing) => ({
           name: ing.name,
           quantity: ing.skipGrams ? '' : ing.quantity || '~100 gr',
           portion: ing.portion || '',
-          ...(ing.nutritionInfo ? { nutritionInfo: ing.nutritionInfo } : {}),
           ...(ing.skipGrams ? { skipGrams: true } : {}),
           ...(ing.weightType ? { weightType: ing.weightType } : {}),
         })),
@@ -2199,15 +1471,10 @@ function PlanScreen() {
         throw mealError;
       }
 
-      // Recalcular macros diarios sumando TODAS las comidas reales (bottom-up)
-      // NO tocamos cantidades de otras comidas
-      await recalculateDailyMacrosFromMeals();
       await fetchData();
     } catch (error) {
       console.error('Error adding meal:', error);
       Alert.alert('Error', 'No se pudo agregar la comida');
-    } finally {
-      setIsAdjustingMacros(false);
     }
   };
 
@@ -2335,12 +1602,8 @@ function PlanScreen() {
     const mealIndex = meals.findIndex((m) => m.id === mealId);
     const displayName = meal.name || getSmartMealName(mealIndex, meals.length);
 
-    // PRIORIDAD: actualMacros (macros reales calculados) > targetMacros > mealMacros
-    const macros = meal.actualMacros || meal.targetMacros || mealMacros;
-
     setAddOptionMealId(mealId);
     setAddOptionMealName(displayName);
-    setMealMacros(macros || null);
     setShowAddOption(true);
   };
 
@@ -2365,12 +1628,11 @@ function PlanScreen() {
       const meal = meals.find((m) => m.id === mealId);
       const newOptionIndex = meal ? meal.options.length : 0;
 
-      // Preparar ingredientes como JSONB (preservando nutritionInfo si existe)
+      // Preparar ingredientes como JSONB
       const ingredientsJsonb = ingredients.map((ing) => ({
         name: ing.name,
         quantity: ing.quantity || '~100g',
         portion: ing.portion || '',
-        ...(ing.nutritionInfo ? { nutritionInfo: ing.nutritionInfo } : {}),
       }));
 
       // Crear la opción en meal_options con ingredients JSONB
@@ -2676,36 +1938,6 @@ function PlanScreen() {
   const timeline = buildTimeline();
 
   // ============================================================================
-  // MACROS REALES: Sumar actualMacros de todas las comidas
-  // ============================================================================
-  const computedDailyMacros = useMemo(() => {
-    let cal = 0,
-      pro = 0,
-      car = 0,
-      fat = 0;
-    let hasAny = false;
-
-    for (const meal of meals) {
-      if (meal.actualMacros) {
-        hasAny = true;
-        cal += meal.actualMacros.calories;
-        pro += meal.actualMacros.protein;
-        car += meal.actualMacros.carbs;
-        fat += meal.actualMacros.fat;
-      }
-    }
-
-    return hasAny
-      ? {
-          calories: Math.round(cal),
-          protein: Math.round(pro),
-          carbs: Math.round(car),
-          fat: Math.round(fat),
-        }
-      : null;
-  }, [meals]);
-
-  // ============================================================================
   // AUTO-SCROLL: Calcular y scrollear al elemento que corresponde a la hora actual
   // ============================================================================
   const getCurrentTimelineIndex = useCallback(() => {
@@ -2984,49 +2216,12 @@ function PlanScreen() {
           </View>
         </View>
 
-        {/* Daily Stats Badges - Macros REALES si disponibles, target como fallback */}
+        {/* Daily Stats Badges */}
         <View className="flex-row flex-wrap gap-3 mt-3">
           <View className="flex-row items-center gap-1">
             <View className="w-1.5 h-1.5 rounded-full bg-green-500" />
             <Text className="text-zinc-500 text-[10px] font-mono">{meals.length} COMIDAS</Text>
           </View>
-          {(computedDailyMacros || mealMacros) && (
-            <>
-              <View className="flex-row items-center gap-1">
-                <View className="w-1.5 h-1.5 rounded-full bg-orange-500" />
-                <Text className="text-zinc-500 text-[10px] font-mono">
-                  {computedDailyMacros
-                    ? computedDailyMacros.calories
-                    : mealMacros!.calories * meals.length}{' '}
-                  KCAL
-                </Text>
-              </View>
-              <View className="flex-row items-center gap-1">
-                <View className="w-1.5 h-1.5 rounded-full bg-purple-500" />
-                <Text className="text-zinc-500 text-[10px] font-mono">
-                  {computedDailyMacros
-                    ? computedDailyMacros.protein
-                    : mealMacros!.protein * meals.length}
-                  P
-                </Text>
-              </View>
-              <View className="flex-row items-center gap-1">
-                <View className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-                <Text className="text-zinc-500 text-[10px] font-mono">
-                  {computedDailyMacros
-                    ? computedDailyMacros.carbs
-                    : mealMacros!.carbs * meals.length}
-                  C
-                </Text>
-              </View>
-              <View className="flex-row items-center gap-1">
-                <View className="w-1.5 h-1.5 rounded-full bg-blue-500" />
-                <Text className="text-zinc-500 text-[10px] font-mono">
-                  {computedDailyMacros ? computedDailyMacros.fat : mealMacros!.fat * meals.length}G
-                </Text>
-              </View>
-            </>
-          )}
         </View>
       </View>
 
@@ -3166,50 +2361,10 @@ function PlanScreen() {
           )}
         </View>
 
-        {/* Indicador de ajuste de macros con IA */}
-        {isAdjustingMacros && (
-          <View className="bg-zinc-900/80 border border-red-500/40 rounded-xl p-4 mt-4 mx-1">
-            <View className="flex-row items-center gap-3">
-              <View className="w-8 h-8 bg-red-600 rounded-full items-center justify-center">
-                <Sparkles size={16} color="#fff" />
-              </View>
-              <View className="flex-1">
-                <Text className="text-white font-bold text-sm">Personalizando tu comida...</Text>
-                <Text className="text-zinc-400 text-xs mt-0.5">
-                  Ajustando porciones según tus macros diarios
-                </Text>
-              </View>
-            </View>
-          </View>
-        )}
-
         {/* Add Meal Button - PREMIUM SAVAGE */}
         <Pressable
           onPress={() => {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            const newMealCount = meals.length + 1;
-
-            // Calcular macros objetivo para la nueva comida
-            if (mealMacros && meals.length > 0) {
-              // Si ya hay comidas, ajustar proporcionalmente
-              const currentMealCount = meals.length;
-              const adjustedMacros = {
-                calories: Math.round((mealMacros.calories * currentMealCount) / newMealCount),
-                protein: Math.round((mealMacros.protein * currentMealCount) / newMealCount),
-                carbs: Math.round((mealMacros.carbs * currentMealCount) / newMealCount),
-                fat: Math.round((mealMacros.fat * currentMealCount) / newMealCount),
-              };
-              setNewMealMacros(adjustedMacros);
-            } else if (dailyMacroTotals) {
-              // Si es la primera comida, dividir los totales diarios
-              const newMealMacrosCalc = {
-                calories: Math.round(dailyMacroTotals.calories / newMealCount),
-                protein: Math.round(dailyMacroTotals.protein / newMealCount),
-                carbs: Math.round(dailyMacroTotals.carbs / newMealCount),
-                fat: Math.round(dailyMacroTotals.fat / newMealCount),
-              };
-              setNewMealMacros(newMealMacrosCalc);
-            }
             setShowAddMeal(true);
           }}
           className="w-full py-5 mt-6 rounded-2xl active:scale-[0.98]"
@@ -3309,11 +2464,7 @@ function PlanScreen() {
       {/* Modals */}
       <AddMealModal
         visible={showAddMeal}
-        targetMacros={newMealMacros || undefined}
-        onClose={() => {
-          setShowAddMeal(false);
-          setNewMealMacros(null);
-        }}
+        onClose={() => setShowAddMeal(false)}
         onSave={handleAddMeal}
       />
 
@@ -3325,7 +2476,6 @@ function PlanScreen() {
           setEditingMeal(null);
         }}
         onSave={handleSaveIngredients}
-        onCalculateMacros={handleCalculateMacros}
       />
 
       <TimePickerModal
@@ -3356,15 +2506,12 @@ function PlanScreen() {
         visible={showAddOption}
         mealId={addOptionMealId || ''}
         mealName={addOptionMealName}
-        targetMacros={mealMacros || undefined}
         onClose={() => {
           setShowAddOption(false);
           setAddOptionMealId(null);
           setAddOptionMealName('');
-          setMealMacros(null);
         }}
         onSave={handleSaveOption}
-        onCalculateMacros={handleCalculateMacros}
       />
 
       <PlanNotesModal

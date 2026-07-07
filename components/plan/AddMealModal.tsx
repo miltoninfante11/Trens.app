@@ -36,16 +36,8 @@ interface Ingredient {
   weightType?: 'cocido' | 'crudo';
 }
 
-interface TargetMacros {
-  calories: number;
-  protein: number;
-  carbs: number;
-  fat: number;
-}
-
 interface AddMealModalProps {
   visible: boolean;
-  targetMacros?: TargetMacros;
   onClose: () => void;
   onSave: (ingredients: Ingredient[], time: string, notes?: string) => void;
 }
@@ -53,12 +45,7 @@ interface AddMealModalProps {
 // ============================================================================
 // COMPONENT
 // ============================================================================
-export const AddMealModal: React.FC<AddMealModalProps> = ({
-  visible,
-  targetMacros,
-  onClose,
-  onSave,
-}) => {
+export const AddMealModal: React.FC<AddMealModalProps> = ({ visible, onClose, onSave }) => {
   const insets = useSafeAreaInsets();
 
   // Default to current hour rounded to next quarter
@@ -76,7 +63,7 @@ export const AddMealModal: React.FC<AddMealModalProps> = ({
   const [selectedPeriod, setSelectedPeriod] = useState<'AM' | 'PM'>(defaultPeriod);
   const [ingredients, setIngredients] = useState<
     { name: string; weightGrams: string; skipGrams: boolean; weightType: 'cocido' | 'crudo' | '' }[]
-  >([{ name: '', weightGrams: '', skipGrams: false, weightType: '' }]);
+  >([{ name: '', weightGrams: '', skipGrams: true, weightType: '' }]);
   const [isSaving, setIsSaving] = useState(false);
   const [notes, setNotes] = useState('');
 
@@ -140,7 +127,7 @@ export const AddMealModal: React.FC<AddMealModalProps> = ({
       setSelectedHour(adjH === 0 ? 12 : adjH > 12 ? adjH - 12 : adjH);
       setSelectedMinute(adjM);
       setSelectedPeriod(adjH >= 12 ? 'PM' : 'AM');
-      setIngredients([{ name: '', weightGrams: '', skipGrams: false, weightType: '' }]);
+      setIngredients([{ name: '', weightGrams: '', skipGrams: true, weightType: '' }]);
       setNotes('');
     }
   }, [visible]);
@@ -149,7 +136,7 @@ export const AddMealModal: React.FC<AddMealModalProps> = ({
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setIngredients([
       ...ingredients,
-      { name: '', weightGrams: '', skipGrams: false, weightType: '' },
+      { name: '', weightGrams: '', skipGrams: true, weightType: '' },
     ]);
   };
 
@@ -249,7 +236,7 @@ export const AddMealModal: React.FC<AddMealModalProps> = ({
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       onSave(finalIngredients, getTime24h(), notes.trim() || undefined);
-      setIngredients([{ name: '', weightGrams: '', skipGrams: false, weightType: '' }]);
+      setIngredients([{ name: '', weightGrams: '', skipGrams: true, weightType: '' }]);
       setSelectedHour(12);
       setSelectedMinute(0);
       setSelectedPeriod('PM');

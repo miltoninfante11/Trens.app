@@ -1,7 +1,6 @@
 // ============================================================================
 // ADD OPTION MODAL - Modal para añadir un nuevo platillo (opción) a una comida
-// Solo pide nombres de ingredientes — las cantidades se calculan automáticamente
-// según los macros de la comida principal
+// Igual que AddMealModal: nombre + peso opcional + cocido/crudo + sin gramos
 // ============================================================================
 
 import React, { useState, useEffect, useRef } from 'react';
@@ -20,8 +19,8 @@ import {
 import Animated, { useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from '../../lib/haptics';
-import { Plus, Trash2, Sparkles } from 'lucide-react-native';
-import { calculateMealWithUserMacros } from '../../services/hank/nutrition';
+import { Alert } from '../../lib/alert';
+import { Plus, Trash2, Scale } from 'lucide-react-native';
 
 // ============================================================================
 // TYPES
@@ -31,25 +30,14 @@ interface Ingredient {
   name: string;
   quantity: string;
   portion?: string;
-  nutritionInfo?: {
-    calories: number;
-    protein: number;
-    carbs: number;
-    fat: number;
-    suggestedGrams?: number;
-  };
+  skipGrams?: boolean;
+  weightType?: 'cocido' | 'crudo';
 }
 
 interface AddOptionModalProps {
   visible: boolean;
   mealId: string;
   mealName: string;
-  targetMacros?: {
-    calories: number;
-    protein: number;
-    carbs: number;
-    fat: number;
-  };
   onClose: () => void;
   onSave: (
     mealId: string,
@@ -57,7 +45,6 @@ interface AddOptionModalProps {
     ingredients: Ingredient[],
     notes?: string
   ) => Promise<void>;
-  onCalculateMacros?: (ingredients: Ingredient[]) => Promise<Ingredient[]>;
 }
 
 // ============================================================================
@@ -67,15 +54,19 @@ export const AddOptionModal: React.FC<AddOptionModalProps> = ({
   visible,
   mealId,
   mealName,
-  targetMacros,
   onClose,
   onSave,
-  onCalculateMacros,
 }) => {
   const insets = useSafeAreaInsets();
-  const [ingredients, setIngredients] = useState<Ingredient[]>([
-    { id: `new-${Date.now()}`, name: '', quantity: '', portion: '' },
-  ]);
+  const [ingredients, setIngredients] = useState<
+    {
+      id: string;
+      name: string;
+      weightGrams: string;
+      skipGrams: boolean;
+      weightType: 'cocido' | 'crudo' | '';
+    }[]
+  >([{ id: `new-${Date.now()}`, name: '', weightGrams: '', skipGrams: true, weightType: '' }]);
   const [isSaving, setIsSaving] = useState(false);
   const [notes, setNotes] = useState('');
 
@@ -113,9 +104,10 @@ export const AddOptionModal: React.FC<AddOptionModalProps> = ({
   useEffect(() => {
     if (visible) {
       translateY.value = 0;
-      setIngredients([{ id: `new-${Date.now()}`, name: '', quantity: '', portion: '' }]);
+      setIngredients([
+        { id: `new-${Date.now()}`, name: '', weightGrams: '', skipGrams: true, weightType: '' },
+      ]);
       setNotes('');
-      // Haptic feedback cuando abre
       setTimeout(() => {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       }, 300);
@@ -126,7 +118,7 @@ export const AddOptionModal: React.FC<AddOptionModalProps> = ({
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setIngredients([
       ...ingredients,
-      { id: `new-${Date.now()}`, name: '', quantity: '', portion: '' },
+      { id: `new-${Date.now()}`, name: '', weightGrams: '', skipGrams: true, weightType: '' },
     ]);
   };
 
@@ -137,9 +129,37 @@ export const AddOptionModal: React.FC<AddOptionModalProps> = ({
     }
   };
 
-  const updateIngredientName = (index: number, value: string) => {
+  const updateIngredient = (index: number, field: 'name' | 'weightGrams', value: string) => {
     const newIngs = [...ingredients];
-    newIngs[index] = { ...newIngs[index], name: value };
+    if (field === 'weightGrams') {
+      const numericValue = value.replace(/[^0-9.]/g, '');
+      newIngs[index] = { ...newIngs[index], [field]: numericValue };
+    } else {
+      newIngs[index] = { ...newIngs[index], [field]: value };
+    }
+    setIngredients(newIngs);
+  };
+
+  const toggleSkipGrams = (index: number) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    const newIngs = [...ingredients];
+    const newSkip = !newIngs[index].skipGrams;
+    newIngs[index] = {
+      ...newIngs[index],
+      skipGrams: newSkip,
+      weightGrams: newSkip ? '' : newIngs[index].weightGrams,
+      weightType: newSkip ? '' : newIngs[index].weightType,
+    };
+    setIngredients(newIngs);
+  };
+
+  const setWeightType = (index: number, type: 'cocido' | 'crudo') => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    const newIngs = [...ingredients];
+    newIngs[index] = {
+      ...newIngs[index],
+      weightType: newIngs[index].weightType === type ? '' : type,
+    };
     setIngredients(newIngs);
   };
 
@@ -150,38 +170,25 @@ export const AddOptionModal: React.FC<AddOptionModalProps> = ({
       return;
     }
 
+    const missingWeightType = validIngredients.some((ing) => !ing.skipGrams && !ing.weightType);
+    if (missingWeightType) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      Alert.alert('Peso requerido', 'Selecciona Cocido o Crudo para cada ingrediente.');
+      return;
+    }
+
     setIsSaving(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
     try {
-      let finalIngredients = validIngredients;
-
-      // Las cantidades se calculan automáticamente según los macros de la comida principal
-      // El usuario solo ingresó nombres de ingredientes (sin cantidad ni porción)
-      if (targetMacros) {
-        try {
-          console.log('🎯 Calculando cantidades con macros de comida principal:', targetMacros);
-          const calculated = await calculateMealWithUserMacros(finalIngredients, targetMacros);
-          finalIngredients = calculated.map((ing) => ({
-            id: ing.id,
-            name: ing.name,
-            quantity: ing.quantity,
-            portion: ing.portion,
-            nutritionInfo: ing.nutritionInfo,
-          }));
-        } catch (error) {
-          console.error('Error calculating macros with target:', error);
-          if (onCalculateMacros) {
-            finalIngredients = await onCalculateMacros(finalIngredients);
-          }
-        }
-      } else if (onCalculateMacros) {
-        try {
-          finalIngredients = await onCalculateMacros(finalIngredients);
-        } catch (error) {
-          console.error('Error calculating macros:', error);
-        }
-      }
+      const finalIngredients: Ingredient[] = validIngredients.map((ing) => ({
+        id: ing.id,
+        name: ing.name.trim(),
+        quantity: ing.weightGrams ? `${ing.weightGrams}g` : '',
+        portion: '',
+        skipGrams: ing.skipGrams || undefined,
+        weightType: ing.weightType ? (ing.weightType as 'cocido' | 'crudo') : undefined,
+      }));
 
       const name = `Opción ${Date.now().toString().slice(-4)}`;
       await onSave(mealId, name, finalIngredients, notes.trim() || undefined);
@@ -233,43 +240,26 @@ export const AddOptionModal: React.FC<AddOptionModalProps> = ({
               }}
             />
 
-            {/* Drag Indicator */}
-            <View {...panResponder.panHandlers} className="pt-4 pb-2 items-center">
-              <View className="w-12 h-1.5 bg-zinc-600 rounded-full" />
-            </View>
-
-            {/* Header */}
-            <View className="flex-row justify-between items-center px-4 pb-4 border-b border-zinc-800/50">
-              <View className="flex-1">
-                <View className="flex-row items-center gap-2">
-                  <Sparkles size={16} color="#22C55E" />
-                  <Text className="text-white font-bold text-lg">Añadir Platillo</Text>
-                </View>
-                <Text className="text-zinc-500 text-xs mt-1">{mealName}</Text>
-                {targetMacros && (
-                  <View className="flex-row gap-2 mt-1">
-                    <Text className="text-green-500 text-xs font-mono">
-                      {targetMacros.protein}P
-                    </Text>
-                    <Text className="text-yellow-500 text-xs font-mono">{targetMacros.carbs}C</Text>
-                    <Text className="text-blue-400 text-xs font-mono">{targetMacros.fat}G</Text>
-                    <Text className="text-zinc-500 text-xs font-mono">
-                      {targetMacros.calories} kcal
-                    </Text>
-                  </View>
-                )}
+            {/* Header Draggable */}
+            <View
+              {...panResponder.panHandlers}
+              className="flex-row justify-between items-center p-4 border-b border-zinc-800/50"
+            >
+              <View className="absolute top-3 left-0 right-0 items-center">
+                <View className="w-12 h-1.5 bg-zinc-700 rounded-full" />
+              </View>
+              <View className="flex-1 mt-2">
+                <Text className="text-white font-bold text-lg">Añadir Platillo Alternativo</Text>
+                <Text className="text-zinc-500 text-xs mt-0.5">{mealName}</Text>
               </View>
             </View>
 
             <ScrollView className="p-4" showsVerticalScrollIndicator={false}>
-              {/* Ingredients - Solo nombre, sin campos de cantidad */}
               <Text className="text-zinc-400 text-xs font-bold mb-2 uppercase">Ingredientes</Text>
 
-              {/* Info: cantidades automáticas según macros */}
               <View className="bg-green-500/10 border border-green-500/20 rounded-xl p-3 mb-3">
                 <Text className="text-green-300 text-xs">
-                  🤖 Solo agrega los ingredientes — Hank calculará automáticamente las cantidades
-                  según los macros de esta comida
+                  ✏️ Escribe el ingrediente con su porción. El peso en gramos es opcional.
                 </Text>
               </View>
 
@@ -286,17 +276,103 @@ export const AddOptionModal: React.FC<AddOptionModalProps> = ({
                       </Pressable>
                     )}
                   </View>
+
+                  {/* Nombre + porción */}
                   <TextInput
                     value={ing.name}
-                    onChangeText={(v) => updateIngredientName(i, v)}
-                    placeholder="Nombre (ej. Pollo a la plancha)"
+                    onChangeText={(v) => updateIngredient(i, 'name', v)}
+                    placeholder="ej. Pechuga de Pollo 1 filete mediano"
                     placeholderTextColor="#666"
-                    className="bg-transparent border-b border-zinc-700 text-white py-2"
+                    className="bg-transparent border-b border-zinc-700 text-white py-2 mb-3"
                   />
+
+                  {/* Peso en gramos + Cocido/Crudo */}
+                  <View className="flex-row items-center gap-2">
+                    <Scale size={14} color={ing.skipGrams ? '#52525b' : '#3B82F6'} />
+                    <TextInput
+                      value={ing.skipGrams ? '' : ing.weightGrams}
+                      onChangeText={(v) => updateIngredient(i, 'weightGrams', v)}
+                      placeholder={ing.skipGrams ? 'Sin gr' : 'Gramos'}
+                      placeholderTextColor={ing.skipGrams ? '#71717a' : '#555'}
+                      keyboardType="numeric"
+                      editable={!ing.skipGrams}
+                      className={`w-24 rounded-lg text-sm px-3 py-2 font-mono ${
+                        ing.skipGrams
+                          ? 'bg-zinc-800/30 border border-zinc-700/30 text-zinc-600'
+                          : 'bg-zinc-800/60 border border-blue-500/30 text-white'
+                      }`}
+                    />
+                    {/* Radio: Cocido */}
+                    <Pressable
+                      onPress={() => !ing.skipGrams && setWeightType(i, 'cocido')}
+                      className="flex-row items-center gap-1"
+                      style={{ opacity: ing.skipGrams ? 0.3 : 1 }}
+                    >
+                      <View
+                        className={`w-4 h-4 rounded-full border-2 items-center justify-center ${
+                          ing.weightType === 'cocido'
+                            ? 'border-green-500 bg-green-500'
+                            : 'border-zinc-600 bg-transparent'
+                        }`}
+                      >
+                        {ing.weightType === 'cocido' && (
+                          <View className="w-1.5 h-1.5 rounded-full bg-white" />
+                        )}
+                      </View>
+                      <Text
+                        className={`text-xs ${ing.weightType === 'cocido' ? 'text-green-400' : 'text-zinc-500'}`}
+                      >
+                        Cocido
+                      </Text>
+                    </Pressable>
+                    {/* Radio: Crudo */}
+                    <Pressable
+                      onPress={() => !ing.skipGrams && setWeightType(i, 'crudo')}
+                      className="flex-row items-center gap-1"
+                      style={{ opacity: ing.skipGrams ? 0.3 : 1 }}
+                    >
+                      <View
+                        className={`w-4 h-4 rounded-full border-2 items-center justify-center ${
+                          ing.weightType === 'crudo'
+                            ? 'border-red-500 bg-red-500'
+                            : 'border-zinc-600 bg-transparent'
+                        }`}
+                      >
+                        {ing.weightType === 'crudo' && (
+                          <View className="w-1.5 h-1.5 rounded-full bg-white" />
+                        )}
+                      </View>
+                      <Text
+                        className={`text-xs ${ing.weightType === 'crudo' ? 'text-red-400' : 'text-zinc-500'}`}
+                      >
+                        Crudo
+                      </Text>
+                    </Pressable>
+                  </View>
+
+                  {/* Toggle: Sin gramos */}
+                  <Pressable
+                    onPress={() => toggleSkipGrams(i)}
+                    className="flex-row items-center gap-2 mt-2"
+                  >
+                    <View
+                      className={`w-5 h-5 rounded border items-center justify-center ${
+                        ing.skipGrams
+                          ? 'bg-orange-500 border-orange-500'
+                          : 'bg-transparent border-zinc-600'
+                      }`}
+                    >
+                      {ing.skipGrams && <Text className="text-white text-xs font-bold">✓</Text>}
+                    </View>
+                    <Text
+                      className={`text-xs ${ing.skipGrams ? 'text-orange-400' : 'text-zinc-500'}`}
+                    >
+                      Sin gramos (usar solo porciones)
+                    </Text>
+                  </Pressable>
                 </View>
               ))}
 
-              {/* Add Ingredient Button */}
               <Pressable
                 onPress={addIngredient}
                 className="w-full py-3 border border-dashed border-zinc-600 rounded-xl mb-6 active:border-green-500 active:bg-green-500/5"
@@ -322,7 +398,6 @@ export const AddOptionModal: React.FC<AddOptionModalProps> = ({
                 style={{ minHeight: 70, textAlignVertical: 'top' }}
               />
 
-              {/* Save Button */}
               <Pressable
                 onPress={handleSave}
                 disabled={isSaving}
@@ -341,9 +416,7 @@ export const AddOptionModal: React.FC<AddOptionModalProps> = ({
                 {isSaving ? (
                   <View className="flex-row items-center justify-center gap-2">
                     <ActivityIndicator size="small" color="#FFF" />
-                    <Text className="text-white font-bold text-center text-base">
-                      Calculando cantidades...
-                    </Text>
+                    <Text className="text-white font-bold text-center text-base">Guardando...</Text>
                   </View>
                 ) : (
                   <Text className="text-white font-bold text-center text-lg">AÑADIR PLATILLO</Text>

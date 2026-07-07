@@ -9,16 +9,7 @@ import Animated, {
   interpolate,
   Easing,
 } from 'react-native-reanimated';
-import {
-  ChevronDown,
-  X,
-  Edit2,
-  Save,
-  ShieldAlert,
-  Crown,
-  Trash2,
-  Flame,
-} from 'lucide-react-native';
+import { ChevronDown, X, Edit2, Save, ShieldAlert, Crown, Trash2 } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from '../../lib/haptics';
 import { supabase } from '../../lib/supabase';
@@ -29,7 +20,7 @@ import ProgressSlider from './ProgressSlider';
 import AddProgressPhotoModal from './AddProgressPhotoModal';
 import ProgressPhotoDetailModal from './ProgressPhotoDetailModal';
 import type { ProgressPhoto } from '../../types/progress';
-// Las sincronizaciones de macros ahora se hacen conversando con Hank
+// Las sincronizaciones de macros fueron removidas — la app ya no registra macros
 
 interface Measurement {
   id: string;
@@ -44,7 +35,7 @@ interface ProfileData {
   height: string;
   injuries: string;
   allergies: string;
-  // Nuevos campos para ultra personalización de macros
+  // Campos para personalización
   age?: number;
   sex?: string;
   body_fat_percentage?: number;
@@ -53,34 +44,17 @@ interface ProfileData {
   training_experience?: string;
   metabolic_rate?: string;
   training_days_per_week?: number;
-  // Campos calculados (read-only, vienen de GYM y PLAN)
-  training_frequency?: number; // Cantidad de días en estructura de entrenamiento
-  meal_count?: number; // Cantidad de comidas configuradas en PLAN
+  // Campos calculados (read-only)
+  training_frequency?: number;
+  meal_count?: number;
+  // Macros diarios cacheados
+  cached_daily_macros?: { calories: number; protein: number; carbs: number; fat: number } | null;
+  actual_daily_macros?: { calories: number; protein: number; carbs: number; fat: number } | null;
   // Modos de entrenamiento
-  uses_gym_module?: boolean; // true = usa módulo GYM, false = entrena por su cuenta
-  external_training_frequency?: number; // Frecuencia para modo externo
-  external_training_schedule?: Record<string, string>; // {"Lunes": "Pecho", "Martes": "Espalda"}
-  has_custom_plan?: boolean; // true = tiene plan personalizado
-  // Macros diarios cacheados (objetivo/target)
-  cached_daily_macros?: {
-    totalCalories: number;
-    totalProtein: number;
-    totalCarbs: number;
-    totalFat: number;
-    perMeal: {
-      calories: number;
-      protein: number;
-      carbs: number;
-      fat: number;
-    };
-  } | null;
-  // Macros reales computados desde ingredientes del plan
-  actual_daily_macros?: {
-    totalCalories: number;
-    totalProtein: number;
-    totalCarbs: number;
-    totalFat: number;
-  } | null;
+  uses_gym_module?: boolean;
+  external_training_frequency?: number;
+  external_training_schedule?: Record<string, string>;
+  has_custom_plan?: boolean;
 }
 
 interface TrensIDProps {
@@ -88,9 +62,16 @@ interface TrensIDProps {
   profileData: ProfileData;
   measurements: Measurement[];
   onUpdate: () => void;
+  focusKey?: number;
 }
 
-export default function TrensID({ userId, profileData, measurements, onUpdate }: TrensIDProps) {
+export default function TrensID({
+  userId,
+  profileData,
+  measurements,
+  onUpdate,
+  focusKey = 0,
+}: TrensIDProps) {
   const { canSave } = useSaveGuard();
   const { targetRef, onLayout, isHighlighted, animationPhase } = useHankTarget({
     id: 'trens-id-biometrics',
@@ -108,6 +89,13 @@ export default function TrensID({ userId, profileData, measurements, onUpdate }:
   const [showPhotoDetailModal, setShowPhotoDetailModal] = useState(false);
   const [selectedPhoto, setSelectedPhoto] = useState<ProgressPhoto | null>(null);
   const [progressRefreshTrigger, setProgressRefreshTrigger] = useState(0);
+
+  // Recargar fotos de progreso cada vez que la pantalla ADN gana foco (botón o swipe)
+  useEffect(() => {
+    if (focusKey > 0) {
+      setProgressRefreshTrigger((prev) => prev + 1);
+    }
+  }, [focusKey]);
 
   const expandProgress = useSharedValue(0);
   const idleBorderGlow = useSharedValue(0);
@@ -263,9 +251,6 @@ export default function TrensID({ userId, profileData, measurements, onUpdate }:
           training_experience: editData.training_experience || 'INTERMEDIO',
           metabolic_rate: editData.metabolic_rate || 'NORMAL',
           training_days_per_week: editData.training_days_per_week || 4,
-          // Invalidar macros cacheados para que se recalculen con los nuevos datos
-          cached_daily_macros: null,
-          cached_macros_updated_at: null,
         })
         .eq('user_id', userId);
 
@@ -280,9 +265,6 @@ export default function TrensID({ userId, profileData, measurements, onUpdate }:
       setIsSaving(false);
     }
   };
-
-  // ⚡ Para sincronizar macros con tu plan, habla con Hank
-  // Ejemplo: "Hank, recalcula mis macros con mi nuevo peso"
 
   const chevronStyle = useAnimatedStyle(() => ({
     transform: [{ rotate: `${interpolate(expandProgress.value, [0, 1], [0, 180])}deg` }],
@@ -408,68 +390,6 @@ export default function TrensID({ userId, profileData, measurements, onUpdate }:
                     </Text>
                   </View>
                 </View>
-
-                {/* Macros Diarios - Reales si disponibles, target como fallback */}
-                {(editData.actual_daily_macros || editData.cached_daily_macros) &&
-                  (() => {
-                    const macros = editData.actual_daily_macros || editData.cached_daily_macros!;
-                    const isActual = !!editData.actual_daily_macros;
-                    return (
-                      <View className="mt-4 pt-4 border-t border-zinc-800/50">
-                        <View className="flex-row items-center gap-1 mb-2">
-                          <Flame size={10} color="#F97316" />
-                          <Text className="text-[10px] text-fire-orange font-bold uppercase tracking-wider">
-                            {isActual
-                              ? 'Macros Reales'
-                              : (editData.meal_count || 0) > 0
-                                ? 'Macros Diarios'
-                                : 'Macros Objetivo'}
-                          </Text>
-                          {(editData.meal_count || 0) > 0 && (
-                            <Text className="text-zinc-600 text-[10px] font-mono ml-auto">
-                              {editData.meal_count} comidas
-                            </Text>
-                          )}
-                        </View>
-                        <View className="flex-row justify-between">
-                          {/* Calorías */}
-                          <View className="items-center">
-                            <Text className="text-white font-mono font-bold text-lg">
-                              {macros.totalCalories}
-                            </Text>
-                            <Text className="text-zinc-500 text-[9px] uppercase">kcal</Text>
-                          </View>
-                          {/* Proteína */}
-                          <View className="items-center">
-                            <Text className="text-savage-red font-mono font-bold text-lg">
-                              {macros.totalProtein}g
-                            </Text>
-                            <Text className="text-zinc-500 text-[9px] uppercase">Proteína</Text>
-                          </View>
-                          {/* Carbos */}
-                          <View className="items-center">
-                            <Text className="text-yellow-500 font-mono font-bold text-lg">
-                              {macros.totalCarbs}g
-                            </Text>
-                            <Text className="text-zinc-500 text-[9px] uppercase">Carbos</Text>
-                          </View>
-                          {/* Grasas */}
-                          <View className="items-center">
-                            <Text className="text-blue-400 font-mono font-bold text-lg">
-                              {macros.totalFat}g
-                            </Text>
-                            <Text className="text-zinc-500 text-[9px] uppercase">Grasas</Text>
-                          </View>
-                        </View>
-                        {/* Hint para usuarios sin comidas */}
-                        {(editData.meal_count || 0) === 0 && (
-                          <Text className="text-zinc-600 text-[9px] text-center mt-2 italic">
-                            Ve a PLAN para configurar tus comidas
-                          </Text>
-                        )}
-                      </View>
-                    );
-                  })()}
 
                 {/* Hint para expandir */}
                 <Animated.View style={chevronStyle} className="items-center mt-3">

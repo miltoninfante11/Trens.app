@@ -261,12 +261,6 @@ const TOOL_CLASSIFICATIONS: Record<string, ToolClassification> = {
   },
 
   // SYNC y AUTO
-  SYNC_NUTRITION_MACROS: {
-    category: 'write',
-    impact: 'high',
-    triggersAnimation: true,
-    triggersRefresh: true,
-  },
   AUTO_ADJUST_ALL: {
     category: 'write',
     impact: 'high',

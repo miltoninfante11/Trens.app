@@ -45,7 +45,6 @@ import {
   planUpdateSupplementDose,
   planUpdateSupplementName,
   planUpdateMealName,
-  planUpdateMealMacros,
   planGetStack,
   // Meal Options (Alternativas)
   planAddMealOption,
@@ -76,7 +75,6 @@ import {
   trainingRemoveExternalDay,
   // Sync Tools
   getFullPlanStatus,
-  syncNutritionMacros,
   // Progress Photos
   progressGetPhotos,
   progressGetPhotoDetail,
@@ -124,11 +122,7 @@ import {
   surfGetSpots,
   SPORT_TOOL_DEFINITIONS,
 } from '../services/hank/sportTools';
-import {
-  calculateMacrosWithAI,
-  analyzeDailyNutrition,
-  convertGramsPortions,
-} from '../services/hank/nutrition';
+import { convertGramsPortions } from '../services/hank/nutrition';
 import type { HankToolCall, HankToolResult, ToolDefinition } from '../types/hank';
 
 interface UseHankExecutorProps {
@@ -529,85 +523,6 @@ export const useHankExecutor = (
             break;
           }
 
-          case 'PLAN_CALCULATE_MACROS': {
-            // Get meals first - ya tiene los macros calculados
-            const mealsResult = await planGetMeals(userId);
-            if (mealsResult.success && mealsResult.data) {
-              const data = mealsResult.data as {
-                meals: any[];
-                totals?: { calories: number; protein: number; carbs: number; fat: number };
-              };
-
-              if (data.meals.length === 0) {
-                result = { success: false, message: 'No hay comidas para mostrar.' };
-              } else if (data.totals && data.totals.calories > 0) {
-                // Ya tiene macros calculados, mostrar resumen
-                const t = data.totals;
-                result = {
-                  success: true,
-                  message: `📊 MACROS DEL DÍA:\n🔥 ${Math.round(t.calories)} kcal\n💪 ${Math.round(t.protein)}g proteína\n🍞 ${Math.round(t.carbs)}g carbohidratos\n🥑 ${Math.round(t.fat)}g grasa`,
-                  data: { totals: t, meals: data.meals },
-                };
-              } else {
-                // No tiene macros guardados - calcular con IA ahora
-                console.warn('🧮 Calculando macros con IA para ingredientes sin datos...');
-
-                // Extraer todos los ingredientes de todas las comidas
-                const allIngredients: Array<{
-                  id: string;
-                  name: string;
-                  quantity: string;
-                  portion?: string;
-                }> = [];
-                let mealNames: string[] = [];
-
-                data.meals.forEach((meal: any) => {
-                  mealNames.push(meal.name || 'Comida');
-                  const ingredients = meal.ingredients || [];
-                  ingredients.forEach((ing: any, idx: number) => {
-                    allIngredients.push({
-                      id: `${meal.id}-${idx}`,
-                      name: ing.name,
-                      quantity: ing.quantity || '~100g',
-                      portion: ing.portion,
-                    });
-                  });
-                });
-
-                if (allIngredients.length === 0) {
-                  result = { success: false, message: 'No hay ingredientes para calcular.' };
-                } else {
-                  // Calcular con IA
-                  const calculated = await calculateMacrosWithAI(allIngredients);
-
-                  // Sumar totales
-                  let totalCals = 0,
-                    totalP = 0,
-                    totalC = 0,
-                    totalF = 0;
-                  calculated.forEach((ing) => {
-                    totalCals += ing.nutritionInfo?.calories || 0;
-                    totalP += ing.nutritionInfo?.protein || 0;
-                    totalC += ing.nutritionInfo?.carbs || 0;
-                    totalF += ing.nutritionInfo?.fat || 0;
-                  });
-
-                  result = {
-                    success: true,
-                    message: `📊 MACROS DE ${mealNames.join(' + ')}:\n🔥 ${Math.round(totalCals)} kcal\n💪 ${Math.round(totalP)}g proteína\n🍞 ${Math.round(totalC)}g carbohidratos\n🥑 ${Math.round(totalF)}g grasa\n\n(Calculado con IA basado en ${allIngredients.length} ingredientes)`,
-                    data: {
-                      calculated,
-                      totals: { calories: totalCals, protein: totalP, carbs: totalC, fat: totalF },
-                    },
-                  };
-                }
-              }
-            } else {
-              result = { success: false, message: 'No hay comidas configuradas.' };
-            }
-            break;
-          }
-
           // ============================================================================
           // OMNISCIENT TOOLS - HANK es Dios en TRENS
           // ============================================================================
@@ -681,18 +596,6 @@ export const useHankExecutor = (
             );
             break;
 
-          case 'PLAN_UPDATE_MEAL_MACROS':
-            result = await planUpdateMealMacros(
-              userId,
-              p.mealId as string | undefined,
-              p.position as string | undefined,
-              p.calories as number | undefined,
-              p.protein as number | undefined,
-              p.carbs as number | undefined,
-              p.fat as number | undefined
-            );
-            break;
-
           case 'TRAINING_SET_FREQUENCY':
             result = await trainingSetFrequency(userId, p.frequency as number);
             break;
@@ -748,42 +651,6 @@ export const useHankExecutor = (
           case 'PLAN_GET_STACK':
             result = await planGetStack(userId);
             break;
-
-          case 'PLAN_ANALYZE_NUTRITION': {
-            const mealsData = await planGetMeals(userId);
-            if (mealsData.success && mealsData.data) {
-              const meals = (
-                mealsData.data as {
-                  meals: {
-                    time: string;
-                    meal_options: { meal_ingredients: { name: string; quantity: string }[] }[];
-                  }[];
-                }
-              ).meals;
-              const formattedMeals = meals.map((m) => ({
-                time: m.time,
-                ingredients: m.meal_options?.[0]?.meal_ingredients || [],
-              }));
-              const analysis = await analyzeDailyNutrition(formattedMeals);
-              result = {
-                success: true,
-                message: `📊 ANÁLISIS NUTRICIONAL:
-🔥 Calorías: ${analysis.totalCalories} kcal
-🥩 Proteína: ${analysis.totalProtein}g
-🍞 Carbos: ${analysis.totalCarbs}g
-🥑 Grasa: ${analysis.totalFat}g
-
-${analysis.analysis}
-
-💡 Recomendaciones:
-${analysis.recommendations.map((r) => `• ${r}`).join('\n')}`,
-                data: analysis,
-              };
-            } else {
-              result = { success: false, message: 'No hay datos para analizar.' };
-            }
-            break;
-          }
 
           // SYSTEM TOOLS
           case 'HANK_CLEAR_HISTORY':
@@ -1038,10 +905,6 @@ Cuando termines, di **"ejecuta el plan"** y lo guardaré todo.`,
           // =========================================================================
           case 'GET_FULL_PLAN_STATUS':
             result = await getFullPlanStatus(userId);
-            break;
-
-          case 'SYNC_NUTRITION_MACROS':
-            result = await syncNutritionMacros(userId);
             break;
 
           // =========================================================================

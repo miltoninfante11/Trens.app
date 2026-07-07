@@ -56,7 +56,6 @@ import { ProUpgradeModal } from '../../../components/pro/ProUpgradeModal';
 import { ShareModal } from '../../../components/share/ShareModal';
 import AccountModal from '../../../components/account/AccountModal';
 import { SavageBackground } from '../../../components/ui/SavageBackground';
-import { calculateUserDailyMacros } from '../../../services/hank/nutrition';
 
 // ============================================================================
 // TIPOS
@@ -84,26 +83,9 @@ interface UserProfile {
   // Campos CALCULADOS (vienen de GYM y PLAN)
   training_frequency?: number;
   meal_count?: number;
-  // Macros diarios cacheados (objetivo/target)
-  cached_daily_macros?: {
-    totalCalories: number;
-    totalProtein: number;
-    totalCarbs: number;
-    totalFat: number;
-    perMeal: {
-      calories: number;
-      protein: number;
-      carbs: number;
-      fat: number;
-    };
-  } | null;
-  // Macros reales computados desde ingredientes del plan
-  actual_daily_macros?: {
-    totalCalories: number;
-    totalProtein: number;
-    totalCarbs: number;
-    totalFat: number;
-  } | null;
+  // Macros diarios cacheados
+  cached_daily_macros?: { calories: number; protein: number; carbs: number; fat: number } | null;
+  actual_daily_macros?: { calories: number; protein: number; carbs: number; fat: number } | null;
 }
 
 interface Measurement {
@@ -175,6 +157,7 @@ function AdnScreenContent() {
   const { canSave } = useSaveGuard();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [adnFocusKey, setAdnFocusKey] = useState(0);
   const [activeTab, setActiveTab] = useState<'legacy' | 'vault'>('legacy');
   const [showAddModal, setShowAddModal] = useState(false);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
@@ -360,48 +343,11 @@ function AdnScreenContent() {
         .eq('id', user.id)
         .single();
 
-      // Fetch meals con ingredientes para calcular macros reales
-      const { data: mealsWithIngredients, count: mealCount } = await supabase
+      // Fetch meals para contar
+      const { count: mealCount } = await supabase
         .from('meals')
-        .select('ingredients', { count: 'exact' })
+        .select('id', { count: 'exact' })
         .eq('user_id', user.id);
-
-      // Computar macros REALES desde nutritionInfo de ingredientes
-      let actualDailyMacros: {
-        totalCalories: number;
-        totalProtein: number;
-        totalCarbs: number;
-        totalFat: number;
-      } | null = null;
-      if (mealsWithIngredients && mealsWithIngredients.length > 0) {
-        let cal = 0,
-          pro = 0,
-          car = 0,
-          fat = 0;
-        let hasNutrition = false;
-        for (const meal of mealsWithIngredients) {
-          const ings = (meal.ingredients as any[]) || [];
-          for (const ing of ings) {
-            // Soportar formato anidado (nutritionInfo) y top-level (calories, protein...)
-            const ni = ing.nutritionInfo || (ing.calories != null ? ing : null);
-            if (ni) {
-              hasNutrition = true;
-              cal += ni.calories || 0;
-              pro += ni.protein || 0;
-              car += ni.carbs || 0;
-              fat += ni.fat || 0;
-            }
-          }
-        }
-        if (hasNutrition) {
-          actualDailyMacros = {
-            totalCalories: Math.round(cal),
-            totalProtein: Math.round(pro),
-            totalCarbs: Math.round(car),
-            totalFat: Math.round(fat),
-          };
-        }
-      }
 
       // Obtener foto de progreso más reciente con datos de snapshot
       const { data: latestProgressPhoto } = await supabase
@@ -432,72 +378,9 @@ function AdnScreenContent() {
           });
         }
       } else {
-        // Verificar si necesitamos calcular macros objetivo
-        // Si no hay cached_daily_macros pero sí hay datos de perfil, calcular macros
-        let cachedMacros = profileData.cached_daily_macros;
-        const hasMeals = (mealCount || 0) > 0;
-
-        if (!cachedMacros && profileData.weight && profileData.height && profileData.goal) {
-          try {
-            console.log('🧠 ADN: Calculando macros objetivo con toda la información disponible...');
-
-            // Extraer datos de la foto de progreso si existe
-            const progressSnapshot = latestProgressPhoto?.snapshot as any;
-            let latestProgressPhotoData = undefined;
-            if (progressSnapshot) {
-              latestProgressPhotoData = {
-                weight: progressSnapshot.weight || undefined,
-                bodyFatPercentage: progressSnapshot.bodyFatPercentage || undefined,
-                date: latestProgressPhoto?.created_at,
-              };
-            }
-
-            // Obtener medidas corporales para incluir en el cálculo
-            const { data: measurementsForCalc } = await supabase
-              .from('body_measurements')
-              .select('name, value, is_dominant')
-              .eq('user_id', user.id);
-
-            const dailyMacros = await calculateUserDailyMacros({
-              weight: profileData.weight,
-              height: profileData.height,
-              goal: profileData.goal,
-              mealCount: hasMeals ? mealCount! : undefined, // Solo si tiene comidas
-              age: profileData.age || undefined,
-              sex: profileData.sex || undefined,
-              bodyFatPercentage: profileData.body_fat_percentage || undefined,
-              muscleMass: profileData.muscle_mass || undefined,
-              activityLevel: profileData.activity_level || 'MODERADO',
-              trainingExperience: profileData.training_experience || undefined,
-              metabolicRate: profileData.metabolic_rate || undefined,
-              trainingDaysPerWeek: profileData.training_days_per_week || undefined,
-              bodyMeasurements: measurementsForCalc || undefined,
-              latestProgressPhoto: latestProgressPhotoData,
-            });
-
-            cachedMacros = dailyMacros;
-
-            // Guardar en Supabase para sincronización
-            await supabase
-              .from('user_profiles')
-              .update({
-                cached_daily_macros: dailyMacros,
-                cached_macros_meal_count: mealCount || 0,
-                cached_macros_updated_at: new Date().toISOString(),
-              })
-              .eq('user_id', user.id);
-
-            console.log('💾 ADN: Macros objetivo guardados en Supabase');
-          } catch (error) {
-            console.error('Error calculating default macros:', error);
-          }
-        }
-
         // Agregar campos calculados desde GYM y PLAN
         setProfile({
           ...profileData,
-          cached_daily_macros: cachedMacros,
-          actual_daily_macros: actualDailyMacros,
           training_frequency: authProfile?.training_frequency || 0,
           meal_count: mealCount || 0,
         });
@@ -593,6 +476,14 @@ function AdnScreenContent() {
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  // Recargar datos frescos cada vez que el usuario navega al módulo ADN (botón o swipe)
+  useFocusEffect(
+    useCallback(() => {
+      fetchData();
+      setAdnFocusKey((prev) => prev + 1);
+    }, [fetchData])
+  );
 
   // Refrescar cuando HANK modifica datos
   useEffect(() => {
@@ -1089,6 +980,7 @@ function AdnScreenContent() {
               }
               measurements={measurements}
               onUpdate={fetchData}
+              focusKey={adnFocusKey}
             />
           )}
         </View>

@@ -48,6 +48,9 @@ import {
   Star,
   Play,
   Dna,
+  Crosshair,
+  ChartLine,
+  Dumbbell,
   ShieldAlert,
   UserX,
   ExternalLink,
@@ -99,6 +102,8 @@ type Section =
   | 'password'
   | 'personal'
   | 'delete-account';
+
+type DefaultModule = 'feed' | 'adn' | 'pro' | 'plan' | 'gym';
 
 interface AccountModalProps {
   visible: boolean;
@@ -208,8 +213,48 @@ export default function AccountModal({
   const [isSavingPersonal, setIsSavingPersonal] = useState(false);
 
   // Default module preference
-  const [defaultModule, setDefaultModule] = useState<'feed' | 'adn'>('feed');
+  const [defaultModule, setDefaultModule] = useState<DefaultModule>('feed');
   const [isSavingModule, setIsSavingModule] = useState(false);
+
+  const DEFAULT_MODULE_OPTIONS: Array<{
+    key: DefaultModule;
+    label: string;
+    subtitle: string;
+    Icon: any;
+    iconFill?: boolean;
+  }> = [
+    {
+      key: 'feed',
+      label: 'TRENS',
+      subtitle: 'Feed de videos',
+      Icon: Play,
+      iconFill: true,
+    },
+    {
+      key: 'adn',
+      label: 'ADN',
+      subtitle: 'Perfil atlético',
+      Icon: Dna,
+    },
+    {
+      key: 'pro',
+      label: 'PRO',
+      subtitle: 'Cámara y editor',
+      Icon: Crosshair,
+    },
+    {
+      key: 'plan',
+      label: 'PLAN',
+      subtitle: 'Timeline metabólico',
+      Icon: ChartLine,
+    },
+    {
+      key: 'gym',
+      label: 'GYM',
+      subtitle: 'Entrenamiento diario',
+      Icon: Dumbbell,
+    },
+  ];
 
   // -------------------------------------------------------------------------
   // RESET ON OPEN
@@ -233,7 +278,7 @@ export default function AccountModal({
           .maybeSingle()
           .then(({ data }) => {
             if (data?.default_module) {
-              setDefaultModule(data.default_module as 'feed' | 'adn');
+              setDefaultModule(data.default_module as DefaultModule);
             }
           });
       }
@@ -590,7 +635,7 @@ export default function AccountModal({
   // -------------------------------------------------------------------------
   // DEFAULT MODULE
   // -------------------------------------------------------------------------
-  const toggleDefaultModule = async (value: 'feed' | 'adn') => {
+  const toggleDefaultModule = async (value: DefaultModule) => {
     if (!user || isSavingModule) return;
     setIsSavingModule(true);
     const previous = defaultModule;
@@ -950,78 +995,50 @@ export default function AccountModal({
           Elige qué módulo se abre al iniciar la app
         </Text>
         <View className="bg-zinc-800/40 rounded-2xl border border-zinc-800/60 overflow-hidden">
-          {/* TRENS (Feed) Option */}
-          <TouchableOpacity
-            onPress={() => toggleDefaultModule('feed')}
-            className={`flex-row items-center gap-4 p-4 ${
-              defaultModule === 'feed' ? 'bg-red-600/10' : ''
-            }`}
-            activeOpacity={0.7}
-            disabled={isSavingModule}
-          >
-            <View
-              className={`w-10 h-10 rounded-xl items-center justify-center ${
-                defaultModule === 'feed' ? 'bg-red-600/20' : 'bg-zinc-800'
-              }`}
-            >
-              <Play
-                size={20}
-                color={defaultModule === 'feed' ? '#DC2626' : '#71717A'}
-                fill={defaultModule === 'feed' ? '#DC2626' : 'transparent'}
-              />
-            </View>
-            <View className="flex-1">
-              <Text
-                className={`font-bold ${defaultModule === 'feed' ? 'text-white' : 'text-zinc-400'}`}
-              >
-                TRENS
-              </Text>
-              <Text className="text-zinc-500 text-xs mt-0.5">Feed de videos</Text>
-            </View>
-            <View
-              className={`w-6 h-6 rounded-full border-2 items-center justify-center ${
-                defaultModule === 'feed' ? 'border-red-600 bg-red-600' : 'border-zinc-600'
-              }`}
-            >
-              {defaultModule === 'feed' && <CheckCircle size={14} color="#fff" />}
-            </View>
-          </TouchableOpacity>
+          {DEFAULT_MODULE_OPTIONS.map((option, idx) => {
+            const isSelected = defaultModule === option.key;
+            const Icon = option.Icon;
 
-          {/* Divider */}
-          <View className="h-px bg-zinc-700/30 mx-4" />
+            return (
+              <View key={option.key}>
+                <TouchableOpacity
+                  onPress={() => toggleDefaultModule(option.key)}
+                  className={`flex-row items-center gap-4 p-4 ${isSelected ? 'bg-red-600/10' : ''}`}
+                  activeOpacity={0.7}
+                  disabled={isSavingModule}
+                >
+                  <View
+                    className={`w-10 h-10 rounded-xl items-center justify-center ${
+                      isSelected ? 'bg-red-600/20' : 'bg-zinc-800'
+                    }`}
+                  >
+                    <Icon
+                      size={20}
+                      color={isSelected ? '#DC2626' : '#71717A'}
+                      fill={option.iconFill ? (isSelected ? '#DC2626' : 'transparent') : undefined}
+                    />
+                  </View>
+                  <View className="flex-1">
+                    <Text className={`font-bold ${isSelected ? 'text-white' : 'text-zinc-400'}`}>
+                      {option.label}
+                    </Text>
+                    <Text className="text-zinc-500 text-xs mt-0.5">{option.subtitle}</Text>
+                  </View>
+                  <View
+                    className={`w-6 h-6 rounded-full border-2 items-center justify-center ${
+                      isSelected ? 'border-red-600 bg-red-600' : 'border-zinc-600'
+                    }`}
+                  >
+                    {isSelected && <CheckCircle size={14} color="#fff" />}
+                  </View>
+                </TouchableOpacity>
 
-          {/* ADN Option */}
-          <TouchableOpacity
-            onPress={() => toggleDefaultModule('adn')}
-            className={`flex-row items-center gap-4 p-4 ${
-              defaultModule === 'adn' ? 'bg-red-600/10' : ''
-            }`}
-            activeOpacity={0.7}
-            disabled={isSavingModule}
-          >
-            <View
-              className={`w-10 h-10 rounded-xl items-center justify-center ${
-                defaultModule === 'adn' ? 'bg-red-600/20' : 'bg-zinc-800'
-              }`}
-            >
-              <Dna size={20} color={defaultModule === 'adn' ? '#DC2626' : '#71717A'} />
-            </View>
-            <View className="flex-1">
-              <Text
-                className={`font-bold ${defaultModule === 'adn' ? 'text-white' : 'text-zinc-400'}`}
-              >
-                ADN
-              </Text>
-              <Text className="text-zinc-500 text-xs mt-0.5">Perfil atlético</Text>
-            </View>
-            <View
-              className={`w-6 h-6 rounded-full border-2 items-center justify-center ${
-                defaultModule === 'adn' ? 'border-red-600 bg-red-600' : 'border-zinc-600'
-              }`}
-            >
-              {defaultModule === 'adn' && <CheckCircle size={14} color="#fff" />}
-            </View>
-          </TouchableOpacity>
+                {idx < DEFAULT_MODULE_OPTIONS.length - 1 && (
+                  <View className="h-px bg-zinc-700/30 mx-4" />
+                )}
+              </View>
+            );
+          })}
         </View>
         {isSavingModule && <ActivityIndicator color="#DC2626" size="small" className="mt-2" />}
       </View>

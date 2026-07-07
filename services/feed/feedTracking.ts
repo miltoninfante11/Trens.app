@@ -362,6 +362,17 @@ class FeedTrackingService {
   async flush(): Promise<void> {
     if (this.isFlushing || this.queue.length === 0) return;
 
+    // Guard: no enviar si no hay usuario autenticado real
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    const NIL_UUID = '00000000-0000-0000-0000-000000000000';
+    if (!user || !user.id || user.id === NIL_UUID) {
+      // Limpiar cola — no tiene sentido reintentar sin sesión válida
+      this.queue.length = 0;
+      return;
+    }
+
     this.isFlushing = true;
     const batch = this.queue.splice(0, BATCH_SIZE);
 

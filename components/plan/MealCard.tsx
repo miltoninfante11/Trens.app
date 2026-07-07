@@ -24,13 +24,6 @@ interface Ingredient {
   portion?: string;
   skipGrams?: boolean;
   weightType?: 'cocido' | 'crudo';
-  nutritionInfo?: {
-    calories: number;
-    protein: number;
-    carbs: number;
-    fat: number;
-    suggestedGrams?: number;
-  };
 }
 
 interface MealOption {
@@ -45,20 +38,8 @@ interface Meal {
   time: string;
   options: MealOption[];
   selectedOption: number;
-  // Macros objetivo por comida (opcional)
-  targetMacros?: {
-    calories: number;
-    protein: number;
-    carbs: number;
-    fat: number;
-  };
-  // Macros reales calculados desde ingredientes
-  actualMacros?: {
-    calories: number;
-    protein: number;
-    carbs: number;
-    fat: number;
-  };
+  actualMacros?: { calories: number; protein: number; carbs: number; fat: number } | null;
+  targetMacros?: { calories: number; protein: number; carbs: number; fat: number } | null;
 }
 
 interface MealCardProps {

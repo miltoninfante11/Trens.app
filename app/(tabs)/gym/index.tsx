@@ -31,7 +31,6 @@ import {
   Trash2,
   X,
   Music,
-  Timer,
   Edit3,
   Camera as CameraIcon,
   ChevronDown,
@@ -49,6 +48,7 @@ import {
   MoreVertical,
   Flame,
   Eye,
+  Dumbbell,
 } from 'lucide-react-native';
 import * as Haptics from '../../../lib/haptics';
 import { CameraView, useCameraPermissions } from 'expo-camera';
@@ -659,11 +659,6 @@ function GymScreen() {
   const [catalogTab, setCatalogTab] = useState<'SUGERIDOS' | string>('SUGERIDOS');
   const [categories, setCategories] = useState<string[]>([]);
 
-  // Timer State
-  const [timerExpanded, setTimerExpanded] = useState(false);
-  const [timerActive, setTimerActive] = useState(false);
-  const [timeRemaining, setTimeRemaining] = useState(0);
-
   // Modals State
   const [hankModalVisible, setHankModalVisible] = useState(false);
   const [notesModalVisible, setNotesModalVisible] = useState(false);
@@ -763,6 +758,9 @@ function GymScreen() {
   // Modal para agregar nuevo día con selección de grupos musculares
   const [addDayModalVisible, setAddDayModalVisible] = useState(false);
   const [selectedMuscleGroups, setSelectedMuscleGroups] = useState<string[]>([]);
+  // Selección inline de músculos dentro de la vista ESTRUCTURA (gate previo a
+  // agregar ejercicios). Nombra la rutina del día según los músculos elegidos.
+  const [structureMuscleSelection, setStructureMuscleSelection] = useState<string[]>([]);
   // Weekday objetivo cuando configuras un slot (0..6); null = comportamiento antiguo (append)
   const [configureWeekdayTarget, setConfigureWeekdayTarget] = useState<number | null>(null);
 
@@ -919,14 +917,6 @@ function GymScreen() {
       color: '#0ea5e9',
       bg: '#0c4a6e',
       category: 'superior',
-    },
-    {
-      id: 'cardio',
-      name: 'CARDIO',
-      emoji: '❤️',
-      color: '#ef4444',
-      bg: '#450a0a',
-      category: 'cardio',
     },
     {
       id: 'full',
@@ -1247,7 +1237,7 @@ function GymScreen() {
   type FocusItem =
     | { type: 'single'; exercise: Exercise; originalIndex: number }
     | { type: 'group'; group: ExerciseGroup; exercises: Exercise[]; originalIndex: number }
-    | { type: 'cardio'; cardio: CardioBlock; position: 'PRE' | 'POST' };
+    | { type: 'cardio'; cardio: CardioBlock; position: 'PRE' | 'POST' | 'SCHEDULED' };
 
   // Cardio blocks filtrados para Focus: solo PRE y POST (no scheduled), filtrados por sesión
   const focusPreCardio = useMemo(
@@ -1271,6 +1261,13 @@ function GymScreen() {
             c.workout_session_index == null)
       ),
     [cardioBlocks, selectedSessionIndex]
+  );
+
+  // Cardios agendados por hora (no PRE ni POST) — se muestran como slides propios.
+  // Clave para días de SOLO cardio.
+  const focusScheduledCardio = useMemo(
+    () => cardioBlocks.filter((c) => !c.is_pre_workout && !c.is_post_workout),
+    [cardioBlocks]
   );
 
   const focusItems: FocusItem[] = useMemo(() => {
@@ -1301,8 +1298,13 @@ function GymScreen() {
     // POST-workout cardio slides al final
     focusPostCardio.forEach((c) => items.push({ type: 'cardio', cardio: c, position: 'POST' }));
 
+    // Cardios agendados (no PRE/POST) — al final, o como contenido único en días de solo cardio
+    focusScheduledCardio.forEach((c) =>
+      items.push({ type: 'cardio', cardio: c, position: 'SCHEDULED' })
+    );
+
     return items;
-  }, [exercises, exerciseGroups, focusPreCardio, focusPostCardio]);
+  }, [exercises, exerciseGroups, focusPreCardio, focusPostCardio, focusScheduledCardio]);
   // Ref para persistir el estado de alternativas durante re-renders (evita pérdida en modales)
   const activeAlternativesRef = useRef<Record<number, number>>({});
 
@@ -3309,6 +3311,97 @@ function GymScreen() {
   };
 
   // ============================================================================
+  // SAVE STRUCTURE DAY MUSCLES — Configura los grupos musculares del día
+  // seleccionado en la vista ESTRUCTURA y nombra la rutina automáticamente.
+  // ============================================================================
+  const saveStructureDayMuscles = async (muscles: string[]) => {
+    if (!user || muscles.length === 0) return;
+
+    const dayIndex = selectedDayIndex;
+    const sessionIndex = selectedSessionIndex;
+    const dayKey = String(dayIndex);
+    const muscleName = muscles.join(' + ');
+    const isDualB = !!dualSessionDays[dayKey] && sessionIndex === 1;
+
+    try {
+      if (isDualB) {
+        // Sesión B: solo actualiza el nombre de la sesión
+        const newNames = { ...sessionNames };
+        if (!newNames[dayKey]) newNames[dayKey] = {};
+        newNames[dayKey][String(sessionIndex)] = muscleName;
+        setSessionNames(newNames);
+        await supabase
+          .from('profiles')
+          .update({ training_session_names: newNames })
+          .eq('id', user.id);
+      } else {
+        // Sesión A / día normal: nombra la rutina y configura el día
+        setTrainingProgram((prev) => {
+          const days = prev.days.map((day, idx) =>
+            idx === dayIndex ? { ...day, muscleGroups: muscleName } : day
+          );
+          return {
+            ...prev,
+            days,
+            frequency: days.filter((d) => (d.muscleGroups || '').trim().length > 0).length,
+          };
+        });
+
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('training_routine_names')
+          .eq('id', user.id)
+          .single();
+        const currentNames = profile?.training_routine_names || {};
+        const updatedNames = { ...currentNames, [dayKey]: muscleName };
+        await supabase
+          .from('profiles')
+          .update({ training_routine_names: updatedNames, plan_source: 'custom' })
+          .eq('id', user.id);
+
+        // Si el día tiene dual session, sincroniza también el nombre de la sesión A
+        if (dualSessionDays[dayKey]) {
+          const newNames = { ...sessionNames };
+          if (!newNames[dayKey]) newNames[dayKey] = {};
+          newNames[dayKey]['0'] = muscleName;
+          setSessionNames(newNames);
+          await supabase
+            .from('profiles')
+            .update({ training_session_names: newNames })
+            .eq('id', user.id);
+        }
+
+        // Mantener sincronizado el horario en modo personalizado
+        if (isExternalMode) {
+          const entries = Object.entries(externalSchedule);
+          if (entries[dayIndex]) {
+            const scheduleKey = entries[dayIndex][0];
+            const newSchedule = { ...externalSchedule, [scheduleKey]: muscleName };
+            setExternalSchedule(newSchedule);
+            await supabase
+              .from('user_profiles')
+              .update({ external_schedule: newSchedule })
+              .eq('user_id', user.id);
+          }
+        }
+      }
+
+      setStructureMuscleSelection([]);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      // Recargar ejercicios del día ya configurado
+      loadExercises(dayIndex, true, sessionIndex);
+    } catch (error) {
+      console.error('Error saving structure day muscles:', error);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    }
+  };
+
+  // Resetear la selección inline de músculos al cambiar de día o sesión
+  useEffect(() => {
+    setStructureMuscleSelection([]);
+  }, [selectedDayIndex, selectedSessionIndex]);
+
+  // ============================================================================
   // FETCH EXERCISES FROM SUPABASE
   // ============================================================================
   useEffect(() => {
@@ -4097,33 +4190,6 @@ function GymScreen() {
       minute: '2-digit',
       hour12: true,
     });
-  };
-
-  // ============================================================================
-  // TIMER FUNCTIONS
-  // ============================================================================
-  const startTimer = (minutes: number) => {
-    setTimeRemaining(minutes * 60);
-    setTimerActive(true);
-    setTimerExpanded(false);
-
-    const interval = setInterval(() => {
-      setTimeRemaining((prev) => {
-        if (prev <= 1) {
-          clearInterval(interval);
-          setTimerActive(false);
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-  };
-
-  const formatTime = (seconds: number): string => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
   // ============================================================================
@@ -6489,9 +6555,305 @@ function GymScreen() {
   };
 
   // ============================================================================
+  // RENDER STRUCTURE MUSCLE GATE — Selección de músculos ANTES de agregar
+  // ejercicios/superseries. La rutina del día se nombra según lo seleccionado.
+  // ============================================================================
+  const renderStructureMuscleGate = () => {
+    const CATEGORIES: { key: string; label: string; color: string }[] = [
+      { key: 'superior', label: '💪 TORSO', color: '#ef4444' },
+      { key: 'hombros', label: '🎯 HOMBROS', color: '#f59e0b' },
+      { key: 'brazos', label: '🦾 BRAZOS', color: '#8b5cf6' },
+      { key: 'piernas', label: '🦵 PIERNAS', color: '#ec4899' },
+      { key: 'core', label: '🔥 CORE', color: '#eab308' },
+      { key: 'especial', label: '⚡ ESPECIAL', color: '#06b6d4' },
+    ];
+
+    const toggleMuscle = (name: string) => {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      setStructureMuscleSelection((prev) =>
+        prev.includes(name) ? prev.filter((m) => m !== name) : [...prev, name]
+      );
+    };
+
+    const hasSelection = structureMuscleSelection.length > 0;
+
+    return (
+      <View style={{ flex: 1, backgroundColor: '#000000' }}>
+        <ScrollView
+          className="flex-1 px-4 pt-2"
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{ paddingBottom: 24 }}
+        >
+          {/* Intro */}
+          <View className="items-center mb-5 mt-2">
+            <View
+              className="w-16 h-16 rounded-2xl items-center justify-center mb-3"
+              style={{
+                backgroundColor: '#0a0500',
+                borderWidth: 2,
+                borderColor: '#F97316',
+                shadowColor: '#F97316',
+                shadowOffset: { width: 0, height: 0 },
+                shadowOpacity: 0.4,
+                shadowRadius: 16,
+              }}
+            >
+              <Dumbbell size={30} color="#F97316" />
+            </View>
+            <Text className="text-white text-lg font-bold text-center">
+              ¿Qué músculos trabajarás?
+            </Text>
+            <Text className="text-zinc-500 text-xs text-center mt-1 px-6 leading-4">
+              Elige los grupos musculares de este día. La rutina se nombrará automáticamente.
+            </Text>
+          </View>
+
+          {/* Selección actual → nombre de la rutina */}
+          {hasSelection && (
+            <View className="bg-zinc-900/80 rounded-xl p-3 mb-4 border border-fire-orange/40">
+              <Text className="text-fire-orange font-bold text-[10px] uppercase tracking-widest mb-1">
+                Nombre de la rutina
+              </Text>
+              <Text className="text-white font-bold text-base">
+                {structureMuscleSelection.join(' + ')}
+              </Text>
+            </View>
+          )}
+
+          {/* Categorías de grupos musculares */}
+          {CATEGORIES.map((cat) => {
+            const groups = MUSCLE_GROUPS.filter((g) => g.category === cat.key);
+            if (groups.length === 0) return null;
+            return (
+              <View
+                key={cat.key}
+                className="mb-3 rounded-xl p-3"
+                style={{
+                  backgroundColor: '#0a0a0a',
+                  borderWidth: 1,
+                  borderColor: `${cat.color}40`,
+                }}
+              >
+                <Text className="text-xs font-bold mb-2" style={{ color: cat.color }}>
+                  {cat.label}
+                </Text>
+                <View className="flex-row flex-wrap gap-2">
+                  {groups.map((group) => {
+                    const isSelected = structureMuscleSelection.includes(group.name);
+                    return (
+                      <TouchableOpacity
+                        key={group.id}
+                        onPress={() => toggleMuscle(group.name)}
+                        className="px-3 py-2 rounded-lg flex-row items-center gap-1.5"
+                        style={
+                          isSelected
+                            ? {
+                                backgroundColor: group.color,
+                                shadowColor: group.color,
+                                shadowOffset: { width: 0, height: 2 },
+                                shadowOpacity: 0.5,
+                                shadowRadius: 8,
+                              }
+                            : {
+                                backgroundColor: group.bg,
+                                borderWidth: 1,
+                                borderColor: `${group.color}50`,
+                              }
+                        }
+                      >
+                        <Text className="text-xs">{group.emoji}</Text>
+                        <Text
+                          className={`font-bold text-[11px] tracking-wide ${
+                            isSelected ? 'text-black' : 'text-white'
+                          }`}
+                        >
+                          {group.name}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+            );
+          })}
+
+          {/* ===== CARDIO DEL DÍA — para días de solo cardio o combinados ===== */}
+          <View className="mt-1 mb-2">
+            <View className="flex-row items-center gap-2 mb-1">
+              <Flame size={14} color="#DC2626" />
+              <Text className="text-zinc-300 text-xs font-bold tracking-wider">CARDIO DEL DÍA</Text>
+              {cardioBlocks.length > 0 && (
+                <View
+                  className="px-2 py-0.5 rounded-full"
+                  style={{ backgroundColor: 'rgba(220, 38, 38, 0.2)' }}
+                >
+                  <Text className="text-savage-red text-[10px] font-bold font-mono">
+                    {cardioBlocks.length}
+                  </Text>
+                </View>
+              )}
+            </View>
+            <Text className="text-zinc-600 text-[10px] font-mono mb-3">
+              ¿Solo cardio hoy? Agrégalo aquí sin elegir músculos.
+            </Text>
+
+            {/* Tarjetas de cardio existentes (compactas) */}
+            {cardioBlocks.map((cardio) => {
+              const typeColor =
+                cardio.cardio_type === 'HIIT' ||
+                cardio.cardio_type === 'SPRINT' ||
+                cardio.cardio_type === 'TABATA'
+                  ? '#DC2626'
+                  : cardio.cardio_type === 'LISS'
+                    ? '#22C55E'
+                    : cardio.cardio_type === 'STEADY_STATE'
+                      ? '#F97316'
+                      : cardio.cardio_type === 'FARTLEK'
+                        ? '#8B5CF6'
+                        : '#A1A1AA';
+              return (
+                <Pressable
+                  key={cardio.id}
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    handleGymEditCardio(cardio.id);
+                  }}
+                  onLongPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+                    handleGymDeleteCardio(cardio.id);
+                  }}
+                  className="mb-2 rounded-2xl overflow-hidden"
+                  style={{
+                    backgroundColor: 'rgba(24, 24, 27, 0.95)',
+                    borderWidth: 1,
+                    borderColor: `${typeColor}35`,
+                  }}
+                >
+                  <View className="px-4 py-3 flex-row items-center justify-between">
+                    <View className="flex-row items-center gap-2 flex-1">
+                      <View
+                        className="w-7 h-7 rounded-lg items-center justify-center"
+                        style={{ backgroundColor: `${typeColor}20` }}
+                      >
+                        <Flame size={14} color={typeColor} />
+                      </View>
+                      <View className="flex-1">
+                        <Text className="text-white text-xs font-bold uppercase tracking-wide">
+                          {cardio.cardio_type} · {cardio.activity}
+                        </Text>
+                        <Text className="text-zinc-500 text-[9px] font-mono mt-0.5">
+                          {cardio.duration_minutes} min · {cardio.intensity}
+                        </Text>
+                      </View>
+                    </View>
+                    <View className="flex-row items-center gap-1.5">
+                      {cardio.is_pre_workout && (
+                        <View
+                          className="px-2 py-0.5 rounded"
+                          style={{ backgroundColor: 'rgba(234, 179, 8, 0.15)' }}
+                        >
+                          <Text className="text-yellow-500 text-[8px] font-bold">PRE</Text>
+                        </View>
+                      )}
+                      {cardio.is_post_workout && (
+                        <View
+                          className="px-2 py-0.5 rounded"
+                          style={{ backgroundColor: 'rgba(34, 197, 94, 0.15)' }}
+                        >
+                          <Text className="text-green-500 text-[8px] font-bold">POST</Text>
+                        </View>
+                      )}
+                    </View>
+                  </View>
+                </Pressable>
+              );
+            })}
+
+            {/* Botón agregar cardio */}
+            <TouchableOpacity
+              onPress={() => {
+                setGymEditingCardioId(null);
+                setGymEditingCardioData(null);
+                setShowGymAddCardio(true);
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+              }}
+              className="mt-1 p-3 rounded-xl items-center flex-row justify-center gap-2"
+              style={{
+                borderWidth: 1.5,
+                borderColor: '#DC2626',
+                backgroundColor: 'rgba(220, 38, 38, 0.05)',
+                borderStyle: 'dashed',
+              }}
+            >
+              <Flame color="#DC2626" size={16} />
+              <Text className="font-bold text-xs tracking-wider text-savage-red">
+                AGREGAR CARDIO
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
+
+        {/* Botón confirmar */}
+        <View
+          className="px-4 pt-2 pb-4 border-t border-zinc-900"
+          style={{ backgroundColor: '#000' }}
+        >
+          <TouchableOpacity
+            onPress={() => saveStructureDayMuscles(structureMuscleSelection)}
+            disabled={!hasSelection}
+            className="py-4 rounded-xl flex-row items-center justify-center gap-2"
+            style={
+              hasSelection
+                ? {
+                    backgroundColor: '#F97316',
+                    shadowColor: '#F97316',
+                    shadowOffset: { width: 0, height: 4 },
+                    shadowOpacity: 0.5,
+                    shadowRadius: 12,
+                  }
+                : { backgroundColor: '#27272a' }
+            }
+          >
+            <Check size={18} color={hasSelection ? '#000' : '#71717a'} strokeWidth={2.5} />
+            <Text
+              className={`font-bold text-sm tracking-wider ${
+                hasSelection ? 'text-black' : 'text-zinc-500'
+              }`}
+            >
+              {hasSelection ? 'CONFIGURAR Y AGREGAR EJERCICIOS' : 'SELECCIONA AL MENOS UN MÚSCULO'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  };
+
+  // ============================================================================
   // RENDER STRUCTURE MODAL - ED HARDY FIRE STYLE (Arrastrable)
   // ============================================================================
   const renderStructureModal = () => {
+    // ¿El día/sesión seleccionado ya tiene músculos configurados?
+    // Si no, mostramos primero el selector de músculos (nombra la rutina).
+    const structureDayKey = String(selectedDayIndex);
+    const isDualDay = !!dualSessionDays[structureDayKey];
+    let currentMuscleName = '';
+    if (isDualDay) {
+      currentMuscleName = (
+        sessionNames[structureDayKey]?.[String(selectedSessionIndex)] || ''
+      ).trim();
+    } else if (isExternalMode) {
+      const externalEntry = Object.entries(externalSchedule)[selectedDayIndex];
+      currentMuscleName = (
+        trainingProgram.days[selectedDayIndex]?.muscleGroups ||
+        externalEntry?.[1] ||
+        ''
+      ).trim();
+    } else {
+      currentMuscleName = (trainingProgram.days[selectedDayIndex]?.muscleGroups || '').trim();
+    }
+    // Solo mostramos el gate cuando NO hay músculos y NO hay ejercicios cargados
+    const needsMuscleSelection = currentMuscleName.length === 0 && exercises.length === 0;
+
     return (
       <Modal
         visible={structureModalOpen}
@@ -6839,7 +7201,10 @@ function GymScreen() {
 
               {/* EXERCISES LIST - DRAG & DROP */}
               <GestureHandlerRootView style={{ flex: 1, backgroundColor: '#000000' }}>
-                {exercises.length === 0 ? (
+                {needsMuscleSelection ? (
+                  // GATE: primero escoger músculos → nombra la rutina del día
+                  renderStructureMuscleGate()
+                ) : exercises.length === 0 && cardioBlocks.length === 0 ? (
                   // Estado vacío - sin scroll
                   <View
                     className="flex-1 justify-center items-center px-4"
@@ -6919,6 +7284,27 @@ function GymScreen() {
                           <Layers size={16} color="#DC2626" />
                           <Text className="text-savage-red font-bold text-xs tracking-wider">
                             CREAR SUPER SERIE
+                          </Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                          onPress={() => {
+                            setGymEditingCardioId(null);
+                            setGymEditingCardioData(null);
+                            setShowGymAddCardio(true);
+                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                          }}
+                          className="py-3 px-6 rounded-xl flex-row items-center justify-center gap-2"
+                          style={{
+                            borderWidth: 1.5,
+                            borderColor: '#DC2626',
+                            backgroundColor: 'rgba(220, 38, 38, 0.05)',
+                            borderStyle: 'dashed',
+                          }}
+                        >
+                          <Flame size={16} color="#DC2626" />
+                          <Text className="text-savage-red font-bold text-xs tracking-wider">
+                            AGREGAR CARDIO
                           </Text>
                         </TouchableOpacity>
                       </View>
@@ -10313,68 +10699,6 @@ function GymScreen() {
           ))}
         </View>
       )}
-
-      {/* HUD TÁCTICO - Timer justo encima de Spotify (12px gap) */}
-      <View
-        style={{
-          position: 'absolute',
-          right: 16,
-          bottom: 230 + insets.bottom, // Ajustado
-          zIndex: 40,
-        }}
-      >
-        {/* TIMER - Mismo tamaño que Spotify (56x56) */}
-        <View>
-          {timerActive ? (
-            // Cuenta regresiva activa
-            <View
-              className="bg-black/90 rounded-full border-2 border-savage-red items-center justify-center"
-              style={{ width: 56, height: 56 }}
-            >
-              <Text className="text-savage-red font-mono font-bold text-sm">
-                {formatTime(timeRemaining)}
-              </Text>
-            </View>
-          ) : timerExpanded ? (
-            // Burbujas desplegadas
-            <View className="gap-2 bg-black/90 p-2 rounded-2xl border border-zinc-800">
-              <TouchableOpacity
-                onPress={() => startTimer(1)}
-                className="bg-zinc-800 px-3 py-1.5 rounded-full"
-              >
-                <Text className="text-savage-text text-[10px] font-bold">1m</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => startTimer(2)}
-                className="bg-zinc-800 px-3 py-1.5 rounded-full"
-              >
-                <Text className="text-savage-text text-[10px] font-bold">2m</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => startTimer(3)}
-                className="bg-zinc-800 px-3 py-1.5 rounded-full"
-              >
-                <Text className="text-savage-text text-[10px] font-bold">3m</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => setTimerExpanded(false)}
-                className="bg-savage-red px-3 py-1.5 rounded-full"
-              >
-                <X color="#FFF" size={12} />
-              </TouchableOpacity>
-            </View>
-          ) : (
-            // Icono normal - 56x56 como Spotify
-            <TouchableOpacity
-              onPress={() => setTimerExpanded(true)}
-              className="bg-zinc-900 rounded-full border border-zinc-700 items-center justify-center"
-              style={{ width: 56, height: 56 }}
-            >
-              <Timer color="#FFFFFF" size={24} />
-            </TouchableOpacity>
-          )}
-        </View>
-      </View>
 
       {/* VERTICAL SCROLL (ESTILO TIKTOK) */}
       <FlatList

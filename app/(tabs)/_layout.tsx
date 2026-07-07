@@ -6,6 +6,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   Play,
   User,
+  Dna,
+  Zap,
+  ChartLine,
   Crosshair,
   Dumbbell,
   Utensils,
@@ -54,6 +57,10 @@ const ED_HARDY = {
 const ICON_MAP: Record<string, LucideIcon> = {
   Play,
   User,
+  Dna,
+  Zap,
+  Timeline: ChartLine,
+  ChartLine,
   Crosshair,
   Dumbbell,
   Utensils,
@@ -337,8 +344,18 @@ export default function TabsLayout() {
           .eq('user_id', user.id)
           .maybeSingle();
 
-        if (data?.default_module === 'adn') {
-          router.replace('/(tabs)/adn' as any);
+        const defaultModule = data?.default_module;
+        const moduleRouteMap: Record<string, string> = {
+          feed: '/(tabs)/feed',
+          adn: '/(tabs)/adn',
+          pro: '/(tabs)/pro',
+          plan: '/(tabs)/plan',
+          gym: '/(tabs)/gym',
+        };
+
+        const targetRoute = defaultModule ? moduleRouteMap[defaultModule] : null;
+        if (targetRoute && targetRoute !== '/(tabs)/feed') {
+          router.replace(targetRoute as any);
         }
       } catch (err) {
         // Silently fail — default to feed
@@ -355,6 +372,8 @@ export default function TabsLayout() {
   // Iconos dinámicos para tabs 4 y 5
   const Tab4Icon = getIconComponent(tabConfig.tab4.icon);
   const Tab5Icon = getIconComponent(tabConfig.tab5.icon);
+  const isPlanTab = (tabConfig.tab5.name || '').trim().toUpperCase() === 'PLAN';
+  const PlanTabIcon = isPlanTab ? ChartLine : Tab5Icon;
   const sportColor = tabConfig.color;
 
   // Altura dinámica del tab bar basada en safe area
@@ -584,7 +603,7 @@ export default function TabsLayout() {
                 const effectiveFocused = focused || isProfileView;
                 const effectiveColor = effectiveFocused ? sportColor : color;
                 return (
-                  <TabIcon Icon={Play} color={effectiveColor} size={26} fill={effectiveColor} />
+                  <TabIcon Icon={Zap} color={effectiveColor} size={26} fill={effectiveColor} />
                 );
               },
             }}
@@ -595,7 +614,7 @@ export default function TabsLayout() {
             name="adn/index"
             options={{
               title: 'ADN',
-              tabBarIcon: ({ color }) => <TabIcon Icon={User} color={color} size={26} />,
+              tabBarIcon: ({ color }) => <TabIcon Icon={Dna} color={color} size={26} />,
             }}
           />
 
@@ -636,7 +655,7 @@ export default function TabsLayout() {
             name="plan/index"
             options={{
               title: tabConfig.tab5.name,
-              tabBarIcon: ({ color }) => <TabIcon Icon={Tab5Icon} color={color} size={26} />,
+              tabBarIcon: ({ color }) => <TabIcon Icon={PlanTabIcon} color={color} size={26} />,
             }}
           />
 

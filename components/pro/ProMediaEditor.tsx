@@ -18,7 +18,7 @@ import {
   LayoutChangeEvent,
   Platform,
 } from 'react-native';
-import { X, Play, Download, Share2, Dumbbell, LogIn } from 'lucide-react-native';
+import { X, Play, Download, Share2, Dumbbell, LogIn, BookmarkPlus } from 'lucide-react-native';
 import * as Sharing from 'expo-sharing';
 import * as MediaLibrary from 'expo-media-library';
 import { VideoView, useVideoPlayer } from 'expo-video';
@@ -137,6 +137,7 @@ export function ProMediaEditor({
   const [isSaving, setIsSaving] = useState(false);
   const [savedToGallery, setSavedToGallery] = useState(false);
   const [guestPromptVisible, setGuestPromptVisible] = useState(false);
+  const [addToProgress, setAddToProgress] = useState(false);
   // --- Video ---
   const [isPlaying, setIsPlaying] = useState(true);
   const [currentVideoTime, setCurrentVideoTime] = useState(0);
@@ -821,6 +822,47 @@ export function ProMediaEditor({
     videoTrimEnd,
   ]);
 
+  // --- Save to progress history ---
+  const saveToProgressHistory = useCallback(
+    async (photoUri: string) => {
+      if (isVideo) return; // solo fotos
+      try {
+        const { supabase } = await import('../../lib/supabase');
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+        if (!user) return;
+        // Convertir URI a base64
+        let base64: string;
+        if (Platform.OS === 'web') {
+          // En web, photoUri ya es un data URL o blob URL
+          const res = await fetch(photoUri);
+          const blob = await res.blob();
+          base64 = await new Promise<string>((resolve) => {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+              const result = reader.result as string;
+              resolve(result.split(',')[1] || result);
+            };
+            reader.readAsDataURL(blob);
+          });
+        } else {
+          // En nativo, usar expo-file-system
+          const FileSystem = require('expo-file-system');
+          base64 = await FileSystem.readAsStringAsync(photoUri, {
+            encoding: FileSystem.EncodingType.Base64,
+          });
+        }
+        const { uploadProgressPhoto } = await import('../../services/progress/photos');
+        await uploadProgressPhoto(user.id, { photo_base64: base64 });
+        console.log('✅ PRO: Foto guardada en historial de progreso');
+      } catch (e) {
+        console.warn('Error guardando en historial de progreso:', e);
+      }
+    },
+    [isVideo]
+  );
+
   // --- Share ---
   const handleShare = useCallback(async () => {
     if (isGuest) {
@@ -842,6 +884,11 @@ export function ProMediaEditor({
       } else {
         uri = await capturePhoto();
         mime = mediaData?.mimeType || (isVideo ? 'video/mp4' : 'image/png');
+      }
+
+      // Guardar en historial de progreso en background (sin bloquear el share)
+      if (addToProgress) {
+        saveToProgressHistory(uri); // fire-and-forget para no perder el gesto del usuario
       }
 
       const extMap: Record<string, string> = {
@@ -896,7 +943,15 @@ export function ProMediaEditor({
     } finally {
       setIsSaving(false);
     }
-  }, [capturePhoto, captureVideoCropped, isVideo, mediaData, isGuest]);
+  }, [
+    capturePhoto,
+    captureVideoCropped,
+    isVideo,
+    mediaData,
+    isGuest,
+    addToProgress,
+    saveToProgressHistory,
+  ]);
 
   // --- Save to gallery ---
   const handleSaveToGallery = useCallback(async () => {
@@ -961,13 +1016,25 @@ export function ProMediaEditor({
         }
       }
       setSavedToGallery(true);
+      // Guardar en historial de progreso si está marcado
+      if (addToProgress) {
+        await saveToProgressHistory(uri);
+      }
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (e) {
       console.warn('Error saving to gallery:', e);
     } finally {
       setIsSaving(false);
     }
-  }, [capturePhoto, captureVideoCropped, isVideo, mediaData, isGuest]);
+  }, [
+    capturePhoto,
+    captureVideoCropped,
+    isVideo,
+    mediaData,
+    isGuest,
+    addToProgress,
+    saveToProgressHistory,
+  ]);
 
   // --- Render ---
   if (!mediaData) return null;
@@ -1475,7 +1542,57 @@ export function ProMediaEditor({
           {/* EXPORT BUTTONS — bottom                                          */}
           {/* ================================================================ */}
           <View className="px-4 pb-10 pt-4">
-            {/* Video on web (PWA): single GUARDAR button */}
+            {/* Checkbox: Añadir a historial de progreso (solo fotos) */}
+            {!isVideo && (
+              <TouchableOpacity
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  setAddToProgress((v) => !v);
+                }}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  marginBottom: 14,
+                  gap: 10,
+                }}
+              >
+                <View
+                  style={{
+                    width: 22,
+                    height: 22,
+                    borderRadius: 6,
+                    borderWidth: 2,
+                    borderColor: addToProgress ? '#DC2626' : 'rgba(255,255,255,0.3)',
+                    backgroundColor: addToProgress ? '#DC2626' : 'transparent',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  {addToProgress && (
+                    <Text
+                      style={{ color: '#FFF', fontSize: 13, fontWeight: '900', lineHeight: 16 }}
+                    >
+                      ✓
+                    </Text>
+                  )}
+                </View>
+                <BookmarkPlus
+                  size={16}
+                  color={addToProgress ? '#DC2626' : 'rgba(255,255,255,0.5)'}
+                />
+                <Text
+                  style={{
+                    color: addToProgress ? '#FFF' : 'rgba(255,255,255,0.5)',
+                    fontSize: 13,
+                    fontWeight: addToProgress ? '700' : '400',
+                  }}
+                >
+                  Añadir a mi historial de progreso
+                </Text>
+              </TouchableOpacity>
+            )}
+
+            {/* Video on web (PWA): single GUARDAR/DESCARGAR button */}
             {isVideo && Platform.OS === 'web' ? (
               <TouchableOpacity
                 onPress={handleSaveToGallery}
@@ -1512,9 +1629,9 @@ export function ProMediaEditor({
                 )}
               </TouchableOpacity>
             ) : (
-              /* Photo or Native: COMPARTIR + GUARDAR */
+              /* Photo or Native: COMPARTIR + DESCARGAR */
               <View style={{ flexDirection: 'row', gap: 12 }}>
-                {/* COMPARTIR — larger */}
+                {/* COMPARTIR / GUARDAR Y COMPARTIR — larger */}
                 <TouchableOpacity
                   onPress={handleShare}
                   disabled={isSaving}
@@ -1541,17 +1658,17 @@ export function ProMediaEditor({
                         style={{
                           color: '#FFF',
                           fontWeight: '700',
-                          fontSize: 15,
+                          fontSize: addToProgress ? 13 : 15,
                           marginLeft: 8,
                         }}
                       >
-                        COMPARTIR
+                        {addToProgress ? 'GUARDAR Y COMPARTIR' : 'COMPARTIR'}
                       </Text>
                     </>
                   )}
                 </TouchableOpacity>
 
-                {/* GUARDAR — smaller */}
+                {/* DESCARGAR / GUARDAR Y DESCARGAR — smaller */}
                 <TouchableOpacity
                   onPress={handleSaveToGallery}
                   disabled={isSaving}
@@ -1567,16 +1684,16 @@ export function ProMediaEditor({
                     justifyContent: 'center',
                   }}
                 >
-                  <Download color={savedToGallery ? '#22C55E' : '#FFF'} size={20} />
+                  <Download color={savedToGallery ? '#22C55E' : '#FFF'} size={18} />
                   <Text
                     style={{
                       color: savedToGallery ? '#22C55E' : '#FFF',
                       fontWeight: '700',
-                      fontSize: 13,
-                      marginLeft: 6,
+                      fontSize: 11,
+                      marginLeft: 4,
                     }}
                   >
-                    {savedToGallery ? '✓' : 'GUARDAR'}
+                    {savedToGallery ? '✓' : addToProgress ? 'GUARDAR Y\nDESCARGAR' : 'DESCARGAR'}
                   </Text>
                 </TouchableOpacity>
               </View>

@@ -2592,8 +2592,6 @@ export const HankOverlay: React.FC = () => {
             'PLAN_GET_MEAL_DETAILS',
             'PLAN_GET_NEXT_MEAL',
             'PLAN_GET_STACK',
-            'PLAN_ANALYZE_NUTRITION',
-            'PLAN_CALCULATE_MACROS',
             'SPOTIFY_GET_CURRENT_TRACK',
             'GET_USER_CONTEXT',
             'GET_FULL_USER_CONTEXT',
