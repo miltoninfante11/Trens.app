@@ -274,7 +274,8 @@ export const EditMealModal: React.FC<EditMealModalProps> = ({ visible, meal, onC
       }));
 
       const currentOption = meal.options[meal.selectedOption] || meal.options[0];
-      await onSave(meal.id, currentOption.id, finalIngredients, notes.trim() || undefined);
+      // Pasar string vacío explícitamente (no undefined) para que se limpie en la DB
+      await onSave(meal.id, currentOption.id, finalIngredients, notes.trim());
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       onClose();
     } catch (error) {

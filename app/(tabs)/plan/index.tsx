@@ -603,9 +603,18 @@ function PlanScreen() {
       // Fetch routine names (sistema weekday: 0=Dom..6=Sáb)
       const { data: profileData } = await supabase
         .from('profiles')
-        .select('training_routine_names, training_session_names')
+        .select('training_routine_names, training_session_names, workout_scheduled_times')
         .eq('id', user.id)
         .single();
+
+      // ── Horarios configurados por día (override del scheduled_time global) ──
+      // Clave: `${weekday}_${sessionIdx}` → "HH:MM"
+      const perDayTimes = (profileData?.workout_scheduled_times || {}) as Record<string, string>;
+      const todayWd = new Date().getDay();
+      const perDayTimeA = perDayTimes[`${todayWd}_0`] || null;
+      const perDayTimeB = perDayTimes[`${todayWd}_1`] || null;
+      if (perDayTimeA) setWorkoutScheduledTime(perDayTimeA);
+      if (perDayTimeB) setWorkoutScheduledTimeB(perDayTimeB);
 
       // ===========================================================================
       // DETECTAR MODO DE ENTRENAMIENTO (external vs gym_module)

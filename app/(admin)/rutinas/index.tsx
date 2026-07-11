@@ -157,6 +157,18 @@ const MUSCLE_GROUPS = [
   { id: 'fullbody', name: 'FULL BODY', color: '#a855f7', category: 'especial' },
 ];
 
+// Sinónimos de grupos musculares: FEMORALES (UI) ↔ ISQUIOS (DB)
+const MUSCLE_ALIASES: Record<string, string> = {
+  FEMORALES: 'ISQUIOS',
+  ISQUIOS: 'FEMORALES',
+};
+// Verifica si dos nombres de músculo son equivalentes (incluyendo aliases)
+const musclesMatch = (a: string, b: string): boolean => {
+  const au = a.toUpperCase();
+  const bu = b.toUpperCase();
+  return au === bu || MUSCLE_ALIASES[au] === bu || au === MUSCLE_ALIASES[bu];
+};
+
 // ============================================================================
 // MAIN COMPONENT
 // ============================================================================
@@ -754,8 +766,9 @@ export default function AdminRutinasScreen() {
     const isExerciseRecommended = (ex: DBExercise) => {
       const exMuscle = ex.muscle_group?.toUpperCase() || '';
       const exSecondary = ex.secondary_muscles?.map((m) => m.toUpperCase()) || [];
-      return selectedMuscleGroups.some(
-        (dayMuscle) => exMuscle === dayMuscle || exSecondary.includes(dayMuscle)
+      return selectedMuscleGroups.some((dayMuscle) =>
+        musclesMatch(exMuscle, dayMuscle) ||
+        exSecondary.some((s) => musclesMatch(s, dayMuscle))
       );
     };
 
@@ -767,8 +780,8 @@ export default function AdminRutinasScreen() {
     else if (selectedExerciseMuscleFilter) {
       exercises = exercises.filter(
         (ex) =>
-          ex.muscle_group?.toUpperCase() === selectedExerciseMuscleFilter ||
-          ex.secondary_muscles?.some((mg) => mg.toUpperCase() === selectedExerciseMuscleFilter)
+          musclesMatch(ex.muscle_group || '', selectedExerciseMuscleFilter) ||
+          ex.secondary_muscles?.some((mg) => musclesMatch(mg, selectedExerciseMuscleFilter))
       );
     }
 
@@ -1747,7 +1760,9 @@ export default function AdminRutinasScreen() {
                   const exMuscle = ex.muscle_group?.toUpperCase() || '';
                   const exSecondary = ex.secondary_muscles?.map((m) => m.toUpperCase()) || [];
                   const isRecommended = selectedMuscleGroups.some(
-                    (dayMuscle) => exMuscle === dayMuscle || exSecondary.includes(dayMuscle)
+                    (dayMuscle) =>
+                      musclesMatch(exMuscle, dayMuscle) ||
+                      exSecondary.some((s) => musclesMatch(s, dayMuscle))
                   );
 
                   return (

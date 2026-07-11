@@ -159,7 +159,9 @@ export const useHankExecutor = (
               userId,
               p.exerciseName as string,
               p.trainingDay as number,
-              p.customSeries as Array<{ reps: number; weight: number; type: string }> | undefined
+              p.customSeries as Array<{ reps: number; weight: number; type: string }> | undefined,
+              undefined, // userLevel
+              (p.sessionIndex as number | undefined) ?? 0 // 0=Sesión A, 1=Sesión B
             );
             break;
 
@@ -168,7 +170,8 @@ export const useHankExecutor = (
               userId,
               p.exerciseName as string,
               p.trainingDay as number | undefined,
-              p.deleteCompletely as boolean | undefined
+              p.deleteCompletely as boolean | undefined,
+              p.sessionIndex as number | undefined // filtrar por sesión si se especifica
             );
             break;
 

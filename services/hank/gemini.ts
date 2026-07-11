@@ -948,9 +948,10 @@ ${context.availableExercises && context.availableExercises.length > 0 ? `[CATÁL
 
 [HERRAMIENTAS CLAVE]
 • Rutina de hoy: GYM_GET_TODAY_ROUTINE
-• Rutina completa: GYM_LIST_EXERCISES
-• Agregar ejercicio: GYM_ADD_EXERCISE(exerciseName, trainingDay=${context.currentTrainingDay})
-• Quitar ejercicio: GYM_REMOVE_EXERCISE(exerciseName)
+• Rutina completa: GYM_LIST_EXERCISES (muestra ambas sesiones si hay doble sesión)
+• Agregar ejercicio Sesión A: GYM_ADD_EXERCISE(exerciseName, trainingDay=${context.currentTrainingDay}, sessionIndex=0)
+• Agregar ejercicio Sesión B: GYM_ADD_EXERCISE(exerciseName, trainingDay=${context.currentTrainingDay}, sessionIndex=1)
+• Quitar ejercicio: GYM_REMOVE_EXERCISE(exerciseName, sessionIndex=0|1 si se especifica sesión)
 • Reemplazar ejercicio: GYM_REPLACE_EXERCISE(oldExerciseName, newExerciseName, trainingDay=${context.currentTrainingDay})
 • Modificar series: ASSET_UPDATE_FIELD, ASSET_ADD_SERIES, ASSET_REMOVE_SERIES, ASSET_REPLACE_SERIES, ASSET_SET_SERIES
 • Comidas: PLAN_GET_MEALS, PLAN_ADD_MEAL, PLAN_REMOVE_MEAL
@@ -1005,9 +1006,17 @@ Cuando el usuario diga "elimina el lunes", "quita el día de piernas", "ya no en
 
 💪 CONFIGURAR EJERCICIOS A DETALLE:
 Cuando el usuario quiere configurar series específicas:
-→ GYM_ADD_EXERCISE: Agregar ejercicio a un día
+→ GYM_ADD_EXERCISE: Agregar ejercicio a un día (sessionIndex=0 para Sesión A, sessionIndex=1 para Sesión B)
 → GYM_UPDATE_SERIES_DETAIL: Modificar reps, peso, RIR, tempo, descanso de una serie
 → GYM_REPLACE_EXERCISE: Cambiar un ejercicio por otro
+
+⚡ DOBLE SESIÓN (2 entrenamientos por día):
+Cuando el usuario diga "sesión B", "segundo entrenamiento", "entreno mañana y tarde", "doble sesión":
+→ Para AGREGAR a sesión B: GYM_ADD_EXERCISE(exerciseName, trainingDay, sessionIndex=1)
+→ Para VER ejercicios de sesión B: GYM_LIST_EXERCISES — ya distingue automáticamente ambas sesiones
+→ Para ELIMINAR de sesión B: GYM_REMOVE_EXERCISE(exerciseName, trainingDay, sessionIndex=1)
+→ La Sesión A siempre es sessionIndex=0 (default), Sesión B es sessionIndex=1
+→ El mismo ejercicio puede estar en Sesión A y Sesión B del mismo día (son filas distintas en DB)
 
 ⚠️ NUNCA digas "no tienes entrenamiento" a un usuario nivel INTERMEDIO o superior
 ⚠️ NUNCA preguntes confirmación para guardar datos que el usuario ya te dio

@@ -755,7 +755,18 @@ function GymScreen() {
   const [renamingSessionIndex, setRenamingSessionIndex] = useState<number>(0);
   const [renamingSessionName, setRenamingSessionName] = useState('');
 
-  // Modal para agregar nuevo día con selección de grupos musculares
+  // ============================================================================
+  // PER-DAY WORKOUT TIMES STATE
+  // Permite configurar una hora diferente de entreno para cada día de la semana.
+  // Clave: `${weekday}_${sessionIndex}` — Valor: "HH:MM"
+  // ============================================================================
+  const [dayWorkoutTimes, setDayWorkoutTimes] = useState<Record<string, string>>({});
+  // Mini time picker modal para configurar la hora de un día/sesión
+  const [workoutTimePickerVisible, setWorkoutTimePickerVisible] = useState(false);
+  const [workoutTimePickerDay, setWorkoutTimePickerDay] = useState(0); // weekday 0-6
+  const [workoutTimePickerSession, setWorkoutTimePickerSession] = useState(0); // 0=A, 1=B
+  const [workoutTimePickerValue, setWorkoutTimePickerValue] = useState('07:00'); // HH:MM draft
+
   const [addDayModalVisible, setAddDayModalVisible] = useState(false);
   const [selectedMuscleGroups, setSelectedMuscleGroups] = useState<string[]>([]);
   // Selección inline de músculos dentro de la vista ESTRUCTURA (gate previo a
@@ -2494,9 +2505,40 @@ function GymScreen() {
 
       const { data: profile } = await supabase
         .from('profiles')
-        .select('training_last_access, training_routine_names, training_session_names')
+        .select(
+          'training_last_access, training_routine_names, training_session_names, workout_scheduled_times'
+        )
         .eq('id', user.id)
         .single();
+
+      // Cargar horarios configurados por día
+      if (profile?.workout_scheduled_times) {
+        setDayWorkoutTimes(profile.workout_scheduled_times as Record<string, string>);
+      } else {
+        // Fallback: leer de workout_block_position.scheduled_time
+        // (fuente alternativa cuando profiles.workout_scheduled_times no está disponible)
+        const { data: wbpData } = await supabase
+          .from('workout_block_position')
+          .select('session_index, scheduled_time')
+          .eq('user_id', user.id)
+          .not('scheduled_time', 'is', null);
+
+        if (wbpData && wbpData.length > 0) {
+          const todayWd = new Date().getDay();
+          const fallbackTimes: Record<string, string> = {};
+          wbpData.forEach((row: any) => {
+            if (row.scheduled_time) {
+              const sIdx = row.session_index ?? 0;
+              // Aplicar a todos los días (no sabemos para qué día fue configurado)
+              // Solo guardamos con el weekday de hoy como referencia inicial
+              fallbackTimes[`${todayWd}_${sIdx}`] = row.scheduled_time.slice(0, 5);
+            }
+          });
+          if (Object.keys(fallbackTimes).length > 0) {
+            setDayWorkoutTimes(fallbackTimes);
+          }
+        }
+      }
 
       // Cargar nombres de sesiones
       if (profile?.training_session_names) {
@@ -2562,8 +2604,60 @@ function GymScreen() {
   };
 
   // ============================================================================
-  // DAY OPTIONS MENU (Long-press / 3-dot menu)
+  // SAVE PER-DAY WORKOUT TIME
   // ============================================================================
+  const saveDayWorkoutTime = async (weekday: number, sessionIdx: number, time: string | null) => {
+    if (!user) return;
+    const key = `${weekday}_${sessionIdx}`;
+    const updated = { ...dayWorkoutTimes };
+    if (time) {
+      updated[key] = time;
+    } else {
+      delete updated[key];
+    }
+    setDayWorkoutTimes(updated);
+    try {
+      // 1. Guardar en profiles.workout_scheduled_times (usado por GYM módulo)
+      await supabase
+        .from('profiles')
+        .update({ workout_scheduled_times: updated })
+        .eq('id', user.id);
+
+      // 2. Guardar también en workout_block_position.scheduled_time
+      //    (usado por módulo PLAN para mostrar el bloque de entrenamiento en el timeline)
+      const { data: existing } = await supabase
+        .from('workout_block_position')
+        .select('id, position')
+        .eq('user_id', user.id)
+        .eq('session_index', sessionIdx)
+        .limit(1)
+        .maybeSingle();
+
+      if (existing) {
+        await supabase
+          .from('workout_block_position')
+          .update({ scheduled_time: time || null })
+          .eq('id', existing.id);
+      } else if (time) {
+        // Crear registro con posición por defecto (0 = antes de primera comida, sesión A; 4 = sesión B)
+        await supabase.from('workout_block_position').insert({
+          user_id: user.id,
+          position: sessionIdx === 0 ? 2 : 4,
+          session_index: sessionIdx,
+          scheduled_time: time,
+        });
+      }
+
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (err) {
+      console.error('Error saving day workout time:', err);
+    }
+  };
+
+  // Helper: obtener hora configurada para un día/sesión (o null si no hay)
+  const getDayWorkoutTime = (weekday: number, sessionIdx: number): string | null =>
+    dayWorkoutTimes[`${weekday}_${sessionIdx}`] ?? null;
+
   const showDayOptions = (dayIndex: number) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
     setDayOptionsIndex(dayIndex);
@@ -3135,10 +3229,37 @@ function GymScreen() {
   // ============================================================================
   useEffect(() => {
     const todayHasDual = dualSessionDays[String(selectedDayIndex)];
-    if (!todayHasDual || !user || !isFocused) return;
+    // No auto-seleccionar cuando el modal ESTRUCTURA está abierto:
+    // el usuario debe poder navegar libremente entre sesiones para configurarlas.
+    if (!todayHasDual || !user || !isFocused || structureModalOpen) return;
 
     const autoSelectSession = async () => {
       try {
+        // 0. Usar horarios configurados por día si están disponibles (máxima prioridad)
+        const wd = selectedDayIndex;
+        const fixedA = getDayWorkoutTime(wd, 0);
+        const fixedB = getDayWorkoutTime(wd, 1);
+
+        if (fixedA && fixedB) {
+          // Ambas sesiones tienen hora fija → comparar con hora actual
+          const toMins = (t: string) => {
+            const [h, m] = t.split(':').map(Number);
+            return h * 60 + m;
+          };
+          const now = new Date();
+          const nowMins = now.getHours() * 60 + now.getMinutes();
+          const minsA = toMins(fixedA);
+          const minsB = toMins(fixedB);
+          const midpoint = Math.floor((Math.min(minsA, minsB) + Math.max(minsA, minsB)) / 2);
+          const targetSession =
+            nowMins < midpoint ? (minsA <= minsB ? 0 : 1) : minsA <= minsB ? 1 : 0;
+          if (targetSession !== selectedSessionIndexRef.current) {
+            setSelectedSessionIndex(targetSession);
+            selectedSessionIndexRef.current = targetSession;
+          }
+          return;
+        }
+
         // 1. Obtener posiciones de bloques de entrenamiento
         const { data: posData } = await supabase
           .from('workout_block_position')
@@ -3164,6 +3285,7 @@ function GymScreen() {
           .filter((m: { time: string }) => m.time);
 
         // 3. Calcular hora estimada de cada sesión (misma lógica que PLAN)
+        // Si una sesión ya tiene hora fija configurada, usarla en lugar de estimar
         const estimateTime = (workoutIndex: number): string | null => {
           const sorted = [...mealTimes].sort((a, b) => a.time.localeCompare(b.time));
           if (sorted.length === 0) return null;
@@ -3185,14 +3307,29 @@ function GymScreen() {
           return `${(Math.floor(mins / 60) % 24).toString().padStart(2, '0')}:${(mins % 60).toString().padStart(2, '0')}`;
         };
 
-        const timeA = estimateTime(posA);
-        const timeB = estimateTime(posB);
+        // Usar hora fija si disponible para alguna de las sesiones
+        const timeA = fixedA || estimateTime(posA);
+        const timeB = fixedB || estimateTime(posB);
 
         console.log(
-          `🧠 Smart Session DEBUG: posA=${posA}, posB=${posB}, meals=${JSON.stringify(mealTimes.map((m: { name: string; time: string }) => m.time))}, timeA=${timeA}, timeB=${timeB}`
+          `🧠 Smart Session DEBUG: posA=${posA}, posB=${posB}, timeA=${timeA}(${fixedA ? 'fijo' : 'estimado'}), timeB=${timeB}(${fixedB ? 'fijo' : 'estimado'})`
         );
 
-        if (!timeA || !timeB) return;
+        if (!timeA || !timeB) {
+          // Fallback: sin datos de comidas ni horarios configurados, usar la
+          // posición del bloque de entrenamiento para estimar la sesión.
+          // posA < posB → A es la sesión de mañana (antes del mediodía), B es tarde.
+          // Si no hay posiciones, A=mañana / B=tarde como convención.
+          const hour = new Date().getHours();
+          const aIsEarlier = posA <= posB;
+          const isMorning = hour < 13; // antes de las 13:00 → sesión de mañana
+          const targetSession = (aIsEarlier && isMorning) || (!aIsEarlier && !isMorning) ? 0 : 1;
+          if (targetSession !== selectedSessionIndexRef.current) {
+            setSelectedSessionIndex(targetSession);
+            selectedSessionIndexRef.current = targetSession;
+          }
+          return;
+        }
 
         // 4. Convertir a minutos para comparación numérica (más fiable que strings)
         const toMinutes = (t: string) => {
@@ -3237,7 +3374,7 @@ function GymScreen() {
     };
 
     autoSelectSession();
-  }, [dualSessionDays, selectedDayIndex, isFocused, user]);
+  }, [dualSessionDays, selectedDayIndex, isFocused, user, structureModalOpen]);
 
   // ============================================================================
   // SAVE DAY NAME TO SUPABASE
@@ -3601,6 +3738,26 @@ function GymScreen() {
       });
 
       console.log('📊 Ejercicios en DB:', data.length, '→ Válidos:', validData.length);
+
+      // -----------------------------------------------------------------------
+      // DUAL-SESSION RECOVERY: Si hay ejercicios con session_index=1 para algún
+      // día, asegurar que dualSessionDays refleje esos días aunque
+      // training_session_names no tuviera el nombre guardado correctamente.
+      // -----------------------------------------------------------------------
+      const dualDaysFromExercises: Record<string, boolean> = {};
+      validData.forEach((item: any) => {
+        if ((item.session_index ?? 0) === 1) {
+          (item.training_days || []).forEach((d: number) => {
+            dualDaysFromExercises[String(d)] = true;
+          });
+        }
+      });
+      if (Object.keys(dualDaysFromExercises).length > 0) {
+        setDualSessionDays((prev) => {
+          const merged = { ...dualDaysFromExercises, ...prev };
+          return merged;
+        });
+      }
 
       // Filtrar los datos ya mapeados por día de entrenamiento Y sesión
       const filteredData =
@@ -5246,10 +5403,17 @@ function GymScreen() {
   };
 
   // ============================================================================
-  // HELPER: Obtener ejercicios sugeridos por grupo muscular del día
+  // HELPER: Obtener ejercicios sugeridos por grupo muscular del día / sesión
   // ============================================================================
   const getSuggestedExercises = useCallback(() => {
-    const currentMuscleGroups = trainingProgram.days[selectedDayIndex]?.muscleGroups || '';
+    // Para doble sesión, usar los músculos de la sesión activa, no los del día completo
+    const dayKey = String(selectedDayIndex);
+    const isDualDay = !!dualSessionDays[dayKey];
+    const currentMuscleGroups = isDualDay
+      ? sessionNames[dayKey]?.[String(selectedSessionIndex)] ||
+        trainingProgram.days[selectedDayIndex]?.muscleGroups ||
+        ''
+      : trainingProgram.days[selectedDayIndex]?.muscleGroups || '';
     const muscleKeywords = currentMuscleGroups
       .toLowerCase()
       .normalize('NFD')
@@ -5259,16 +5423,33 @@ function GymScreen() {
 
     if (muscleKeywords.length === 0) return templates;
 
+    // Expandir aliases: femorales ↔ isquios (FEMORALES en UI, ISQUIOS en DB)
+    const GYM_MUSCLE_KW_ALIASES: Record<string, string> = {
+      femorales: 'isquios',
+      isquios: 'femorales',
+    };
+    const expandedKeywords = [
+      ...muscleKeywords,
+      ...(muscleKeywords.map((k) => GYM_MUSCLE_KW_ALIASES[k]).filter(Boolean) as string[]),
+    ];
+
     return templates.filter((t) => {
       const category = (t.category || '')
         .toLowerCase()
         .normalize('NFD')
         .replace(/[\u0300-\u036f]/g, '');
-      return muscleKeywords.some(
+      return expandedKeywords.some(
         (keyword) => category.includes(keyword) || keyword.includes(category.substring(0, 4))
       );
     });
-  }, [templates, trainingProgram.days, selectedDayIndex]);
+  }, [
+    templates,
+    trainingProgram.days,
+    selectedDayIndex,
+    selectedSessionIndex,
+    dualSessionDays,
+    sessionNames,
+  ]);
 
   const addSeriesManually = () => {
     const newSeries: SeriesConfig = {
@@ -5980,9 +6161,14 @@ function GymScreen() {
         )
       : filteredTemplatesBase;
 
-    // Nombre del grupo muscular del día actual
-    const currentMuscleGroup =
-      trainingProgram.days[selectedDayIndex]?.muscleGroups || 'ENTRENAMIENTO';
+    // Nombre del grupo muscular: para doble sesión usar el de la sesión activa
+    const _catalogDayKey = String(selectedDayIndex);
+    const _isDualCatalog = !!dualSessionDays[_catalogDayKey];
+    const currentMuscleGroup = _isDualCatalog
+      ? sessionNames[_catalogDayKey]?.[String(selectedSessionIndex)] ||
+        trainingProgram.days[selectedDayIndex]?.muscleGroups ||
+        'ENTRENAMIENTO'
+      : trainingProgram.days[selectedDayIndex]?.muscleGroups || 'ENTRENAMIENTO';
 
     // Parsear grupos musculares para mostrar badges de colores
     const muscleGroupBadges = currentMuscleGroup
@@ -6831,6 +7017,160 @@ function GymScreen() {
   // ============================================================================
   // RENDER STRUCTURE MODAL - ED HARDY FIRE STYLE (Arrastrable)
   // ============================================================================
+  // ================================================================
+  // WORKOUT TIME PICKER MODAL (hora del entreno por día/sesión)
+  // ================================================================
+  const renderWorkoutTimePicker = () => {
+    const wd = workoutTimePickerDay;
+    const sIdx = workoutTimePickerSession;
+    const hasDual = !!dualSessionDays[String(wd)];
+    const dayName = FULL_LABEL[wd as 0 | 1 | 2 | 3 | 4 | 5 | 6] || '';
+    const sessionLabel = hasDual ? (sIdx === 0 ? ' — Sesión A' : ' — Sesión B') : '';
+
+    const [draftH, draftM] = workoutTimePickerValue.split(':').map(Number);
+    const period = (draftH || 0) >= 12 ? 'PM' : 'AM';
+    const h12 = (draftH || 0) % 12 || 12;
+
+    const PRESET_TIMES = [
+      '05:00',
+      '06:00',
+      '07:00',
+      '08:00',
+      '09:00',
+      '10:00',
+      '12:00',
+      '14:00',
+      '16:00',
+      '17:00',
+      '18:00',
+      '19:00',
+      '20:00',
+      '21:00',
+    ];
+
+    return (
+      <Modal
+        visible={workoutTimePickerVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setWorkoutTimePickerVisible(false)}
+      >
+        <Pressable
+          className="flex-1 bg-black/80 justify-center items-center px-6"
+          onPress={() => setWorkoutTimePickerVisible(false)}
+        >
+          <Pressable
+            onPress={() => {}}
+            className="w-full max-w-sm rounded-2xl overflow-hidden"
+            style={{
+              backgroundColor: '#0a0a0a',
+              borderWidth: 1.5,
+              borderColor: 'rgba(249,115,22,0.5)',
+            }}
+          >
+            <View className="px-5 py-4 border-b border-zinc-800">
+              <Text className="text-white font-bold text-base">
+                {dayName}
+                {sessionLabel}
+              </Text>
+              <Text className="text-zinc-500 text-[10px] font-mono uppercase tracking-wider mt-0.5">
+                HORA DEL ENTRENAMIENTO
+              </Text>
+            </View>
+
+            <View className="items-center py-5 border-b border-zinc-900">
+              <Text className="text-orange-400 font-bold font-mono" style={{ fontSize: 42 }}>
+                {h12}:{(draftM || 0).toString().padStart(2, '0')} {period}
+              </Text>
+              <Text className="text-zinc-500 text-xs font-mono mt-1">
+                Esta hora aparecerá en el Timeline de PLAN
+              </Text>
+            </View>
+
+            <View className="px-4 py-3">
+              <Text className="text-zinc-500 text-[10px] font-mono uppercase mb-2">
+                Horarios rápidos
+              </Text>
+              <View className="flex-row flex-wrap gap-2">
+                {PRESET_TIMES.map((t) => {
+                  const [ph, pm] = t.split(':').map(Number);
+                  const pp = ph >= 12 ? 'pm' : 'am';
+                  const ph12 = ph % 12 || 12;
+                  const label = `${ph12}:${pm.toString().padStart(2, '0')}${pp}`;
+                  const isSelected = workoutTimePickerValue === t;
+                  return (
+                    <TouchableOpacity
+                      key={t}
+                      onPress={() => setWorkoutTimePickerValue(t)}
+                      className="px-3 py-1.5 rounded-lg"
+                      style={{
+                        backgroundColor: isSelected ? 'rgba(249,115,22,0.2)' : '#1a1a1a',
+                        borderWidth: 1,
+                        borderColor: isSelected ? '#F97316' : '#3f3f46',
+                      }}
+                    >
+                      <Text
+                        className="text-xs font-mono font-bold"
+                        style={{ color: isSelected ? '#F97316' : '#71717a' }}
+                      >
+                        {label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+
+            <View className="px-4 pb-3 flex-row items-center gap-2">
+              <Text className="text-zinc-500 text-xs font-mono">Manual (HH:MM):</Text>
+              <TextInput
+                value={workoutTimePickerValue}
+                onChangeText={(t) => setWorkoutTimePickerValue(t.replace(/[^0-9:]/g, ''))}
+                className="flex-1 bg-zinc-900 text-white font-mono px-3 py-2 rounded-lg"
+                style={{ borderWidth: 1, borderColor: '#3f3f46' }}
+                placeholder="07:30"
+                placeholderTextColor="#52525b"
+                maxLength={5}
+                keyboardType="numbers-and-punctuation"
+              />
+            </View>
+
+            <View className="flex-row gap-2 px-4 pb-5">
+              <TouchableOpacity
+                onPress={() => setWorkoutTimePickerVisible(false)}
+                className="flex-1 py-3 rounded-xl items-center"
+                style={{ backgroundColor: '#27272a' }}
+              >
+                <Text className="text-zinc-400 font-bold text-sm">Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => {
+                  const t = workoutTimePickerValue.trim();
+                  const match = t.match(/^(\d{1,2}):(\d{2})$/);
+                  if (match) {
+                    const h = parseInt(match[1], 10);
+                    const m = parseInt(match[2], 10);
+                    if (h >= 0 && h <= 23 && m >= 0 && m <= 59) {
+                      const normalized = `${h.toString().padStart(2, '0')}:${match[2]}`;
+                      saveDayWorkoutTime(wd, sIdx, normalized);
+                      setWorkoutTimePickerVisible(false);
+                      return;
+                    }
+                  }
+                  Alert.alert('Hora inválida', 'Usa formato HH:MM, ej: 07:30');
+                }}
+                className="flex-1 py-3 rounded-xl items-center"
+                style={{ backgroundColor: '#F97316' }}
+              >
+                <Text className="text-black font-bold text-sm">Guardar</Text>
+              </TouchableOpacity>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+    );
+  };
+
   const renderStructureModal = () => {
     // ¿El día/sesión seleccionado ya tiene músculos configurados?
     // Si no, mostramos primero el selector de músculos (nombra la rutina).
@@ -7198,6 +7538,97 @@ function GymScreen() {
                   </View>
                 )}
               </Animated.View>
+
+              {/* ================================================================ */}
+              {/* HORA DEL ENTRENO POR DÍA                                        */}
+              {/* Muestra/permite configurar la hora específica de este día        */}
+              {/* ================================================================ */}
+              {!needsMuscleSelection &&
+                (() => {
+                  const currentDayMuscleName = isExternalMode
+                    ? (Object.values(externalSchedule)[selectedDayIndex] || '').trim()
+                    : (trainingProgram.days[selectedDayIndex]?.muscleGroups || '').trim();
+                  const isRestDay = !currentDayMuscleName;
+                  if (isRestDay) return null;
+
+                  return (
+                    <View
+                      className="flex-row items-center px-4 py-2 border-b border-zinc-900"
+                      style={{ backgroundColor: '#000' }}
+                    >
+                      {[0, dualSessionDays[String(selectedDayIndex)] ? 1 : null]
+                        .filter((s) => s !== null)
+                        .map((sIdx) => {
+                          const configuredTime = getDayWorkoutTime(
+                            selectedDayIndex,
+                            sIdx as number
+                          );
+                          const sessionLabel = dualSessionDays[String(selectedDayIndex)]
+                            ? sIdx === 0
+                              ? ' A'
+                              : ' B'
+                            : '';
+                          return (
+                            <TouchableOpacity
+                              key={sIdx}
+                              onPress={() => {
+                                setWorkoutTimePickerDay(selectedDayIndex);
+                                setWorkoutTimePickerSession(sIdx as number);
+                                setWorkoutTimePickerValue(configuredTime || '07:00');
+                                setWorkoutTimePickerVisible(true);
+                                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                              }}
+                              className="flex-row items-center gap-1.5 mr-3 px-3 py-1.5 rounded-full"
+                              style={{
+                                backgroundColor: configuredTime
+                                  ? 'rgba(249, 115, 22, 0.15)'
+                                  : 'rgba(39, 39, 42, 0.8)',
+                                borderWidth: 1,
+                                borderColor: configuredTime ? '#F9731650' : '#3f3f46',
+                              }}
+                            >
+                              {/* Clock icon */}
+                              <View style={{ opacity: configuredTime ? 1 : 0.5 }}>
+                                <Zap size={12} color={configuredTime ? '#F97316' : '#71717a'} />
+                              </View>
+                              <Text
+                                className="text-xs font-mono font-bold"
+                                style={{ color: configuredTime ? '#F97316' : '#71717a' }}
+                              >
+                                {configuredTime
+                                  ? (() => {
+                                      const [h, m] = configuredTime.split(':').map(Number);
+                                      const p = h >= 12 ? 'pm' : 'am';
+                                      const h12 = h % 12 || 12;
+                                      const timeStr = `${h12}:${m.toString().padStart(2, '0')}${p}`;
+                                      // Siempre mostrar sesión si es doble sesión
+                                      return dualSessionDays[String(selectedDayIndex)]
+                                        ? `${timeStr} · ${sIdx === 0 ? 'A' : 'B'}`
+                                        : timeStr;
+                                    })()
+                                  : `Hora${sessionLabel}`}
+                              </Text>
+                              {configuredTime && (
+                                <TouchableOpacity
+                                  onPress={(e) => {
+                                    e.stopPropagation();
+                                    saveDayWorkoutTime(selectedDayIndex, sIdx as number, null);
+                                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                                  }}
+                                  hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
+                                >
+                                  <X size={10} color="#F9731680" />
+                                </TouchableOpacity>
+                              )}
+                            </TouchableOpacity>
+                          );
+                        })}
+                      <Text className="text-zinc-600 text-[10px] font-mono ml-auto">
+                        toca para configurar hora
+                      </Text>
+                    </View>
+                  );
+                })()}
 
               {/* EXERCISES LIST - DRAG & DROP */}
               <GestureHandlerRootView style={{ flex: 1, backgroundColor: '#000000' }}>
@@ -9676,6 +10107,43 @@ function GymScreen() {
               </View>
             </Pressable>
 
+            {/* Option: Configurar hora de la sesión */}
+            <Pressable
+              onPress={() => {
+                setSessionOptionsVisible(false);
+                const wd = sessionOptionsDay;
+                const sIdx = sessionOptionsSession;
+                const existing = getDayWorkoutTime(wd, sIdx);
+                setWorkoutTimePickerDay(wd);
+                setWorkoutTimePickerSession(sIdx);
+                setWorkoutTimePickerValue(existing || (sIdx === 0 ? '07:00' : '17:00'));
+                setWorkoutTimePickerVisible(true);
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              }}
+              className="px-5 py-4 flex-row items-center gap-3 active:bg-zinc-900"
+              style={{ borderBottomWidth: 1, borderBottomColor: '#1a1a1a' }}
+            >
+              <View
+                className="w-10 h-10 rounded-xl items-center justify-center"
+                style={{ backgroundColor: 'rgba(249, 115, 22, 0.15)' }}
+              >
+                <Zap size={18} color="#F97316" />
+              </View>
+              <View className="flex-1">
+                <Text className="text-white font-bold text-sm">Configurar hora</Text>
+                <Text className="text-zinc-500 text-xs mt-0.5">
+                  {getDayWorkoutTime(sessionOptionsDay, sessionOptionsSession)
+                    ? `Hora actual: ${(() => {
+                        const t = getDayWorkoutTime(sessionOptionsDay, sessionOptionsSession)!;
+                        const [h, m] = t.split(':').map(Number);
+                        const p = h >= 12 ? 'pm' : 'am';
+                        return `${h % 12 || 12}:${m.toString().padStart(2, '0')}${p}`;
+                      })()}`
+                    : 'Sin hora configurada — toca para asignar'}
+                </Text>
+              </View>
+            </Pressable>
+
             {/* Option: Delete session (solo sesión B) */}
             {sessionOptionsSession === 1 && (
               <Pressable
@@ -11339,6 +11807,7 @@ function GymScreen() {
       {renderSessionOptionsModal()}
       {renderSessionRenameModal()}
       {renderSessionMuscleSelectorModal()}
+      {renderWorkoutTimePicker()}
       {renderCameraModal()}
       {renderEditorModal()}
 

@@ -480,7 +480,8 @@ export async function gymAddExercise(
   exerciseName: string,
   trainingDay: number,
   customSeries?: Array<{ reps: number; weight: number; type: string }>,
-  userLevel?: string
+  userLevel?: string,
+  sessionIndex: number = 0 // 0 = Sesión A, 1 = Sesión B (doble sesión)
 ): Promise<HankToolResult> {
   try {
     // NUEVA ARQUITECTURA: Buscar en tabla exercises (catálogo global)
@@ -511,15 +512,19 @@ export async function gymAddExercise(
         };
       }
       // Usar el match encontrado
-      return gymAddExercise(userId, match.name, trainingDay, customSeries, userLevel);
+      return gymAddExercise(userId, match.name, trainingDay, customSeries, userLevel, sessionIndex);
     }
 
-    // Verificar si ya existe user_exercise_config para este ejercicio
+    const sessionLabel = sessionIndex === 1 ? ' (Sesión B)' : '';
+
+    // Verificar si ya existe user_exercise_config para este ejercicio EN ESTA SESIÓN
+    // Importante: el mismo ejercicio puede estar en Sesión A y Sesión B del mismo día
     const { data: existingConfig } = await supabase
       .from('user_exercise_config')
       .select('id, training_days, config')
       .eq('user_id', userId)
       .eq('exercise_id', exercise.id)
+      .eq('session_index', sessionIndex)
       .maybeSingle();
 
     if (existingConfig) {
@@ -527,7 +532,7 @@ export async function gymAddExercise(
       if (currentDays.includes(trainingDay)) {
         return {
           success: false,
-          message: `${exercise.name} ya está en el día ${trainingDay + 1}.`,
+          message: `${exercise.name} ya está en el día ${trainingDay + 1}${sessionLabel}.`,
         };
       }
 
@@ -555,7 +560,7 @@ export async function gymAddExercise(
 
       return {
         success: true,
-        message: `✅ ${exercise.name} añadido al día ${trainingDay + 1}`,
+        message: `✅ ${exercise.name} añadido al día ${trainingDay + 1}${sessionLabel}`,
         affectedRecords: 1,
       };
     }
@@ -572,6 +577,7 @@ export async function gymAddExercise(
         user_id: userId,
         exercise_id: exercise.id,
         training_days: [trainingDay],
+        session_index: sessionIndex,
         display_order: 0,
         config: {
           sets: `${autoSeries.length}x10`,
@@ -587,8 +593,8 @@ export async function gymAddExercise(
 
     return {
       success: true,
-      message: `✅ ${exercise.name} agregado al día ${trainingDay + 1} con ${autoSeries.length} series`,
-      data: { exerciseId: data.id, exerciseName: exercise.name },
+      message: `✅ ${exercise.name} agregado al día ${trainingDay + 1}${sessionLabel} con ${autoSeries.length} series`,
+      data: { exerciseId: data.id, exerciseName: exercise.name, sessionIndex },
       affectedRecords: 1,
     };
   } catch (error) {
@@ -604,40 +610,49 @@ export async function gymRemoveExercise(
   userId: string,
   exerciseName: string,
   trainingDay?: number,
-  deleteCompletely = false
+  deleteCompletely = false,
+  sessionIndex?: number // Si se especifica, solo eliminar de esa sesión
 ): Promise<HankToolResult> {
   try {
     // NUEVA ARQUITECTURA: Buscar en user_exercise_config con join a exercises
-    const { data: config, error } = await supabase
+    let query = supabase
       .from('user_exercise_config')
       .select(
         `
         id,
         training_days,
+        session_index,
         exercises!inner (
           name
         )
       `
       )
       .eq('user_id', userId)
-      .ilike('exercises.name', `%${exerciseName}%`)
-      .limit(1)
-      .single();
+      .ilike('exercises.name', `%${exerciseName}%`);
+
+    // Si se especifica sesión, filtrar por ella
+    if (sessionIndex !== undefined) {
+      query = query.eq('session_index', sessionIndex);
+    }
+
+    const { data: config, error } = await query.limit(1).single();
 
     if (error || !config) {
       return {
         success: false,
-        message: `No encontré "${exerciseName}" en tu rutina.`,
+        message: `No encontré "${exerciseName}" en tu rutina${sessionIndex === 1 ? ' (Sesión B)' : ''}.`,
       };
     }
 
     const typedConfig = config as unknown as {
       id: string;
       training_days: number[];
+      session_index: number | null;
       exercises: { name: string };
     };
 
     const exerciseRealName = typedConfig.exercises.name;
+    const sessionLabel = (typedConfig.session_index ?? 0) === 1 ? ' (Sesión B)' : '';
 
     if (deleteCompletely || trainingDay === undefined) {
       // Eliminar completamente
@@ -650,7 +665,7 @@ export async function gymRemoveExercise(
 
       return {
         success: true,
-        message: `🗑️ ${exerciseRealName} eliminado de tu rutina`,
+        message: `🗑️ ${exerciseRealName}${sessionLabel} eliminado de tu rutina`,
         rollbackId: typedConfig.id,
         affectedRecords: 1,
       };
@@ -671,7 +686,7 @@ export async function gymRemoveExercise(
 
       return {
         success: true,
-        message: `🗑️ ${exerciseRealName} eliminado (era el único día)`,
+        message: `🗑️ ${exerciseRealName}${sessionLabel} eliminado (era el único día)`,
         affectedRecords: 1,
       };
     }
@@ -685,7 +700,7 @@ export async function gymRemoveExercise(
 
     return {
       success: true,
-      message: `✅ ${exerciseRealName} quitado del día ${trainingDay + 1}`,
+      message: `✅ ${exerciseRealName}${sessionLabel} quitado del día ${trainingDay + 1}`,
       affectedRecords: 1,
     };
   } catch (error) {
@@ -869,7 +884,7 @@ export async function gymGetTodayRoutine(
 
     const routineName = (routineNames[String(trainingDay)] || '').trim() || null;
 
-    // 2. Obtener ejercicios del día desde user_exercise_config
+    // 2. Obtener ejercicios del día desde user_exercise_config (incluir session_index)
     const { data: userConfigs, error: configError } = await supabase
       .from('user_exercise_config')
       .select(
@@ -877,6 +892,7 @@ export async function gymGetTodayRoutine(
         id,
         exercise_id,
         training_days,
+        session_index,
         display_order,
         exercises (
           name
@@ -889,10 +905,15 @@ export async function gymGetTodayRoutine(
 
     if (configError) throw configError;
 
-    const exerciseCount = userConfigs?.length || 0;
-    const exerciseNames = (userConfigs || []).map(
-      (cfg: any) => cfg.exercises?.name || 'Sin nombre'
+    // Separar por sesión
+    const sessionAConfigs = (userConfigs || []).filter(
+      (cfg: any) => (cfg.session_index ?? 0) === 0
     );
+    const sessionBConfigs = (userConfigs || []).filter((cfg: any) => cfg.session_index === 1);
+    const hasDualSession = sessionBConfigs.length > 0;
+
+    const exerciseCount = sessionAConfigs.length;
+    const exerciseNames = sessionAConfigs.map((cfg: any) => cfg.exercises?.name || 'Sin nombre');
 
     // 3. Construir mensaje
     let message = '';
@@ -902,7 +923,19 @@ export async function gymGetTodayRoutine(
       message = `💪 Hoy es día de entrenamiento\n`;
     }
 
-    if (exerciseCount > 0) {
+    if (hasDualSession) {
+      // Mostrar ambas sesiones
+      const nameBList = sessionBConfigs.map((cfg: any) => cfg.exercises?.name || 'Sin nombre');
+      message += `\n⚡ DOBLE SESIÓN detectada:\n`;
+      message += `\n💪 SESIÓN A (${exerciseCount} ejercicios):\n`;
+      exerciseNames.forEach((name, i) => {
+        message += `${i + 1}. ${name}\n`;
+      });
+      message += `\n🔥 SESIÓN B (${nameBList.length} ejercicios):\n`;
+      nameBList.forEach((name: string, i: number) => {
+        message += `${i + 1}. ${name}\n`;
+      });
+    } else if (exerciseCount > 0) {
       message += `\n🏋️ ${exerciseCount} ejercicios:\n`;
       exerciseNames.forEach((name, i) => {
         message += `${i + 1}. ${name}\n`;
@@ -919,6 +952,10 @@ export async function gymGetTodayRoutine(
         trainingDay,
         frequency,
         exercises: exerciseNames,
+        hasDualSession,
+        sessionBExercises: hasDualSession
+          ? sessionBConfigs.map((cfg: any) => cfg.exercises?.name || 'Sin nombre')
+          : [],
       },
     };
   } catch (error) {
@@ -943,6 +980,7 @@ export async function gymListExercises(
         id,
         exercise_id,
         training_days,
+        session_index,
         display_order,
         config,
         exercises (
@@ -959,6 +997,7 @@ export async function gymListExercises(
       id: string;
       exercise_id: string;
       training_days: number[];
+      session_index: number | null;
       display_order: number;
       config: { custom_series?: Array<{ reps: number; weight: number; type: string }> };
       exercises: { name: string } | null;
@@ -979,8 +1018,12 @@ export async function gymListExercises(
       };
     }
 
-    // Crear lista legible de ejercicios con sus series
-    const exerciseList = exercises.map((ex, index) => {
+    // Agrupar por sesión si hay doble sesión
+    const sessionAExercises = exercises.filter((ex) => (ex.session_index ?? 0) === 0);
+    const sessionBExercises = exercises.filter((ex) => ex.session_index === 1);
+    const hasDualSession = sessionBExercises.length > 0;
+
+    const formatExercise = (ex: (typeof exercises)[0], index: number) => {
       const series = ex.config?.custom_series;
       const seriesCount = series?.length || 0;
       const seriesInfo =
@@ -989,12 +1032,20 @@ export async function gymListExercises(
           : 'sin series';
       const name = ex.exercises?.name || 'Sin nombre';
       return `${index + 1}. ${name} (${seriesCount} series: ${seriesInfo})`;
-    });
+    };
 
-    const message =
-      trainingDay !== undefined
-        ? `🏋️ Hoy te toca:\n${exerciseList.join('\n')}`
-        : `📋 Tu rutina completa:\n${exerciseList.join('\n')}`;
+    let message = '';
+    if (hasDualSession && trainingDay !== undefined) {
+      const listA = sessionAExercises.map(formatExercise).join('\n');
+      const listB = sessionBExercises.map(formatExercise).join('\n');
+      message = `🏋️ Hoy tienes DOBLE SESIÓN:\n\n💪 SESIÓN A (${sessionAExercises.length} ejercicios):\n${listA}\n\n🔥 SESIÓN B (${sessionBExercises.length} ejercicios):\n${listB}`;
+    } else {
+      const exerciseList = exercises.map(formatExercise);
+      message =
+        trainingDay !== undefined
+          ? `🏋️ Hoy te toca:\n${exerciseList.join('\n')}`
+          : `📋 Tu rutina completa:\n${exerciseList.join('\n')}`;
+    }
 
     return {
       success: true,
@@ -1003,7 +1054,9 @@ export async function gymListExercises(
         exercises: exercises.map((ex) => ({
           name: ex.exercises?.name || 'Sin nombre',
           series: ex.config?.custom_series?.length || 0,
+          sessionIndex: ex.session_index ?? 0,
         })),
+        hasDualSession,
       },
     };
   } catch (error) {
@@ -9014,7 +9067,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     name: 'GYM_ADD_EXERCISE',
     description:
-      'Agrega un ejercicio a la rutina del usuario. Usa cuando diga "agrega", "añade", "incluye" un ejercicio.',
+      'Agrega un ejercicio a la rutina del usuario. Usa cuando diga "agrega", "añade", "incluye" un ejercicio. Si el usuario menciona "sesión B", "segundo entrenamiento" o "doble sesión", usa sessionIndex=1.',
     parameters: {
       exerciseName: {
         type: 'string',
@@ -9025,6 +9078,12 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         type: 'number',
         description: 'Día de entrenamiento (0 = día 1, 1 = día 2, etc.)',
         required: true,
+      },
+      sessionIndex: {
+        type: 'number',
+        description:
+          'Índice de sesión: 0 = Sesión A (default), 1 = Sesión B (segundo entrenamiento del día). Usar 1 cuando el usuario mencione "sesión B", "segundo entreno", "entrenamiento de la tarde", "doble sesión".',
+        required: false,
       },
     },
     requiredParams: ['exerciseName', 'trainingDay'],
@@ -9042,6 +9101,12 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       trainingDay: {
         type: 'number',
         description: 'Día específico (omitir para eliminar de todos)',
+        required: false,
+      },
+      sessionIndex: {
+        type: 'number',
+        description:
+          'Sesión específica: 0 = Sesión A, 1 = Sesión B. Omitir para eliminar de ambas sesiones.',
         required: false,
       },
       deleteCompletely: {
